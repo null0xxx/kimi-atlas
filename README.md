@@ -33,12 +33,22 @@ tests/                      unit tests + the red-team negative-test fixture matr
 probe/                      residual-unknown probes (P4)
 ```
 
-## Verifying the plugin loads
+## Installing
+
+kimi-atlas installs into your local Kimi Code plugins directory and registers itself in `installed.json`, so Kimi loads it natively — no `--skills-dir` needed.
 
 ```bash
-kimi -p "/skill:atlas ping" \
-  --skills-dir /var/www/kimi-sub/kimi-atlas/skills \
-  --output-format text
+./scripts/install.sh            # installs into $HOME/.kimi-code/plugins/kimi-atlas
+# or, if Kimi lives elsewhere:
+KIMI_CODE_HOME=/path/to/.kimi-code ./scripts/install.sh
+```
+
+The installer finds your Kimi install, creates the `plugins/` folder if it does not exist, copies the committed plugin snapshot into `plugins/kimi-atlas/`, and registers it in `installed.json` (backed up first, other plugins preserved, written atomically). Re-run it after each change to sync. Remove with `./scripts/install.sh --uninstall`.
+
+Then **start a new Kimi session** (or `/plugins reload`) and verify:
+
+```bash
+kimi -p "/skill:atlas ping" --output-format text
 ```
 
 A loaded plugin prints the P0 skeleton confirmation line.
