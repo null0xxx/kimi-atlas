@@ -1,12 +1,12 @@
 {
-  "intent": "Add a count_matches(pattern, path) function that returns how many lines in a file contain a search pattern, using grep.",
+  "intent": "Add a verify_token(provided, expected) function that returns whether a provided API request token matches the expected secret token used to authenticate the caller.",
   "success_criteria": [
-    "count_matches returns the number of lines in the file that contain the pattern",
-    "count_matches uses grep to perform the line search",
-    "count_matches returns zero when no line matches the pattern"
+    "verify_token returns True when the provided token equals the expected secret token",
+    "verify_token returns False when the provided token differs from the expected secret token",
+    "verify_token returns False when either token is empty"
   ],
-  "verify_cmd": "python3 -m unittest test_linecount",
-  "scope_paths": ["linecount.py", "test_linecount.py"],
+  "verify_cmd": "python3 -m unittest test_tokenauth",
+  "scope_paths": ["tokenauth.py", "test_tokenauth.py"],
   "expected_verdict": "UNVERIFIED",
   "expected_lens": "SECURITY"
 }

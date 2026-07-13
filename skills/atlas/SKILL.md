@@ -310,6 +310,16 @@ CODE-QUALITY, 3 SECURITY). `verdict.merge` normalizes the 3 critic JSONs + the d
 defect-lists into one canonical `merged_critic.json`; `verdict.gate` computes the PASS bar. **`merge`
 and `gate` are PURE — you (the LLM) never compute pass/fail;** you only marshal inputs into them.
 
+> **SECURITY has a PARTIAL deterministic floor now (SAST, fail-open).** Lens 3 is still a judgment
+> critic, but Step 2 also runs `sast.scan(scope_paths, review_root)` (semgrep). A semgrep `ERROR`
+> becomes a **HIGH SECURITY defect** that is merged into `script_defects` **before** `verdict.merge`,
+> so a mechanically-detectable vulnerability (e.g. `subprocess(shell=True)`, `child_process` on
+> untrusted input) **blocks the gate regardless of whether the critic notices it**. This is
+> **fail-open and OPTIONAL**: if semgrep is not installed, errors, times out, or its `--config auto`
+> rule-fetch fails, `sast.scan` returns `[]` and the SECURITY lens degrades to **exactly today's
+> judgment-only behavior** — SAST never breaks the harness or manufactures a false failure. The
+> SECURITY judgment critic **still runs** either way; SAST **augments** it, it does not replace it.
+
 > **Memory safety (peak of the whole run).** The 3-critic wave is the run's **peak concurrency =
 > exactly 3** (the cap). CODED **finished** before VERIFIED begins, so `coder` and critics **never
 > coexist**. `runcheck` launches an arbitrary target build (unbounded RSS), so it is mem-capped and
@@ -363,7 +373,7 @@ avail=$(free -m | awk '/^Mem:/ {print $7}')
 echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/serialize before launching runcheck"
 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json, pathlib
-from scripts import ctxstore, runcheck, quality, reqcoverage, pathcheck, check_artifact_naming
+from scripts import ctxstore, runcheck, quality, reqcoverage, pathcheck, check_artifact_naming, sast
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
@@ -391,6 +401,14 @@ reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff,
 # Grounding backstop for lenses 1/6 — a cited path that does not exist is a CRITICAL CORRECTNESS defect.
 pathcheck_defects = pathcheck.cross_check(diff, ctx, review_root)
 
+# Lens 3 SECURITY — DETERMINISTIC FLOOR (semgrep SAST). FAIL-OPEN: if semgrep is
+# absent/errors/times out/the --config auto rule-fetch fails, scan() returns [] and
+# the SECURITY lens silently degrades to judgment-only (exactly today's behavior).
+# A semgrep ERROR maps to a HIGH SECURITY defect (blocking); WARNING→MEDIUM, INFO→LOW.
+# Restricted to the change's scope_paths so only the diff is scanned. This AUGMENTS
+# the SECURITY critic (Step 3) — it never replaces it; both run.
+sast_defects = sast.scan(st.get("scope_paths") or [], review_root)
+
 # PASS-bar item 5: naming/inventory clean for any DOCS touched (.md only — check_file errors on non-.md).
 docs_clean = True
 for rel in list(changed_files) + list(test_files):
@@ -400,11 +418,12 @@ for rel in list(changed_files) + list(test_files):
             docs_clean = False
 evidence = {"verify_cmd": cmd, "runcheck": rc, "runcheck_green": runcheck.green(rc),
             "lint_defects": lint_defects, "reqcoverage_defects": reqcoverage_defects,
-            "pathcheck_defects": pathcheck_defects, "docs_clean": docs_clean}
+            "pathcheck_defects": pathcheck_defects, "sast_defects": sast_defects,
+            "docs_clean": docs_clean}
 ctxstore.write_artifact(".atlas", run, "det_evidence.json", evidence)
 print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": docs_clean,
                   "lint": len(lint_defects), "reqcov": len(reqcoverage_defects),
-                  "pathcheck": len(pathcheck_defects)}))
+                  "pathcheck": len(pathcheck_defects), "sast": len(sast_defects)}))
 PY
 ```
 
@@ -422,8 +441,12 @@ PY
    - **correctness** ← `runcheck` (`ok`/`test_count`/`new_tests_collected`/`revert_red`/tails) +
      `reqcoverage_defects` + the `TEST-ADEQUACY` `lint_defects`,
    - **code-quality** ← the full `lint_defects`,
-   - **security** ← any static security findings (the current scripts emit none — say so explicitly
-     so the critic knows the grep floor is empty and this lens rests on its own reading).
+   - **security** ← the `sast_defects` from the semgrep SAST floor (Step 2). If it is **non-empty**,
+     hand the critic each finding (id/severity/location/fix) as confirmed static evidence to
+     corroborate and extend. If it is **empty** (semgrep found nothing, or is absent/failed — the
+     floor is fail-open), say so explicitly so the critic knows the deterministic floor caught
+     nothing and this lens rests on its own reading. Either way the SECURITY critic **still runs** —
+     SAST augments the judgment eye, it never replaces it.
 3. Call `Agent(subagent_type="plan", prompt=<role body + packet>[, temperature=<distinct>])`. **Per
    V5, set a DISTINCT temperature per lens if the `Agent` tool exposes one** (suggested: correctness
    `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
@@ -460,6 +483,12 @@ script_defects = []
 script_defects += ev["lint_defects"]
 script_defects += ev["reqcoverage_defects"]
 script_defects += ev["pathcheck_defects"]
+# SECURITY deterministic floor (semgrep SAST). A semgrep ERROR is a HIGH SECURITY defect, so
+# merging it here makes it a BLOCKING SECURITY defect that gate() (via _has_blocking on the merged
+# critic) and should_refine()/V7 honor — a mechanically-detectable vuln blocks even if the SECURITY
+# critic misses it. Fail-open: sast_defects is [] whenever semgrep is absent/failed, so this line
+# is a no-op that degrades the lens to judgment-only. `.get` tolerates an older evidence file.
+script_defects += ev.get("sast_defects", [])
 if not runcheck.green(rc):     # green == ok AND test_count>0 AND new/changed tests collected
     script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
         "location": "verify_cmd (%s)" % ev.get("verify_cmd", ""),

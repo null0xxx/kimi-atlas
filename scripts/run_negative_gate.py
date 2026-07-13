@@ -1,42 +1,65 @@
 #!/usr/bin/env python3
-"""Red-team negative-gate driver — PROVES the 6-eye judgment eyes have teeth (PLAN P3b, V1).
+"""Red-team negative-gate driver — PROVES the SECURITY floor AND the judgment eyes (PLAN P3b, V1 + V3).
 
 The deterministic backbone (``runcheck``/``quality``/``reqcoverage``/``pathcheck``)
-already blocks *mechanically detectable* sub-elite code. This gate proves the part
-that code cannot: that each **judgment** lens (CORRECTNESS / CODE-QUALITY /
-SECURITY), when handed a change with **every deterministic gate forced green**,
-still blocks a genuinely sub-elite change — and does so on **exactly** the intended
-lens. A ``bad_*`` fixture that comes back ``OK`` is a *rubber stamp* and fails the
-build.
+already blocks *mechanically detectable* sub-elite code. This gate proves BOTH halves
+of the hardened SECURITY story:
 
-Per fixture under ``tests/fixtures/<name>/`` (each a code tree + a ``fixture.json``
-manifest — see the fixture contract), the driver:
+* the **judgment** lenses (CORRECTNESS / CODE-QUALITY / SECURITY), when handed a change
+  with **every deterministic gate forced green**, still block a genuinely sub-elite
+  change on **exactly** the intended lens (a ``bad_*`` that comes back ``OK`` is a
+  *rubber stamp* and fails the build); and
+* the new **deterministic SAST floor** (``scripts.sast.scan`` → semgrep) blocks a
+  *mechanically detectable* vulnerability **without** dispatching any judgment critic,
+  turning judgment-only SECURITY into partially-deterministic (PLAN §4 V3 hardening).
+
+Two fixture kinds, distinguished by ``fixture.json``:
+
+* **Judgment fixtures** (``good``, ``bad_correctness``, ``bad_quality``,
+  ``bad_security``): all deterministic gates — *including the SAST floor* — are forced
+  green, so only a judgment critic can produce the ``UNVERIFIED``. ``bad_security`` in
+  particular is seeded with a subtle, logic-level vulnerability semgrep's default rules
+  do NOT flag (a non-constant-time secret comparison), so the driver ASSERTS
+  ``sast.scan`` returns no blocking finding on it — it genuinely exercises the SECURITY
+  *critic*, not the floor.
+* **SAST-floor fixtures** (``fixture.json`` marks ``"expected_blocker":
+  "deterministic-sast"``, e.g. ``bad_security_sast``): a vulnerability semgrep DOES
+  catch, with passing tests. The driver runs ``sast.scan`` on it, asserts a blocking
+  SECURITY defect, and confirms the merged gate returns ``UNVERIFIED`` — **with no
+  judgment critic dispatched** — proving the floor blocks on its own.
+
+Per judgment fixture under ``tests/fixtures/<name>/`` the driver:
 
 1. Copies the fixture's code+test files into a fresh temp dir (the fixture is never
    mutated).
 2. Captures the one deterministic diff via ``difftool.capture("", scope_paths, tmp)``
    (a non-git temp dir renders new files as full new-file diffs).
 3. Runs the DETERMINISTIC lenses (``runcheck.run`` + ``quality.lint_deliverable`` +
-   ``reqcoverage.coverage`` + ``pathcheck.cross_check``). For a ``bad_*`` fixture it
-   ASSERTS they are all green — if a deterministic gate fires, the fixture does not
-   isolate a judgment lens and the driver FAILs it loudly (a deterministic gate must
-   never masquerade as the judgment proof).
+   ``reqcoverage.coverage`` + ``pathcheck.cross_check`` + the ``sast.scan`` SAST floor).
+   For a ``bad_*`` fixture it ASSERTS they are all green — if a deterministic gate
+   fires (including a blocking SAST finding), the fixture does not isolate a judgment
+   lens and the driver FAILs it loudly (a deterministic gate must never masquerade as
+   the judgment proof).
 4. Dispatches the REAL critic prose for each judgment lens to exercise (all three for
    ``good``; only ``expected_lens`` for a ``bad_*``): reads the critic role file,
    strips its frontmatter, builds the ``## PACKET / ## DIFF / ## DETERMINISTIC
    EVIDENCE`` prompt, calls ``kimi -p ... --output-format text``, and parses the last
    JSON object from stdout. **Nothing is persisted to the repo.**
-5. ``verdict.merge([critic(s)], script_defects=[])`` →
+5. ``verdict.merge([critic(s)], sast_defects)`` →
    ``quality.enforce_critic_schema`` → ``verdict.gate(merged, {...})`` → status.
 6. ASSERTs ``status == fixture.expected_verdict`` **and** (for ``bad_*``) that the
    merged critic carries a blocking defect whose ``category == expected_lens``. A
    ``bad_*`` that returns ``OK`` is reported as ``RUBBER STAMP`` and the run exits
    non-zero. Exit code is 0 only when **every** fixture matches expectation.
 
-Design: everything except :func:`invoke_kimi` (the one subprocess to Kimi) is pure
-or filesystem-only and importable, so ``tests/test_run_negative_gate.py`` exercises
-the whole pipeline with :func:`invoke_kimi` monkeypatched — ``make ci`` needs no Kimi.
-This target is intentionally kept out of ``make ci`` (it needs Kimi) and lives behind
+For a SAST-floor fixture the flow short-circuits at step 3: ``sast.scan`` must yield a
+blocking SECURITY defect and the gate must return ``UNVERIFIED`` without any Kimi call.
+
+Design: everything except :func:`invoke_kimi` (the one subprocess to Kimi) and
+:func:`sast_scan` (the one subprocess to semgrep) is pure or filesystem-only and
+importable, so ``tests/test_run_negative_gate.py`` exercises the whole pipeline with
+both monkeypatched — ``make ci`` needs neither Kimi nor semgrep. This target is
+intentionally kept out of ``make ci`` (it needs both) and lives behind
 ``make negative-gate`` as a separate E2E gate.
 """
 from __future__ import annotations
@@ -68,6 +91,7 @@ from scripts import (  # noqa: E402  (path shim must precede these imports)
     quality,
     reqcoverage,
     runcheck,
+    sast,
     verdict,
 )
 
@@ -88,10 +112,16 @@ _DEFAULT_DEBUG_TOKENS: tuple[str, ...] = ("TODO", "FIXME", "XXX")
 _DEFAULT_TEST_GLOB = "test_*.py"
 
 # Wall-clock + memory bounds for the deterministic ``runcheck`` (OPS-3). Fixtures are
-# trivial by contract, so these are generous; both are overridable from the CLI.
+# trivial by contract, so these are generous; all are overridable from the CLI.
 KIMI_TIMEOUT_S = 900
 RUNCHECK_TIMEOUT_S = 300
 RUNCHECK_MEM_LIMIT_MB = 2048
+# Wall-clock bound for the optional SAST floor (``sast.scan`` → semgrep).
+SAST_TIMEOUT_S = 120
+
+# The ``fixture.json`` marker that routes a fixture to the SAST-floor proof path
+# (blocked deterministically by ``sast.scan``, never by a judgment critic).
+_SAST_BLOCKER = "deterministic-sast"
 
 # New-side path headers in a unified diff (excludes /dev/null and the ``+++`` marker).
 _NEW_PATH_RE = re.compile(r"^\+\+\+ (?:b/)?(.+)$", re.MULTILINE)
@@ -149,6 +179,18 @@ def is_bad_fixture(manifest: dict) -> bool:
     name, so a mislabelled dir cannot silently pass as ``good``.
     """
     return manifest.get("expected_verdict") == "UNVERIFIED"
+
+
+def is_sast_fixture(manifest: dict) -> bool:
+    """True iff the manifest marks the fixture as a deterministic SAST-floor proof.
+
+    A ``"expected_blocker": "deterministic-sast"`` fixture must be blocked by
+    ``scripts.sast.scan`` (semgrep) alone — the driver proves the floor by asserting
+    a blocking SECURITY defect and an ``UNVERIFIED`` gate result **without ever
+    dispatching a judgment critic**. Every SAST-floor fixture is also a ``bad_*``
+    fixture (``expected_verdict == "UNVERIFIED"``).
+    """
+    return manifest.get("expected_blocker") == _SAST_BLOCKER
 
 
 def lens_to_critic_name(lens: str) -> str:
@@ -319,10 +361,20 @@ def blocking_defects(merged: dict) -> list[dict]:
 def deterministic_blockers(det: dict) -> list[str]:
     """Human descriptions of any deterministic gate that fired on this fixture.
 
-    For a ``bad_*`` fixture this MUST be empty — otherwise a deterministic gate, not
-    the judgment critic, is what would produce the UNVERIFIED, and the fixture fails
-    to isolate its lens. A "blocker" is a red ``runcheck`` (DOES-IT-RUN), any blocking
-    (CRITICAL/HIGH) deterministic defect, or an unclean docs-naming check.
+    For a **judgment** ``bad_*`` fixture this MUST be empty — otherwise a deterministic
+    gate, not the judgment critic, is what would produce the UNVERIFIED, and the
+    fixture fails to isolate its lens. A "blocker" is a red ``runcheck`` (DOES-IT-RUN),
+    any blocking (CRITICAL/HIGH) deterministic defect (from ``lint``/``reqcoverage``/
+    ``pathcheck`` or the ``sast`` floor), or an unclean docs-naming check.
+
+    Including ``sast_defects`` here is what keeps the ``bad_security`` judgment fixture
+    honest: if semgrep ever starts flagging its seeded (subtle, logic-level) vuln, that
+    blocking SAST finding makes this list non-empty and the fixture is failed as "does
+    not isolate the SECURITY judgment lens" — a signal to reseed a subtler vuln.
+
+    NOTE: SAST-floor fixtures (``is_sast_fixture``) are routed to
+    :func:`process_sast_fixture` *before* this check, so their intended blocking SAST
+    finding is never treated as an isolation failure.
     """
     problems: list[str] = []
     if not det["runcheck_green"]:
@@ -336,7 +388,7 @@ def deterministic_blockers(det: dict) -> list[str]:
                 rc.get("returncode"),
             )
         )
-    for key in ("lint_defects", "reqcoverage_defects", "pathcheck_defects"):
+    for key in ("lint_defects", "reqcoverage_defects", "pathcheck_defects", "sast_defects"):
         for d in det.get(key, []):
             if d.get("severity") in _BLOCKING:
                 problems.append(
@@ -489,14 +541,19 @@ def run_deterministic_lenses(
     *,
     timeout_s: int = RUNCHECK_TIMEOUT_S,
     mem_limit_mb: int = RUNCHECK_MEM_LIMIT_MB,
+    sast_timeout_s: int = SAST_TIMEOUT_S,
 ) -> dict:
     """Run the deterministic lenses over the copied fixture and return their evidence.
 
     Executes ``runcheck`` (lens 5), ``quality.lint_deliverable`` (lens 4 floor),
-    ``reqcoverage.coverage`` (lens 6), and ``pathcheck.cross_check`` (grounding for
-    1/6). There is no scout in the negative-gate, so the pathcheck grounding context
-    is empty (a code diff cites no paths, so it stays clean). Returns the evidence
-    dict the critics and :func:`deterministic_blockers`/:func:`Outcome` consume.
+    ``reqcoverage.coverage`` (lens 6), ``pathcheck.cross_check`` (grounding for 1/6),
+    and the ``sast.scan`` SAST floor (lens 3 deterministic component). There is no
+    scout in the negative-gate, so the pathcheck grounding context is empty (a code
+    diff cites no paths, so it stays clean). The SAST floor runs over the fixture's
+    ``scope_paths`` in ``work_dir`` exactly as the SKILL's VERIFIED stage runs it over
+    the coder's ``review_root``; it is fail-open (``[]`` when semgrep is absent).
+    Returns the evidence dict the critics and
+    :func:`deterministic_blockers`/:func:`process_sast_fixture`/:func:`Outcome` consume.
     """
     scope_paths = manifest.get("scope_paths", []) or []
     test_glob = manifest.get("test_glob") or _DEFAULT_TEST_GLOB
@@ -514,6 +571,7 @@ def run_deterministic_lenses(
     )
     pathcheck_defects = pathcheck.cross_check(diff, {}, str(work_dir))
     docs_clean = _compute_docs_clean(work_dir, changed_files, test_files)
+    sast_defects = sast_scan(scope_paths, work_dir, timeout_s=sast_timeout_s)
 
     return {
         "verify_cmd": verify_cmd,
@@ -522,6 +580,7 @@ def run_deterministic_lenses(
         "lint_defects": lint_defects,
         "reqcoverage_defects": reqcoverage_defects,
         "pathcheck_defects": pathcheck_defects,
+        "sast_defects": sast_defects,
         "docs_clean": docs_clean,
         "changed_files": sorted(changed_files),
         "test_files": sorted(test_files),
@@ -529,11 +588,12 @@ def run_deterministic_lenses(
 
 
 def invoke_kimi(prompt: str, timeout_s: int = KIMI_TIMEOUT_S) -> str:
-    """Dispatch one critic prompt to Kimi and return its stdout (THE only impure part).
+    """Dispatch one critic prompt to Kimi and return its stdout (an impure seam).
 
-    This is the single function the unit tests monkeypatch, so the entire pipeline is
-    exercisable without Kimi. Runs ``kimi -p "<prompt>" --output-format text`` and
-    returns raw stdout for :func:`extract_last_json` to parse.
+    One of the two functions the unit tests monkeypatch (the other is
+    :func:`sast_scan`), so the entire pipeline is exercisable without Kimi. Runs
+    ``kimi -p "<prompt>" --output-format text`` and returns raw stdout for
+    :func:`extract_last_json` to parse.
     """
     proc = subprocess.run(
         ["kimi", "-p", prompt, "--output-format", "text"],
@@ -542,6 +602,28 @@ def invoke_kimi(prompt: str, timeout_s: int = KIMI_TIMEOUT_S) -> str:
         timeout=timeout_s,
     )
     return proc.stdout
+
+
+def sast_scan(
+    scope_paths: list[str],
+    work_dir: str | os.PathLike,
+    *,
+    timeout_s: int = SAST_TIMEOUT_S,
+) -> list[dict]:
+    """Run the deterministic SAST floor over the fixture — the semgrep seam (impure).
+
+    Thin, fail-open wrapper over :func:`scripts.sast.scan` (semgrep). It is the single
+    SAST entry point the driver uses and the one the unit tests monkeypatch, so
+    ``make ci`` needs no semgrep. ``sast.scan`` is itself fail-open (returns ``[]`` when
+    semgrep is absent, errors, or times out); this wrapper adds a defensive belt so even
+    an unexpected raise degrades to ``[]`` rather than crashing the gate. Returns the
+    canonical SECURITY defect list (``{id, category:"SECURITY", severity, location,
+    fix}``; semgrep ``ERROR`` → blocking ``HIGH``).
+    """
+    try:
+        return sast.scan(list(scope_paths or []), str(work_dir), timeout_s=timeout_s)
+    except Exception:  # noqa: BLE001 — the SAST floor is optional; never break the gate
+        return []
 
 
 def call_critic(
@@ -569,6 +651,105 @@ def call_critic(
 # ---------------------------------------------------------------------------
 # Per-fixture orchestration
 # ---------------------------------------------------------------------------
+def _gate_results(det: dict, schema_errors: list[str]) -> dict:
+    """Assemble the ``gate_results`` dict ``verdict.gate`` reads (the full PASS bar).
+
+    Mirrors the SKILL's VERIFIED wiring: ``runcheck`` (lens 5) plus the deterministic
+    lens defect-lists and the docs-naming flag, keyed exactly as ``verdict.gate``
+    expects. Shared by the judgment path and the SAST-floor path so both compute the
+    gate identically.
+    """
+    return {
+        "runcheck": det["runcheck"],
+        "schema_errors": schema_errors,
+        "lint_defects": det["lint_defects"],
+        "reqcoverage_defects": det["reqcoverage_defects"],
+        "pathcheck_defects": det["pathcheck_defects"],
+        "docs_clean": det["docs_clean"],
+    }
+
+
+def process_sast_fixture(name: str, manifest: dict, det: dict) -> Outcome:
+    """Prove a fixture is blocked by the deterministic SAST floor alone (no critic).
+
+    For a ``"expected_blocker": "deterministic-sast"`` fixture the whole point is that
+    ``sast.scan`` (semgrep) catches a *mechanically detectable* vulnerability and gates
+    it **without** dispatching a judgment critic — the V3 hardening that turns
+    judgment-only SECURITY into partially-deterministic. This asserts:
+
+    1. ``sast.scan`` yielded at least one **blocking** (CRITICAL/HIGH) SECURITY defect;
+    2. absent that finding the very same change would gate ``OK`` (the floor is
+       *load-bearing* — every other deterministic lens is green, so ``sast`` is the
+       sole blocker); and
+    3. feeding the SAST defects through ``merge`` → ``gate`` yields the manifest's
+       ``expected_verdict`` (``UNVERIFIED``).
+
+    No ``invoke_kimi`` call is made — that is what proves the floor blocks on its own.
+    """
+    expected_verdict = manifest["expected_verdict"]
+    expected_lens = manifest.get("expected_lens")
+    sast_defects = det.get("sast_defects", []) or []
+    blocking_sec = [
+        d
+        for d in sast_defects
+        if d.get("severity") in _BLOCKING and d.get("category") == "SECURITY"
+    ]
+    fired = sorted({d.get("category") for d in blocking_sec})
+
+    def out(passed: bool, message: str, status: str | None) -> Outcome:
+        return Outcome(
+            name=name,
+            passed=passed,
+            message=message,
+            expected_verdict=expected_verdict,
+            expected_lens=expected_lens,
+            status=status,
+            rubber_stamp=False,
+            fired_lenses=fired,
+        )
+
+    if not blocking_sec:
+        return out(
+            False,
+            "SAST floor did not block: sast.scan yielded no blocking SECURITY defect "
+            "(semgrep absent, or the seeded vuln is outside the default ruleset) — this "
+            "fixture must be caught deterministically, not by a judgment critic.",
+            None,
+        )
+
+    # The floor must be load-bearing: with NO SAST defects the change would pass. If it
+    # would not, some OTHER deterministic gate is red and the fixture does not cleanly
+    # isolate the floor. Use verdict.merge([], []) (not _empty_merged) so the baseline
+    # critic is well-formed — an all-"yes" dimensions map that enforce_critic_schema
+    # accepts — otherwise the schema check would itself fail the gate.
+    baseline_merged = verdict.merge([], [])
+    baseline = verdict.gate(
+        baseline_merged, _gate_results(det, quality.enforce_critic_schema(baseline_merged))
+    )
+    if baseline != "OK":
+        return out(
+            False,
+            "SAST-floor fixture is not otherwise deterministically green "
+            "(baseline gate without the SAST finding = %s); it does not isolate the "
+            "floor. Its non-SAST gates must all pass so ONLY sast.scan blocks it."
+            % baseline,
+            None,
+        )
+
+    # Merge the floor's defects as script_defects, with NO judgment critic.
+    merged = verdict.merge([], sast_defects)
+    schema_errors = quality.enforce_critic_schema(merged)
+    status = verdict.gate(merged, _gate_results(det, schema_errors))
+    if status != expected_verdict:
+        return out(False, "status %s != expected %s" % (status, expected_verdict), status)
+    return out(
+        True,
+        "blocked by the deterministic SAST floor (%d blocking SECURITY defect(s); "
+        "no judgment critic dispatched)" % len(blocking_sec),
+        status,
+    )
+
+
 def process_fixture(
     fixture_dir: str | os.PathLike,
     agents_dir: str | os.PathLike,
@@ -576,14 +757,21 @@ def process_fixture(
     kimi_timeout_s: int = KIMI_TIMEOUT_S,
     runcheck_timeout_s: int = RUNCHECK_TIMEOUT_S,
     mem_limit_mb: int = RUNCHECK_MEM_LIMIT_MB,
+    sast_timeout_s: int = SAST_TIMEOUT_S,
 ) -> Outcome:
     """Run one fixture through the full gate and return its :class:`Outcome`.
 
-    Copies the fixture into a throwaway temp dir, captures the diff, runs the
-    deterministic lenses, dispatches the judgment critic(s), and merges → schema-checks
-    → gates → compares to the manifest expectation. A ``bad_*`` fixture whose
-    deterministic gates are not all green is failed *before* any Kimi call (it cannot
-    isolate a judgment lens).
+    Copies the fixture into a throwaway temp dir, captures the diff, and runs the
+    deterministic lenses (including the ``sast.scan`` floor). Then branches:
+
+    * a **SAST-floor** fixture (``is_sast_fixture``) is proved by
+      :func:`process_sast_fixture` — blocked by ``sast.scan`` with no Kimi call;
+    * a **judgment** fixture dispatches the critic(s) and merges → schema-checks →
+      gates → compares to the manifest. A ``bad_*`` judgment fixture whose deterministic
+      gates are not all green — a red ``runcheck`` OR a blocking SAST finding — is
+      failed *before* any Kimi call (it cannot isolate a judgment lens). This is what
+      keeps ``bad_security`` an honest SECURITY-*critic* proof: its seeded vuln must
+      stay ``sast.scan``-clean.
     """
     fixture_dir = pathlib.Path(fixture_dir)
     name = fixture_dir.name
@@ -596,12 +784,25 @@ def process_fixture(
         # Non-git temp dir -> difftool renders in-scope files as full new-file diffs.
         diff = difftool.capture("", scope_paths, tmp)
         det = run_deterministic_lenses(
-            tmp, manifest, diff, timeout_s=runcheck_timeout_s, mem_limit_mb=mem_limit_mb
+            tmp,
+            manifest,
+            diff,
+            timeout_s=runcheck_timeout_s,
+            mem_limit_mb=mem_limit_mb,
+            sast_timeout_s=sast_timeout_s,
         )
+
+        # SAST-floor fixtures are proved deterministically — no judgment critic. This
+        # branch runs BEFORE the isolation check so the fixture's intended blocking SAST
+        # finding is not mistaken for an isolation failure.
+        if is_sast_fixture(manifest):
+            return process_sast_fixture(name, manifest, det)
+
         det_blk = deterministic_blockers(det)
 
-        # A bad_* fixture must have every deterministic gate green so ONLY the judgment
-        # eye can produce the UNVERIFIED. If not, fail now (no point dispatching Kimi).
+        # A judgment bad_* fixture must have every deterministic gate green — including a
+        # SAST-clean scan — so ONLY the judgment eye can produce the UNVERIFIED. If not,
+        # fail now (no point dispatching Kimi).
         if is_bad and det_blk:
             return evaluate_outcome(name, manifest, None, _empty_merged(), det_blk)
 
@@ -609,17 +810,13 @@ def process_fixture(
             call_critic(agents_dir, lens, manifest, diff, det, timeout_s=kimi_timeout_s)
             for lens in lenses_to_exercise(manifest)
         ]
-        merged = verdict.merge(critics, [])  # script_defects=[] — deterministic side is green
+        # Feed the (asserted-clean for a bad_*, empty-or-clean for good) SAST defects
+        # through merge, faithful to the SKILL: the floor and the critic both feed the
+        # merged SECURITY dimension. A good fixture that trips the floor is thereby
+        # blocked and correctly fails as "unexpectedly blocked".
+        merged = verdict.merge(critics, det["sast_defects"])
         schema_errors = quality.enforce_critic_schema(merged)
-        gate_results = {
-            "runcheck": det["runcheck"],
-            "schema_errors": schema_errors,
-            "lint_defects": det["lint_defects"],
-            "reqcoverage_defects": det["reqcoverage_defects"],
-            "pathcheck_defects": det["pathcheck_defects"],
-            "docs_clean": det["docs_clean"],
-        }
-        status = verdict.gate(merged, gate_results)
+        status = verdict.gate(merged, _gate_results(det, schema_errors))
         return evaluate_outcome(name, manifest, status, merged, det_blk)
 
 
@@ -646,8 +843,10 @@ def _format_line(outcome: Outcome) -> str:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Red-team negative-gate: prove each judgment eye blocks sub-elite code "
-            "on exactly the intended lens (good->OK, each bad_*->UNVERIFIED)."
+            "Red-team negative-gate: prove each judgment eye blocks sub-elite code on "
+            "exactly the intended lens, AND that the deterministic SAST floor "
+            "(sast.scan) blocks a mechanically detectable vuln without a critic "
+            "(good->OK, each bad_*->UNVERIFIED)."
         )
     )
     parser.add_argument(
@@ -683,6 +882,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=RUNCHECK_MEM_LIMIT_MB,
         help="verify_cmd memory cap in MB (0 disables the cap).",
     )
+    parser.add_argument(
+        "--sast-timeout",
+        type=int,
+        default=SAST_TIMEOUT_S,
+        help="SAST floor (semgrep) wall-clock timeout (s).",
+    )
     return parser.parse_args(argv)
 
 
@@ -712,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
                 kimi_timeout_s=args.kimi_timeout,
                 runcheck_timeout_s=args.runcheck_timeout,
                 mem_limit_mb=args.mem_limit_mb,
+                sast_timeout_s=args.sast_timeout,
             )
         except Exception as exc:  # noqa: BLE001 — one broken fixture must not hide the rest
             manifest = _safe_manifest(fixture)

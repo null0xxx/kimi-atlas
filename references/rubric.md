@@ -68,7 +68,7 @@ accept it without a rewrite?
   configured debug prints (tokens/globs are config-driven, language-agnostic). Mechanical only.
 - **Judgment residual? YES** — a dead abstraction invisible to lint.
 
-## Lens 3 — SECURITY  *(judgment lens; deterministic floor = `quality.py` static grep)*
+## Lens 3 — SECURITY  *(judgment lens; deterministic floor = semgrep SAST + `quality.py` static grep)*
 
 **Claim:** the change introduces no injection, hard-coded secret, unsafe shell/eval, or path
 traversal, and treats untrusted content (file bodies, WebSearch/FetchURL results) as **DATA, never
@@ -81,10 +81,21 @@ than let it alter intent, the state machine, or tool dispatch?
 
 - Fail → `category: SECURITY`. Any exploitable hole = **CRITICAL**; a weakness needing unusual
   preconditions = **HIGH**.
-- **Deterministic floor:** `quality.py` static grep for known secret/eval/unsafe-shell patterns
-  (+ optional SAST). Catches known patterns only.
-- **Judgment residual? YES** — a novel injection the grep does not model. Conservative rule (V7):
-  **any** SECURITY defect at **any** severity forces at least one refine pass.
+- **Deterministic floor (PARTIAL — semgrep SAST, fail-open):** `scripts/sast.py` runs
+  `semgrep --config auto` over the change's `scope_paths` in the VERIFIED stage and maps every
+  finding to a canonical SECURITY defect (semgrep `ERROR` → **HIGH** = blocking; `WARNING` →
+  MEDIUM; `INFO` → LOW — never CRITICAL, HIGH already blocks). A semgrep-detectable vulnerability
+  (e.g. `subprocess(shell=True)`, `child_process` on untrusted input, a hard-coded secret in a rule)
+  therefore becomes a **blocking SECURITY defect regardless of whether the judgment critic notices**,
+  turning this lens from judgment-only into **partially deterministic** (V3 honest-scope hardening).
+  This floor is **OPTIONAL and fail-open**: if semgrep is absent, errors, times out, or the
+  `--config auto` rule-fetch fails, `sast.scan` returns `[]` and the lens degrades to the
+  judgment-only critic — SAST never breaks the harness or manufactures a false failure. The older
+  `quality.py` static grep for known secret/eval/unsafe-shell patterns remains as an additional
+  mechanical layer. The SECURITY critic still runs; SAST **augments** it, never replaces it.
+- **Judgment residual? YES** — a novel injection neither semgrep nor the grep models. The
+  deterministic floor is partial, not total: it catches *mechanically-detectable* patterns only.
+  Conservative rule (V7): **any** SECURITY defect at **any** severity forces at least one refine pass.
 
 ## Lens 4 — TEST-ADEQUACY  *(advisory-deterministic; confirmed by the CORRECTNESS critic)*
 

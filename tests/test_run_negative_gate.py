@@ -1,22 +1,28 @@
 """Unit tests for scripts.run_negative_gate — the red-team negative-gate driver.
 
-The single impure part of the driver (``invoke_kimi``, which shells to Kimi) is
-monkeypatched throughout, so this whole suite — including the end-to-end
-``process_fixture`` / ``main`` paths — runs with **no Kimi** and is safe under
-``make ci``. Fixtures are synthesized in throwaway temp dirs; ``tests/fixtures/``
-is never touched.
+The driver's two impure seams — ``invoke_kimi`` (shells to Kimi) and ``sast_scan``
+(shells to semgrep via ``scripts.sast.scan``) — are monkeypatched throughout, so this
+whole suite, including the end-to-end ``process_fixture`` / ``main`` paths, runs with
+**neither Kimi nor semgrep** and is safe under ``make ci``. Fixtures are synthesized in
+throwaway temp dirs; ``tests/fixtures/`` is never touched.
 
 Coverage:
 
 * pure helpers — fixture discovery, frontmatter strip, lens mapping, prompt build,
-  evidence summary, JSON extraction, deterministic-blocker detection, diff→file
-  split, and the verdict-comparison (`evaluate_outcome`) for every branch;
+  evidence summary, JSON extraction, deterministic-blocker detection (now including a
+  blocking SAST finding), diff→file split, the SAST-fixture marker, and the
+  verdict-comparison (`evaluate_outcome`) for every branch;
+* the ``sast_scan`` wrapper — delegates to ``scripts.sast.scan`` and fails open to []
+  on any raise;
 * the full pipeline — `process_fixture` with real deterministic lenses (a trivial
-  passing unittest fixture) and a mocked critic, proving good→OK, a blocking
-  bad→UNVERIFIED-on-the-right-lens, a rubber-stamp bad→FAIL, a wrong-lens
-  bad→FAIL, and a deterministically-red bad→FAIL before Kimi is ever called;
-* `main` — exit 0 when all match, non-zero on a rubber stamp, non-zero on no
-  fixtures.
+  passing unittest fixture), a mocked critic, and a mocked SAST floor, proving good→OK,
+  a blocking bad→UNVERIFIED-on-the-right-lens, a rubber-stamp bad→FAIL, a wrong-lens
+  bad→FAIL, a deterministically-red bad→FAIL before Kimi is ever called, a
+  **deterministic-sast fixture blocked by the floor with NO critic dispatched**, that
+  same fixture **failing when the floor is empty**, and **bad_security failing if its
+  vuln is no longer semgrep-clean**;
+* `main` — exit 0 when all match (including a SAST-floor fixture in the matrix),
+  non-zero on a rubber stamp, non-zero on no fixtures.
 """
 from __future__ import annotations
 
@@ -52,8 +58,14 @@ def _write_fixture(
     verify_cmd: str = "python3 -m unittest test_mod",
     scope_paths: list[str] | None = None,
     mod_py: str = _MOD_PY,
+    extra_manifest: dict | None = None,
 ) -> pathlib.Path:
-    """Create a deterministically-green fixture dir and return its path."""
+    """Create a deterministically-green fixture dir and return its path.
+
+    ``extra_manifest`` merges extra keys into ``fixture.json`` (e.g.
+    ``{"expected_blocker": "deterministic-sast"}``) so a SAST-floor fixture can be
+    synthesized without a bespoke writer.
+    """
     fx = parent / name
     fx.mkdir(parents=True)
     (fx / "mod.py").write_text(mod_py, encoding="utf-8")
@@ -66,8 +78,66 @@ def _write_fixture(
         "expected_verdict": expected_verdict,
         "expected_lens": expected_lens,
     }
+    if extra_manifest:
+        manifest.update(extra_manifest)
     (fx / "fixture.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return fx
+
+
+def _write_sast_fixture(parent: pathlib.Path, name: str = "bad_security_sast") -> pathlib.Path:
+    """Create a deterministically-green fixture marked as a SAST-floor proof.
+
+    Its code is a trivial passing add() (semgrep is mocked in this suite, so the file
+    content need not actually trip a rule), but its ``scope_paths`` are distinctively
+    named (``shellcmd.py``) so a keyed fake ``sast_scan`` can return a blocking finding
+    for THIS fixture and ``[]`` for the mod.py judgment fixtures in the same matrix.
+    """
+    fx = parent / name
+    fx.mkdir(parents=True)
+    (fx / "shellcmd.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (fx / "test_shellcmd.py").write_text(
+        "import unittest\n"
+        "from shellcmd import add\n\n\n"
+        "class ShellcmdTests(unittest.TestCase):\n"
+        "    def test_add(self):\n"
+        "        self.assertEqual(add(2, 3), 5)\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "intent": "run a shell command",
+        "success_criteria": ["add returns the sum of its two arguments"],
+        "verify_cmd": "python3 -m unittest test_shellcmd",
+        "scope_paths": ["shellcmd.py", "test_shellcmd.py"],
+        "expected_verdict": "UNVERIFIED",
+        "expected_lens": "SECURITY",
+        "expected_blocker": "deterministic-sast",
+    }
+    (fx / "fixture.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return fx
+
+
+def _sast_hit(location: str = "mod.py:2", severity: str = "HIGH") -> list[dict]:
+    """A canonical blocking SECURITY defect as scripts.sast.scan would emit it."""
+    return [
+        {
+            "id": "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+            "category": "SECURITY",
+            "severity": severity,
+            "location": location,
+            "fix": "Found subprocess with shell=True; use shell=False instead.",
+        }
+    ]
+
+
+def _marker_sast(scope_paths, work_dir, *, timeout_s: int = 0) -> list[dict]:
+    """A fake sast_scan: a blocking SECURITY hit iff a scope path names ``shellcmd``.
+
+    Lets one fake drive a mixed matrix — the SAST-floor fixture (``shellcmd.py``) is
+    flagged; the mod.py judgment fixtures come back clean.
+    """
+    if any("shellcmd" in p for p in (scope_paths or [])):
+        return _sast_hit("shellcmd.py:5")
+    return []
 
 
 def _ok_critic_json() -> str:
@@ -198,6 +268,36 @@ class IsBadFixtureTests(unittest.TestCase):
         self.assertFalse(rng.is_bad_fixture({"expected_verdict": "OK"}))
 
 
+class IsSastFixtureTests(unittest.TestCase):
+    def test_marker_true(self) -> None:
+        self.assertTrue(
+            rng.is_sast_fixture(
+                {"expected_verdict": "UNVERIFIED", "expected_blocker": "deterministic-sast"}
+            )
+        )
+
+    def test_absent_marker_false(self) -> None:
+        self.assertFalse(rng.is_sast_fixture({"expected_verdict": "UNVERIFIED"}))
+
+    def test_other_marker_false(self) -> None:
+        self.assertFalse(rng.is_sast_fixture({"expected_blocker": "judgment-critic"}))
+
+
+class SastScanWrapperTests(unittest.TestCase):
+    def test_delegates_to_scripts_sast_scan(self) -> None:
+        sentinel = _sast_hit("a.py:1")
+        with mock.patch.object(rng.sast, "scan", return_value=sentinel) as m:
+            got = rng.sast_scan(["a.py", "test_a.py"], "/work", timeout_s=42)
+        self.assertEqual(got, sentinel)
+        m.assert_called_once_with(["a.py", "test_a.py"], "/work", timeout_s=42)
+
+    def test_fails_open_on_raise(self) -> None:
+        # sast.scan is contractually fail-open, but the wrapper double-guards so an
+        # unexpected raise can never crash the gate.
+        with mock.patch.object(rng.sast, "scan", side_effect=RuntimeError("boom")):
+            self.assertEqual(rng.sast_scan(["a.py"], "/work"), [])
+
+
 class BuildPromptTests(unittest.TestCase):
     def test_prompt_contains_all_sections(self) -> None:
         manifest = {"intent": "do X", "success_criteria": ["crit one", "crit two"]}
@@ -273,6 +373,7 @@ class DeterministicBlockersTests(unittest.TestCase):
             "lint_defects": [],
             "reqcoverage_defects": [],
             "pathcheck_defects": [],
+            "sast_defects": [],
             "docs_clean": True,
         }
 
@@ -299,6 +400,21 @@ class DeterministicBlockersTests(unittest.TestCase):
         det = self._green()
         det["lint_defects"] = [
             {"category": "CODE-QUALITY", "severity": "MEDIUM", "location": "mod.py:1"}
+        ]
+        self.assertEqual(rng.deterministic_blockers(det), [])
+
+    def test_blocking_sast_defect_blocks(self) -> None:
+        # A blocking SAST finding on a judgment fixture means the SAST floor (not the
+        # critic) would fire — the fixture no longer isolates the SECURITY judgment lens.
+        det = self._green()
+        det["sast_defects"] = _sast_hit("linecount.py:15")
+        problems = rng.deterministic_blockers(det)
+        self.assertTrue(any("sast_defects" in p and "SECURITY" in p for p in problems))
+
+    def test_medium_sast_is_not_a_blocker(self) -> None:
+        det = self._green()
+        det["sast_defects"] = [
+            {"category": "SECURITY", "severity": "MEDIUM", "location": "x.py:1"}
         ]
         self.assertEqual(rng.deterministic_blockers(det), [])
 
@@ -381,8 +497,14 @@ class EvaluateOutcomeTests(unittest.TestCase):
 # End-to-end pipeline (real deterministic lenses, mocked Kimi)
 # ---------------------------------------------------------------------------
 class ProcessFixtureTests(unittest.TestCase):
-    def _run(self, fx: pathlib.Path) -> rng.Outcome:
-        return rng.process_fixture(fx, _AGENTS_DIR, mem_limit_mb=0, runcheck_timeout_s=60)
+    def _run(self, fx: pathlib.Path, *, sast_defects=()) -> rng.Outcome:
+        """Run process_fixture with the SAST floor mocked (default: no findings).
+
+        Callers wrap this in their own ``invoke_kimi`` patch; both seams are therefore
+        mocked, so the pipeline runs with neither Kimi nor semgrep.
+        """
+        with mock.patch.object(rng, "sast_scan", return_value=list(sast_defects)):
+            return rng.process_fixture(fx, _AGENTS_DIR, mem_limit_mb=0, runcheck_timeout_s=60)
 
     def test_good_all_clean_yields_ok(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -467,6 +589,96 @@ class ProcessFixtureTests(unittest.TestCase):
             self.assertIn("deterministic gate fired", out.message)
             guard.assert_not_called()
 
+    # -- SAST floor (deterministic-sast) fixtures --------------------------------
+    def test_deterministic_sast_fixture_blocked_by_floor(self) -> None:
+        # The SAST floor blocks a mechanically detectable vuln with NO judgment critic.
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = _write_fixture(
+                pathlib.Path(tmp), "bad_security_sast",
+                intent="run a shell command", expected_verdict="UNVERIFIED",
+                expected_lens="SECURITY",
+                extra_manifest={"expected_blocker": "deterministic-sast"},
+            )
+            guard = mock.Mock(
+                side_effect=AssertionError("kimi must not be called for a SAST-floor fixture")
+            )
+            with mock.patch.object(rng, "invoke_kimi", guard):
+                out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
+            self.assertTrue(out.passed, out.message)
+            self.assertEqual(out.status, "UNVERIFIED")
+            self.assertIn("SECURITY", out.fired_lenses)
+            self.assertIn("SAST floor", out.message)
+            guard.assert_not_called()
+
+    def test_deterministic_sast_fixture_fails_when_floor_empty(self) -> None:
+        # If sast.scan finds nothing (semgrep absent, or the vuln left the ruleset),
+        # the floor cannot prove the block -> FAIL, still without dispatching Kimi.
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = _write_fixture(
+                pathlib.Path(tmp), "bad_security_sast",
+                intent="run a shell command", expected_verdict="UNVERIFIED",
+                expected_lens="SECURITY",
+                extra_manifest={"expected_blocker": "deterministic-sast"},
+            )
+            guard = mock.Mock(side_effect=AssertionError("kimi must not be called"))
+            with mock.patch.object(rng, "invoke_kimi", guard):
+                out = self._run(fx, sast_defects=[])
+            self.assertFalse(out.passed)
+            self.assertIn("SAST floor did not block", out.message)
+            guard.assert_not_called()
+
+    def test_bad_security_not_sast_clean_fails_before_kimi(self) -> None:
+        # bad_security is a SECURITY *critic* proof: its seeded vuln MUST stay
+        # semgrep-clean. If the floor fires on it, the fixture no longer isolates the
+        # judgment lens -> FAIL before any Kimi dispatch (a signal to reseed a subtler
+        # vuln). This is the "assert bad_security is semgrep-clean" guard.
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = _write_fixture(
+                pathlib.Path(tmp), "bad_security",
+                intent="add INJECT_BLOCK_SECURITY", expected_verdict="UNVERIFIED",
+                expected_lens="SECURITY",
+            )
+            guard = mock.Mock(
+                side_effect=AssertionError("kimi must not run once the floor already fired")
+            )
+            with mock.patch.object(rng, "invoke_kimi", guard):
+                out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
+            self.assertFalse(out.passed)
+            self.assertFalse(out.rubber_stamp)
+            self.assertIn("deterministic gate fired", out.message)
+            self.assertIn("SECURITY", out.message)
+            guard.assert_not_called()
+
+    def test_bad_security_sast_clean_still_exercises_critic(self) -> None:
+        # The normal bad_security path: SAST clean, so the SECURITY *critic* is what
+        # must block (mirrors make negative-gate on the reseeded fixture).
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = _write_fixture(
+                pathlib.Path(tmp), "bad_security",
+                intent="add INJECT_BLOCK_SECURITY", expected_verdict="UNVERIFIED",
+                expected_lens="SECURITY",
+            )
+            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi) as m:
+                out = self._run(fx, sast_defects=[])
+            self.assertTrue(out.passed, out.message)
+            self.assertEqual(out.status, "UNVERIFIED")
+            self.assertIn("SECURITY", out.fired_lenses)
+            self.assertEqual(m.call_count, 1)  # the SECURITY critic did the blocking
+
+    def test_good_fixture_tripping_sast_floor_fails(self) -> None:
+        # A good fixture whose SAST floor unexpectedly fires is correctly blocked and
+        # fails as "unexpectedly blocked" (the floor feeds the merged SECURITY dim).
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = _write_fixture(
+                pathlib.Path(tmp), "good",
+                intent="add returns the sum", expected_verdict="OK", expected_lens=None,
+            )
+            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+                out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
+            self.assertFalse(out.passed)
+            self.assertEqual(out.status, "UNVERIFIED")
+            self.assertIn("SECURITY", out.fired_lenses)
+
 
 # ---------------------------------------------------------------------------
 # CLI (main)
@@ -489,7 +701,27 @@ class MainTests(unittest.TestCase):
                 root, "bad_security", intent="add INJECT_BLOCK_SECURITY",
                 expected_verdict="UNVERIFIED", expected_lens="SECURITY",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+                    mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
+                rc = rng.main([
+                    "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
+                    "--mem-limit-mb", "0", "--runcheck-timeout", "60",
+                ])
+            self.assertEqual(rc, 0)
+
+    def test_matrix_with_sast_floor_fixture_all_pass_exits_zero(self) -> None:
+        # A mixed matrix: a judgment SECURITY fixture (must stay SAST-clean, blocked by
+        # the critic) AND a deterministic-sast fixture (blocked by the floor, no critic).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _write_fixture(root, "good", intent="add sum", expected_verdict="OK", expected_lens=None)
+            _write_fixture(
+                root, "bad_security", intent="add INJECT_BLOCK_SECURITY",
+                expected_verdict="UNVERIFIED", expected_lens="SECURITY",
+            )
+            _write_sast_fixture(root, "bad_security_sast")
+            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+                    mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
                 rc = rng.main([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
                     "--mem-limit-mb", "0", "--runcheck-timeout", "60",
@@ -505,7 +737,8 @@ class MainTests(unittest.TestCase):
                 root, "bad_correctness", intent="add (no defect surfaced)",
                 expected_verdict="UNVERIFIED", expected_lens="CORRECTNESS",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+                    mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
                 rc = rng.main([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
                     "--mem-limit-mb", "0", "--runcheck-timeout", "60",
