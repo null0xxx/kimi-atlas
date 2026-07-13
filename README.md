@@ -4,7 +4,9 @@
 
 kimi-atlas turns a rough coding request into elite implemented code. A single **root SKILL orchestrator** drives a deterministic state machine over the three built-in Kimi subagents (`coder` / `explore` / `plan`), and refuses to declare a task "done" unless a **6-lens verification harness** plus a **deterministic quality backbone** are green. It is the [Track A overlay](references/architecture.md) idea, elevated from a docs-only convention into an installable plugin, grounded in the [verified Kimi v0.23.5 runtime](references/kimi-runtime.md).
 
-> **Status:** under active construction. See [`PLAN.md`](PLAN.md) for the full phased build plan (P0 → P5). This is the **P0 skeleton** — the plugin loads and the skill is discoverable; the orchestrator lands in P2.
+> **Status: complete (P0 → P5).** The full build plan in [`PLAN.md`](PLAN.md) is executed and verified on real Kimi v0.23.5. kimi-atlas produces verified code end-to-end, runs the full 6-lens harness, and provably blocks sub-elite code on the correct lens (`make negative-gate`: 4/4). It has even authored and self-verified its own first helper ([`scripts/plugin_meta.py`](scripts/plugin_meta.py), via the P5 dogfood). `make ci` is green (254 tests). Every phase was externally/adversarially reviewed; residual runtime unknowns are probed and recorded in [`references/kimi-runtime.md`](references/kimi-runtime.md) §11 with graceful fallbacks.
+>
+> **Operational note:** installed and loadable (`/skill:atlas`). Lifecycle **hooks ship in the manifest but are left disabled on the live runtime by default** (blast-radius safety on a shared machine); enable them by re-running `./scripts/install.sh` when you want session-start resume + telemetry. The opt-in destructive-Bash guard stays disabled until you wire it in.
 
 ## What kimi-atlas IS
 
