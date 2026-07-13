@@ -1,12 +1,40 @@
 """Unit tests for scripts/runcheck.py (lens 5 — DOES-IT-RUN)."""
 import os
+import shutil
 import signal
+import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
 from scripts import runcheck
+
+
+def _cgroup_backend_works() -> bool:
+    """True iff this host can actually create a systemd-run MemoryMax scope.
+
+    Mirrors runcheck._probe_cgroup_backend so the Node-safety test can
+    skipUnless a working cgroup backend rather than assume systemd is present.
+    """
+    if shutil.which("systemd-run") is None:
+        return False
+    try:
+        proc = subprocess.run(
+            ["systemd-run", "--scope", "--quiet",
+             "-p", "MemoryMax=64M", "--", "true"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+_CGROUP_OK = _cgroup_backend_works()
+_NODE = shutil.which("node")
 
 
 def _pid_alive(pid: int) -> bool:
@@ -128,7 +156,7 @@ class TestDiscoverVerifyCmd(unittest.TestCase):
 
 
 class TestWrapCommand(unittest.TestCase):
-    """Pure memory-cap wrapper construction."""
+    """Legacy ulimit-based wrapper shim (kept for back-compat callers)."""
 
     def test_mem_cap_included(self):
         argv = runcheck._wrap_command("pytest", 512)
@@ -144,6 +172,291 @@ class TestWrapCommand(unittest.TestCase):
     def test_no_cap_when_zero(self):
         argv = runcheck._wrap_command("pytest", 0)
         self.assertEqual(argv, ["sh", "-c", "pytest"])
+
+    def test_shim_matches_ulimit_backend(self):
+        self.assertEqual(
+            runcheck._wrap_command("pytest", 512),
+            runcheck._build_wrapper("pytest", 512, "ulimit"),
+        )
+
+
+class TestBuildWrapper(unittest.TestCase):
+    """Pure argv construction across all three memory-cap backends."""
+
+    def test_cgroup_backend_argv(self):
+        argv = runcheck._build_wrapper("pytest -q", 2048, "cgroup")
+        self.assertEqual(argv[0], "systemd-run")
+        self.assertIn("--scope", argv)
+        self.assertIn("MemoryMax=2048M", argv)   # RSS cap in MB, Node-safe
+        self.assertIn("pytest -q", argv)         # the command is carried verbatim
+        self.assertNotIn("ulimit -v", " ".join(argv))
+        # argv ends in an `sh -c <cmd>` so the command runs under a shell.
+        self.assertEqual(argv[-3:], ["sh", "-c", "pytest -q"])
+
+    def test_ulimit_backend_argv(self):
+        argv = runcheck._build_wrapper("pytest", 512, "ulimit")
+        self.assertEqual(argv[0], "sh")
+        self.assertIn("ulimit -v 524288", argv[2])   # 512 MB * 1024 KiB
+        self.assertIn("|| true", argv[2])            # cap fails open
+        self.assertIn("pytest", argv[2])
+        self.assertNotIn("systemd-run", argv)
+
+    def test_none_backend_argv(self):
+        argv = runcheck._build_wrapper("pytest", 512, "none")
+        self.assertEqual(argv, ["sh", "-c", "pytest"])
+        self.assertNotIn("systemd-run", argv)
+        self.assertNotIn("ulimit -v", argv[2])
+
+    def test_zero_mem_limit_is_uncapped_regardless_of_backend(self):
+        for backend in ("cgroup", "ulimit", "none"):
+            self.assertEqual(
+                runcheck._build_wrapper("pytest", 0, backend),
+                ["sh", "-c", "pytest"],
+                f"mem_limit_mb<=0 must be uncapped for backend={backend}",
+            )
+
+    def test_negative_mem_limit_is_uncapped(self):
+        self.assertEqual(
+            runcheck._build_wrapper("pytest", -1, "cgroup"), ["sh", "-c", "pytest"]
+        )
+
+    def test_unknown_backend_fails_open_uncapped(self):
+        self.assertEqual(
+            runcheck._build_wrapper("pytest", 512, "bogus"), ["sh", "-c", "pytest"]
+        )
+
+
+class TestDetectMemBackend(unittest.TestCase):
+    """Impure host probe: prefer cgroup, else ulimit, else none; cached once."""
+
+    def setUp(self):
+        runcheck._reset_mem_backend_cache()
+        self.addCleanup(runcheck._reset_mem_backend_cache)
+
+    def test_returns_a_valid_backend(self):
+        self.assertIn(
+            runcheck._detect_mem_backend(), ("cgroup", "ulimit", "none")
+        )
+
+    def test_prefers_cgroup_when_probe_succeeds(self):
+        runcheck._probe_cgroup_backend = lambda: True  # type: ignore[assignment]
+        self.addCleanup(setattr, runcheck, "_probe_cgroup_backend",
+                        runcheck._probe_cgroup_backend)
+        try:
+            runcheck._reset_mem_backend_cache()
+            self.assertEqual(runcheck._detect_mem_backend(), "cgroup")
+        finally:
+            pass
+
+    def test_falls_back_to_ulimit_when_no_cgroup(self):
+        orig_cg = runcheck._probe_cgroup_backend
+        orig_ul = runcheck._probe_ulimit_backend
+        runcheck._probe_cgroup_backend = lambda: False  # type: ignore[assignment]
+        runcheck._probe_ulimit_backend = lambda: True   # type: ignore[assignment]
+        self.addCleanup(setattr, runcheck, "_probe_cgroup_backend", orig_cg)
+        self.addCleanup(setattr, runcheck, "_probe_ulimit_backend", orig_ul)
+        runcheck._reset_mem_backend_cache()
+        self.assertEqual(runcheck._detect_mem_backend(), "ulimit")
+
+    def test_degrades_to_none_when_neither_usable(self):
+        orig_cg = runcheck._probe_cgroup_backend
+        orig_ul = runcheck._probe_ulimit_backend
+        runcheck._probe_cgroup_backend = lambda: False  # type: ignore[assignment]
+        runcheck._probe_ulimit_backend = lambda: False  # type: ignore[assignment]
+        self.addCleanup(setattr, runcheck, "_probe_cgroup_backend", orig_cg)
+        self.addCleanup(setattr, runcheck, "_probe_ulimit_backend", orig_ul)
+        runcheck._reset_mem_backend_cache()
+        self.assertEqual(runcheck._detect_mem_backend(), "none")
+
+    def test_result_is_cached(self):
+        orig_cg = runcheck._probe_cgroup_backend
+        calls = {"n": 0}
+
+        def _probe():
+            calls["n"] += 1
+            return True
+
+        runcheck._probe_cgroup_backend = _probe  # type: ignore[assignment]
+        self.addCleanup(setattr, runcheck, "_probe_cgroup_backend", orig_cg)
+        runcheck._reset_mem_backend_cache()
+        runcheck._detect_mem_backend()
+        runcheck._detect_mem_backend()
+        self.assertEqual(calls["n"], 1, "probe must run at most once (cached)")
+
+
+class TestCgroupBackendIsNodeSafe(unittest.TestCase):
+    """The cgroup RSS cap must let a memory-light command finish (OPS-3 fix).
+
+    A ``ulimit -v`` virtual cap makes Node/V8 OOM-crash even when its resident
+    set is tiny; the cgroup ``MemoryMax`` RSS cap does not. We prove the cgroup
+    path actually completes a light workload under the very budget (2048 MB)
+    that breaks Node under ``ulimit -v``.
+    """
+
+    def _run_argv(self, argv):
+        return subprocess.run(
+            argv, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=60,
+        )
+
+    @unittest.skipUnless(_CGROUP_OK, "systemd-run MemoryMax scope not usable here")
+    def test_cgroup_wrapper_runs_light_shell_command(self):
+        argv = runcheck._build_wrapper("echo cgroup-ok", 2048, "cgroup")
+        self.assertEqual(argv[0], "systemd-run")
+        proc = self._run_argv(argv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("cgroup-ok", proc.stdout)
+
+    # A V8 worker-thread program: each worker reserves a large VIRTUAL address
+    # space (which a `ulimit -v` cap counts) while touching little RESIDENT
+    # memory (which the cgroup cap counts). Under `ulimit -v 2048M` this
+    # std::bad_alloc-crashes; under cgroup MemoryMax=2048M it completes.
+    _NODE_WORKER_PROG = (
+        "const {Worker, isMainThread} = require('worker_threads');\n"
+        "if (isMainThread) {\n"
+        "  const N = 16; let done = 0; const ws = [];\n"
+        "  for (let i = 0; i < N; i++) ws.push(new Worker(__filename));\n"
+        "  for (const w of ws) {\n"
+        "    w.on('exit', () => { if (++done === N) { console.log('workers-ok'); process.exit(0); } });\n"
+        "    w.on('error', (e) => { console.error(e.message); process.exit(1); });\n"
+        "  }\n"
+        "} else {\n"
+        "  const b = Buffer.alloc(1048576); b[0] = 1;\n"
+        "  setTimeout(() => process.exit(0), 200);\n"
+        "}\n"
+    )
+
+    @unittest.skipUnless(_CGROUP_OK, "systemd-run MemoryMax scope not usable here")
+    @unittest.skipUnless(_NODE, "node not installed")
+    def test_cgroup_wrapper_runs_node_that_ulimit_would_kill(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        js = Path(tmp.name) / "worker_probe.js"
+        js.write_text(self._NODE_WORKER_PROG, encoding="utf-8")
+        cmd = f"node {js}"
+
+        # Baseline: the same command DOES crash under a ulimit -v virtual cap,
+        # confirming the workload actually exercises the bug the fix addresses.
+        ulimit_argv = runcheck._build_wrapper(cmd, 2048, "ulimit")
+        ulimit_proc = self._run_argv(ulimit_argv)
+        self.assertNotEqual(
+            ulimit_proc.returncode, 0,
+            "expected node worker threads to OOM under `ulimit -v 2048M`",
+        )
+
+        # The fix: the identical workload SUCCEEDS under the cgroup RSS cap.
+        cgroup_argv = runcheck._build_wrapper(cmd, 2048, "cgroup")
+        cgroup_proc = self._run_argv(cgroup_argv)
+        self.assertEqual(
+            cgroup_proc.returncode, 0,
+            f"cgroup cap must be Node-safe; stderr={cgroup_proc.stderr!r}",
+        )
+        self.assertIn("workers-ok", cgroup_proc.stdout)
+
+
+class TestCapStartFailure(unittest.TestCase):
+    """Pure classification of cap-start failures (drives run()'s fail-open)."""
+
+    def test_not_launched_is_start_failure_for_capped_backends(self):
+        res = {"launched": False, "returncode": 127, "timed_out": False, "stderr": ""}
+        self.assertTrue(runcheck._is_cap_start_failure("cgroup", res))
+        self.assertTrue(runcheck._is_cap_start_failure("ulimit", res))
+
+    def test_none_backend_is_never_a_start_failure(self):
+        res = {"launched": False, "returncode": 127, "timed_out": False, "stderr": ""}
+        self.assertFalse(runcheck._is_cap_start_failure("none", res))
+
+    def test_systemd_run_scope_error_is_start_failure(self):
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stderr": "Failed to start transient scope unit: Access denied",
+        }
+        self.assertTrue(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_genuine_test_failure_is_not_a_start_failure(self):
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stderr": "AssertionError: 2 != 3",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_timeout_is_not_a_start_failure(self):
+        res = {
+            "launched": True, "returncode": 124, "timed_out": True,
+            "stderr": "Failed to start transient scope unit",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_build_output_failed_to_acquire_is_not_a_start_failure(self):
+        # A genuinely failing build whose OWN output contains "Failed to acquire"
+        # must NOT be mistaken for a systemd-run scope-setup failure — otherwise
+        # run() would re-execute (and re-mutate) an already-run build uncapped.
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stdout": "", "stderr": "Error: Failed to acquire lock on ./db",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_oom_build_failed_to_allocate_is_not_a_start_failure(self):
+        # An OOM build hitting the RSS ceiling emits "Failed to allocate"; that is
+        # exactly the over-budget case the cap exists to bound and must stay RED,
+        # not fall open to an uncapped re-run.
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stdout": "", "stderr": "terminate: Failed to allocate 512MB",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_scope_error_with_test_signal_is_not_a_start_failure(self):
+        # Even a real systemd-run diagnostic does NOT license a re-run once the
+        # build has demonstrably run (emitted collection output) — re-running
+        # would double-execute it. The no-test-signal guard suppresses it.
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stdout": "collected 5 items\n1 failed",
+            "stderr": "Failed to start transient scope unit: denied",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+    def test_bare_systemd_run_prefix_is_not_a_start_failure(self):
+        # The old catch-all "systemd-run:\\s" fragment is gone; a build line that
+        # merely mentions systemd-run must not trigger the fail-open re-run.
+        res = {
+            "launched": True, "returncode": 1, "timed_out": False,
+            "stdout": "", "stderr": "note: systemd-run: see the manual",
+        }
+        self.assertFalse(runcheck._is_cap_start_failure("cgroup", res))
+
+
+class TestRunFailOpen(unittest.TestCase):
+    """The memory cap must NEVER turn a passing build RED (fail-open)."""
+
+    def test_run_falls_open_when_cap_cannot_start(self):
+        # Force the cgroup backend, but make its argv point at a missing binary
+        # so the capped launch raises FileNotFoundError (launched=False). run()
+        # must transparently re-run uncapped and report the real (green) result.
+        orig_detect = runcheck._detect_mem_backend
+        orig_build = runcheck._build_wrapper
+
+        def fake_build(cmd, mem, backend):
+            if backend == "cgroup":
+                return ["definitely-not-a-real-binary-zzz", "--", "sh", "-c", cmd]
+            return orig_build(cmd, mem, backend)
+
+        runcheck._detect_mem_backend = lambda: "cgroup"  # type: ignore[assignment]
+        runcheck._build_wrapper = fake_build             # type: ignore[assignment]
+        self.addCleanup(setattr, runcheck, "_detect_mem_backend", orig_detect)
+        self.addCleanup(setattr, runcheck, "_build_wrapper", orig_build)
+
+        result = runcheck.run(
+            'echo "collected 3 items"; echo "3 passed"', ".",
+            timeout_s=30, mem_limit_mb=2048,
+        )
+        self.assertTrue(result["ok"], result)          # not a false RED
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["test_count"], 3)
+        self.assertTrue(runcheck.green(result))
 
 
 class TestGreen(unittest.TestCase):
