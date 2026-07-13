@@ -1,0 +1,36 @@
+{
+  "task-packet": {
+    "required": {
+      "intent": "str",
+      "success_criteria": "list",
+      "scope_paths": "list",
+      "verify_cmd": "str",
+      "baseline_sha": "str",
+      "debug_tokens": "list",
+      "test_glob": "str"
+    }
+  },
+  "context": {
+    "required": {
+      "run_id": "str",
+      "intent": "str",
+      "success_criteria": "list",
+      "stages": "dict",
+      "refine_passes": "int",
+      "draft_ref": "str",
+      "verify_cmd": "str",
+      "scope_paths": "list",
+      "baseline_sha": "str"
+    },
+    "optional": {
+      "clarify_resolution": "str"
+    }
+  },
+  "critic": {
+    "required": {
+      "dimensions": "dict",
+      "defects": "list",
+      "verdict": "str"
+    }
+  }
+}
