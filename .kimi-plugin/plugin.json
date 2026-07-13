@@ -1,0 +1,26 @@
+{
+  "name": "kimi-atlas",
+  "version": "0.1.0",
+  "description": "Turns a rough coding request into elite, verified, human-gated implemented code. A root orchestrator drives a deterministic state machine over the built-in coder/explore/plan subagents, gated by a 6-lens verification harness and a deterministic quality backbone.",
+  "keywords": [
+    "orchestrator",
+    "code-generation",
+    "verification",
+    "quality-gate",
+    "red-team",
+    "human-gated",
+    "elite"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "kimi-atlas"
+  },
+  "skills": "./skills/",
+  "skillInstructions": "kimi-atlas runs on Kimi Code's native tools. Real tool wire-names (PascalCase): Read, Write, Edit, Bash, Grep, Glob, ReadMediaFile, Agent, AskUserQuestion, TodoList, WebSearch, FetchURL, Skill. Subagent dispatch: the orchestrator calls the Agent tool with a built-in subagent_type only (coder|explore|plan) — custom types cannot be registered. To run a kimi-atlas role, first read the matching role file under the plugin's agents/ directory (${KIMI_SKILL_DIR}/../../agents/<role>.md), strip its YAML frontmatter, and prepend the body to the dispatch prompt: context-scout -> Agent(subagent_type=\"explore\"); correctness-critic / code-quality-critic / security-critic -> Agent(subagent_type=\"plan\"); elite-coder -> Agent(subagent_type=\"coder\"). Read-only subagents (explore/plan) return their result as JSON in their final message; the root orchestrator persists it. Script calls use the Bash tool with PYTHONPATH set to the plugin root (${KIMI_SKILL_DIR}/../..) so `from scripts import <mod>` resolves. Clarifying questions use AskUserQuestion. Generated code is never applied to a real working tree without a human gate.",
+  "interface": {
+    "displayName": "kimi-atlas",
+    "shortDescription": "Elite, verified, human-gated code orchestrator for Kimi Code.",
+    "longDescription": "kimi-atlas turns a rough coding request into elite implemented code. It captures immutable intent, grounds in the repo via a read-only scout, drafts and implements via the coder subagent under an explicit elite-quality mandate, then verifies the change through a 6-lens harness (3 isolated model critics + 3 deterministic gates) whose merge/gate/refine decisions are pure functions. It refuses to declare done unless every gate is green, otherwise labelling the result UNVERIFIED. Never applies changes to a real working tree without a human gate.",
+    "developerName": "kimi-atlas"
+  }
+}

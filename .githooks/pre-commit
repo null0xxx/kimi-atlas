@@ -1,0 +1,15 @@
+#!/bin/sh
+# Opt-in pre-commit hook: run the same checks as CI before each commit.
+# Install with: make install-hooks  (sets core.hooksPath to .githooks)
+# Disable with:  git config --unset core.hooksPath
+set -e
+
+# Recursion guard: if a kimi-atlas run ever commits from inside a hook, do not re-enter.
+if [ "${ATLAS_NO_HOOK:-0}" = "1" ]; then
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+make ci
