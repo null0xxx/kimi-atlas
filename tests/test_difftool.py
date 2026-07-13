@@ -1,4 +1,9 @@
-"""Unit tests for scripts/difftool.py (deterministic diff capture)."""
+"""Unit tests for scripts/difftool.py (deterministic diff capture).
+
+Covers the three capture paths — tracked-modification, new (untracked) file, and
+non-git tree — plus the regression the P2 E2E surfaced: two new scope paths in a
+non-git tree must NOT be mis-rendered as a pairwise ``a/x -> b/y`` rename.
+"""
 import shutil
 import subprocess
 import tempfile
@@ -10,34 +15,63 @@ from scripts import difftool
 _HAS_GIT = shutil.which("git") is not None
 
 
-class TestBuildDiffArgv(unittest.TestCase):
-    """Pure argv-construction tests (happy / boundary)."""
+class TestNonGitNewFiles(unittest.TestCase):
+    """The E2E bug: brand-new files in a non-git tree render as new-file diffs, not a rename."""
 
-    def test_includes_baseline_and_scope(self):
-        argv = difftool._build_diff_argv("abc123", ["scripts/", "tests/"])
-        self.assertEqual(
-            argv,
-            ["git", "--no-pager", "diff", "--no-color", "--no-ext-diff",
-             "abc123", "--", "scripts/", "tests/"],
-        )
+    def _mk(self, files):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for name, body in files.items():
+            (root / name).write_text(body, encoding="utf-8")
+        return str(root)
 
-    def test_deterministic_flags_always_present(self):
-        argv = difftool._build_diff_argv("abc123", [])
-        self.assertIn("--no-color", argv)
-        self.assertIn("--no-ext-diff", argv)
-        # No scope paths -> no "--" pathspec separator.
-        self.assertNotIn("--", argv)
+    @unittest.skipUnless(_HAS_GIT, "git is required")
+    def test_two_new_files_each_render_as_new_file(self):
+        root = self._mk({"add.py": "def add(a, b):\n    return a + b\n",
+                         "test_add.py": "import add\n"})
+        diff = difftool.capture("", ["add.py", "test_add.py"], root)
+        # Both files present, each as its OWN new-file diff...
+        self.assertIn("b/add.py", diff)
+        self.assertIn("b/test_add.py", diff)
+        self.assertIn("new file", diff)
+        self.assertIn("+def add(a, b):", diff)
+        self.assertIn("+import add", diff)
+        # ...and NOT the pairwise-rename artifact the old code produced.
+        self.assertNotIn("a/add.py b/test_add.py", diff)
+        self.assertNotIn("-def add(a, b):", diff)  # add.py content is added, never removed
 
-    def test_missing_baseline_omits_revision(self):
-        argv = difftool._build_diff_argv("", ["a.py"])
-        self.assertEqual(
-            argv,
-            ["git", "--no-pager", "diff", "--no-color", "--no-ext-diff", "--", "a.py"],
-        )
+    @unittest.skipUnless(_HAS_GIT, "git is required")
+    def test_single_new_file(self):
+        root = self._mk({"m.py": "print(1)\n"})
+        diff = difftool.capture("", ["m.py"], root)
+        self.assertIn("new file", diff)
+        self.assertIn("+print(1)", diff)
 
-    def test_whitespace_baseline_is_treated_as_missing(self):
-        argv = difftool._build_diff_argv("   ", ["a.py"])
-        self.assertNotIn("   ", argv)
+    @unittest.skipUnless(_HAS_GIT, "git is required")
+    def test_missing_scope_file_skipped(self):
+        root = self._mk({"present.py": "x = 1\n"})
+        diff = difftool.capture("", ["present.py", "absent.py"], root)
+        self.assertIn("present.py", diff)
+        self.assertNotIn("absent.py", diff)
+
+    @unittest.skipUnless(_HAS_GIT, "git is required")
+    def test_empty_scope_yields_empty(self):
+        root = self._mk({"x.py": "1\n"})
+        self.assertEqual(difftool.capture("", [], root), "")
+
+    @unittest.skipUnless(_HAS_GIT, "git is required")
+    def test_directory_scope_is_walked(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "pkg").mkdir()
+        (root / "pkg" / "a.py").write_text("a = 1\n", encoding="utf-8")
+        (root / "pkg" / "b.py").write_text("b = 2\n", encoding="utf-8")
+        diff = difftool.capture("", ["pkg"], str(root))
+        self.assertIn("a.py", diff)
+        self.assertIn("b.py", diff)
+        self.assertIn("+a = 1", diff)
 
 
 @unittest.skipUnless(_HAS_GIT, "git is required for diff-capture tests")
@@ -70,6 +104,22 @@ class TestCaptureWithGit(unittest.TestCase):
         self.assertIn("-x = 1", diff)
         self.assertIn("+x = 2", diff)
 
+    def test_new_untracked_file_is_captured(self):
+        # The important fix: a brand-new file in a git repo is INVISIBLE to a
+        # plain `git diff <baseline> -- path`; capture must still surface it.
+        (self.root / "new.py").write_text("z = 9\n", encoding="utf-8")
+        diff = difftool.capture(self.baseline, ["new.py"], str(self.root))
+        self.assertIn("new.py", diff)
+        self.assertIn("new file", diff)
+        self.assertIn("+z = 9", diff)
+
+    def test_mixed_modified_and_new(self):
+        (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
+        (self.root / "new.py").write_text("z = 9\n", encoding="utf-8")
+        diff = difftool.capture(self.baseline, ["a.py", "new.py"], str(self.root))
+        self.assertIn("+x = 2", diff)
+        self.assertIn("+z = 9", diff)
+
     def test_scope_paths_restrict_diff(self):
         (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
         (self.root / "other.py").write_text("y = 2\n", encoding="utf-8")
@@ -82,7 +132,8 @@ class TestCaptureWithGit(unittest.TestCase):
         self.assertEqual(diff, "")
 
     def test_missing_baseline_sha_is_graceful(self):
-        # A bad revision makes git exit 128 -> captured as empty, never raises.
+        # A bad revision -> no tracked diff; the file is tracked (not untracked),
+        # so nothing is emitted, and it never raises.
         (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
         diff = difftool.capture("deadbeefdeadbeef", ["a.py"], str(self.root))
         self.assertEqual(diff, "")
@@ -92,11 +143,20 @@ class TestCaptureWithGit(unittest.TestCase):
         diff = difftool.capture("", ["a.py"], str(self.root))
         self.assertIn("+x = 2", diff)
 
+    def test_capture_does_not_mutate_index(self):
+        # capture() must never stage or modify anything.
+        (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
+        (self.root / "new.py").write_text("z = 9\n", encoding="utf-8")
+        before = self._git("status", "--porcelain")
+        difftool.capture(self.baseline, ["a.py", "new.py"], str(self.root))
+        after = self._git("status", "--porcelain")
+        self.assertEqual(before, after)
+
 
 class TestCaptureGraceful(unittest.TestCase):
-    """Boundary: a non-repo directory must not raise."""
+    """Boundary: a non-repo directory with no matching files must not raise."""
 
-    def test_non_repo_returns_empty(self):
+    def test_non_repo_missing_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(difftool.capture("abc123", ["a.py"], tmp), "")
 
