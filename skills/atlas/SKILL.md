@@ -301,97 +301,236 @@ Then branch on the run mode:
 - → After that call returns, proceed immediately to **VERIFIED**. **Do not present the diff here**
   (Completion Invariant corollary 1).
 
-### VERIFIED  — 🚧 P2 STUB (full 6-eye lands in P3)
-> **This is the P2 verification stub: one CORRECTNESS critic + the deterministic `runcheck` lens.**
-> **P3 EXPANSION POINT** — replace this block with the full 6-eye harness: 3 isolated `plan` critics
-> (`correctness` / `code-quality` / `security`, per-lens prompt+temperature diversity) run as one
-> ≤3 wave, plus the 3 deterministic lenses (`quality.lint_deliverable`, `reqcoverage.coverage`,
-> `pathcheck.cross_check`), merged by `verdict.merge(critic_outputs, script_defects)` and gated by
-> the full `verdict.gate` PASS bar, with the red-team negative-fixture matrix (`make negative-gate`).
-> The stub already routes through `merge`/`gate` so the P3 upgrade only adds inputs.
+### VERIFIED  — the full 6-lens verification harness
+The 6 named lenses are scored here (rubric `references/rubric.md`): **3 fully-/advisory-deterministic
+lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck`; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
+6 REQUIREMENTS-COVERAGE = `reqcoverage.coverage`; plus `pathcheck.cross_check` grounding), and **3
+judgment lenses** run as isolated `Agent(subagent_type="plan")` critics (1 CORRECTNESS, 2
+CODE-QUALITY, 3 SECURITY). `verdict.merge` normalizes the 3 critic JSONs + the deterministic
+defect-lists into one canonical `merged_critic.json`; `verdict.gate` computes the PASS bar. **`merge`
+and `gate` are PURE — you (the LLM) never compute pass/fail;** you only marshal inputs into them.
 
-- **Capture the one deterministic diff** every lens reviews — from **`review_root`** (the tree the
-  coder actually wrote to, persisted at the pre-CODE gate), **never** a hard-coded `.`, or a headless
-  worktree diff is empty and the critic reviews nothing:
-  ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
-  from scripts import ctxstore, difftool
-  st = ctxstore.get_state(".atlas", "${KIMI_SESSION_ID}")
-  review_root = (ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "review_root") or ".").strip() or "."
-  # scope_paths are relative to review_root; baseline_sha resolves inside a worktree
-  # because it shares the parent repo's object DB.
-  diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
-  ctxstore.write_artifact(".atlas", "${KIMI_SESSION_ID}", "diff.patch", diff)
-  print("DIFF_BYTES=%d" % len(diff))
-  PY
-  ```
-- **Dispatch ONE `correctness` critic** via `Agent(subagent_type="plan", …)` (a critic must be
-  read-only ⇒ `plan`). Prompt it with **only** {frozen intent, the captured `diff.patch`, the
-  CORRECTNESS lens of `references/rubric.md`, the `runcheck` evidence below} and instruct it not to
-  read orchestrator/other state. It **returns the `critic` JSON** (dimensions/defects/verdict) as
-  its final message — you persist it:
-  `ctxstore.write_artifact(".atlas","${KIMI_SESSION_ID}","critic.json", <returned JSON>)`.
-- **Run `runcheck` deterministically** (lens 5, DOES-IT-RUN — executed by root Bash but with
-  **`cwd = review_root`** so it exercises the coder's actual tree, not the untouched main checkout;
-  mem-capped; re-check ≥3 GB `available` immediately before launch):
-  ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
-  import json
-  from scripts import ctxstore, runcheck, quality, verdict
-  st = ctxstore.get_state(".atlas", "${KIMI_SESSION_ID}")
-  review_root = (ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "review_root") or ".").strip() or "."
-  cmd = runcheck.discover_verify_cmd(st.get("verify_cmd",""), review_root)
-  rc = runcheck.run(cmd, review_root, timeout_s=1500, mem_limit_mb=2048)
-  ctxstore.write_artifact(".atlas", "${KIMI_SESSION_ID}", "runcheck.json", rc)
-  critic = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "critic.json")
-  schema_errors = quality.enforce_critic_schema(critic)   # re-prompt the critic once if non-empty
-  # Turn the DETERMINISTIC gates into merged-critic defects. REFINE? and OUTPUT read ONLY
-  # merged_critic.json's blocking defects, so a red runcheck (lens 5 — fully deterministic and
-  # mandatory in the PASS bar) MUST be synthesized into a blocking defect here, or the run could
-  # ship ✅ VERIFIED with failing/empty tests while the fallible critic emits nothing. Feeding these
-  # into merge() is what keeps should_refine()/final_status() in agreement with gate(); lens 5 is
-  # never entrusted to the LLM critic the design forbids trusting for it.
-  script_defects = []
-  if not runcheck.green(rc):                              # green == ok AND test_count>0 AND new tests collected
-      script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
-          "location": "verify_cmd",
-          "fix": "make build+tests green: exit 0, test_count>0, new/changed tests collected"})
-  if schema_errors:                                       # critic still malformed (belt-and-suspenders; see rebuild below)
-      script_defects.append({"id": "critic-schema", "category": "SCHEMA", "severity": "CRITICAL",
-          "location": "critic.json", "fix": "critic JSON must satisfy enforce_critic_schema"})
-  merged = verdict.merge([critic], script_defects)        # P3 appends the 3 deterministic lens defect-lists here too
-  status = verdict.gate(merged, {"runcheck": rc, "schema_errors": schema_errors})
-  ctxstore.write_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json", merged)
-  print(json.dumps({"provisional_status": status, "schema_errors": schema_errors}))
-  PY
-  ```
-  If `schema_errors` is non-empty, re-dispatch the critic **once** quoting the exact errors + the
-  required shape; still malformed → rebuild a minimal valid `critic.json` from the deterministic
-  checks only (the `runcheck` result), then **re-run this block** so `merged_critic.json` is built
-  from a well-formed critic. Because `merged_critic.json` now carries the deterministic runcheck
-  defect, the downstream steps that read **only** the merged critic stay consistent with `gate()`: a
-  red runcheck forces a refine pass (REFINE?), and once the pass budget is spent it makes OUTPUT
-  `⚠️ UNVERIFIED` — it can never present a false ✅.
+> **Memory safety (peak of the whole run).** The 3-critic wave is the run's **peak concurrency =
+> exactly 3** (the cap). CODED **finished** before VERIFIED begins, so `coder` and critics **never
+> coexist**. `runcheck` launches an arbitrary target build (unbounded RSS), so it is mem-capped and
+> re-guarded on `available` immediately before launch. Every spawn/launch below is preceded by a
+> `free -m` ≥3 GB guard.
+
+> **Note (P3b).** The red-team negative-fixture matrix that PROVES each judgment eye has teeth
+> (`tests/fixtures/{good,bad_correctness,bad_security,bad_quality}` + `make negative-gate`) is built
+> in **P3b**; this block is the harness those fixtures exercise.
+
+**Step 1 — Capture the one deterministic diff** every lens reviews, and build the `{path: text}`
+file maps lens 4 needs — from **`review_root`** (the tree the coder actually wrote to, persisted at
+the pre-CODE gate), **never** a hard-coded `.`, or a headless worktree diff is empty and every lens
+reviews nothing:
+```
+PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+import os, re, fnmatch
+from scripts import ctxstore, difftool
+run = "${KIMI_SESSION_ID}"
+st = ctxstore.get_state(".atlas", run)
+review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
+# scope_paths are relative to review_root; baseline_sha resolves inside a worktree
+# because it shares the parent repo's object DB.
+diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
+ctxstore.write_artifact(".atlas", run, "diff.patch", diff)
+# Split the changed files into non-test vs test by the frozen test_glob, reading each
+# from review_root, so quality.lint_deliverable(changed_files, test_files, config) can run.
+test_glob = st.get("test_glob") or "test_*.py"
+paths = [p.strip() for p in re.findall(r"^\+\+\+ (?:b/)?(.+)$", diff, re.M)]
+changed_files, test_files = {}, {}
+for rel in dict.fromkeys(p for p in paths if p and p != "/dev/null"):
+    full = os.path.join(review_root, rel)
+    if not os.path.isfile(full):
+        continue
+    try:
+        text = open(full, encoding="utf-8", errors="replace").read()
+    except OSError:
+        continue
+    (test_files if fnmatch.fnmatch(os.path.basename(rel), test_glob) else changed_files)[rel] = text
+ctxstore.write_artifact(".atlas", run, "changed_files.json", changed_files)
+ctxstore.write_artifact(".atlas", run, "test_files.json", test_files)
+print("DIFF_BYTES=%d CHANGED=%d TESTS=%d" % (len(diff), len(changed_files), len(test_files)))
+PY
+```
+
+**Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`** (mem-guarded before `runcheck`). Collect
+their defects into `det_evidence.json` — the evidence the judgment critics also receive:
+```
+# Memory guard: runcheck launches an arbitrary build (unbounded RSS) — require >=3 GB available.
+avail=$(free -m | awk '/^Mem:/ {print $7}')
+echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/serialize before launching runcheck"
+PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+import json, pathlib
+from scripts import ctxstore, runcheck, quality, reqcoverage, pathcheck, check_artifact_naming
+run = "${KIMI_SESSION_ID}"
+st = ctxstore.get_state(".atlas", run)
+review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
+diff = ctxstore.read_artifact(".atlas", run, "diff.patch")
+changed_files = ctxstore.read_artifact(".atlas", run, "changed_files.json")
+test_files = ctxstore.read_artifact(".atlas", run, "test_files.json")
+try:
+    ctx = ctxstore.read_artifact(".atlas", run, "context.json")   # scout grounding digest (may be absent → degraded)
+except Exception:
+    ctx = {}
+
+# Lens 5 DOES-IT-RUN — fully deterministic, root Bash, mem-capped + hard timeout. cwd = review_root
+# so it exercises the coder's ACTUAL tree, not the untouched main checkout.
+cmd = runcheck.discover_verify_cmd(st.get("verify_cmd", ""), review_root)
+rc = runcheck.run(cmd, review_root, timeout_s=1500, mem_limit_mb=2048)
+ctxstore.write_artifact(".atlas", run, "runcheck.json", rc)
+
+# Lens 4 TEST-ADEQUACY / debug-token floor — config-driven, language-agnostic, MEDIUM-capped (V6).
+config = {"debug_tokens": st.get("debug_tokens", []), "test_glob": st.get("test_glob", "")}
+lint_defects = quality.lint_deliverable(changed_files, test_files, config)
+
+# Lens 6 REQUIREMENTS-COVERAGE — FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
+reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff, st.get("scope_paths"))
+
+# Grounding backstop for lenses 1/6 — a cited path that does not exist is a CRITICAL CORRECTNESS defect.
+pathcheck_defects = pathcheck.cross_check(diff, ctx, review_root)
+
+# PASS-bar item 5: naming/inventory clean for any DOCS touched (.md only — check_file errors on non-.md).
+docs_clean = True
+for rel in list(changed_files) + list(test_files):
+    if rel.endswith(".md"):
+        errs, _ = check_artifact_naming.check_file(pathlib.Path(review_root), rel)
+        if errs:
+            docs_clean = False
+evidence = {"verify_cmd": cmd, "runcheck": rc, "runcheck_green": runcheck.green(rc),
+            "lint_defects": lint_defects, "reqcoverage_defects": reqcoverage_defects,
+            "pathcheck_defects": pathcheck_defects, "docs_clean": docs_clean}
+ctxstore.write_artifact(".atlas", run, "det_evidence.json", evidence)
+print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": docs_clean,
+                  "lint": len(lint_defects), "reqcov": len(reqcoverage_defects),
+                  "pathcheck": len(pathcheck_defects)}))
+PY
+```
+
+**Step 3 — Dispatch the 3 judgment critics as ONE ≤3 wave** of `Agent(subagent_type="plan", …)`
+(a critic must be read-only ⇒ `plan`). **Free-mem guard:** read `available` from `free -m`; **if
+≥3 GB, dispatch all THREE concurrently as one wave (≤3 — the cap); else DOWNGRADE to sequential**
+(one critic, wait, next). Never exceed 3 concurrent agents. For **each** critic — correctness
+(→CORRECTNESS lens 1), code-quality (→CODE-QUALITY lens 2), security (→SECURITY lens 3):
+1. `Read` `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md` and **strip its YAML frontmatter**.
+2. **Prepend the body**, then append the **isolated packet — ONLY**: `{frozen intent +
+   success_criteria, the captured `diff.patch`, that critic's single rubric lens from
+   `references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
+   (no orchestrator state, no other critic's output) — isolation is prompt-level (F6), it buys
+   anti-anchoring. The per-lens evidence slice:
+   - **correctness** ← `runcheck` (`ok`/`test_count`/`new_tests_collected`/`revert_red`/tails) +
+     `reqcoverage_defects` + the `TEST-ADEQUACY` `lint_defects`,
+   - **code-quality** ← the full `lint_defects`,
+   - **security** ← any static security findings (the current scripts emit none — say so explicitly
+     so the critic knows the grep floor is empty and this lens rests on its own reading).
+3. Call `Agent(subagent_type="plan", prompt=<role body + packet>[, temperature=<distinct>])`. **Per
+   V5, set a DISTINCT temperature per lens if the `Agent` tool exposes one** (suggested: correctness
+   `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
+   already baked into each role file carries the diversity.**
+4. Each critic **RETURNS its `critic` JSON as its final message and WRITES NOTHING** (read-only
+   `plan` — F2; the ROOT persists). Parse it; if it is not valid JSON, re-dispatch that **one**
+   critic once asking for a bare JSON object only. **You persist each returned JSON** via
+   `ctxstore.write_artifact`: correctness → `critic_correctness.json`, code-quality →
+   `critic_code_quality.json`, security → `critic_security.json`.
+
+**Step 4 + 5 — Merge (PURE) → enforce schema on the merged shape → Gate (PURE)** the full PASS bar:
+```
+PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+import json
+from scripts import ctxstore, quality, verdict, runcheck
+run = "${KIMI_SESSION_ID}"
+ev = ctxstore.read_artifact(".atlas", run, "det_evidence.json")
+rc = ev["runcheck"]
+critics = []
+for name in ("critic_correctness.json", "critic_code_quality.json", "critic_security.json"):
+    try:
+        critics.append(ctxstore.read_artifact(".atlas", run, name))
+    except Exception:
+        critics.append({"dimensions": {}, "defects": [], "verdict": "OK"})
+
+# script_defects = the 3 deterministic lens defect-lists + synthesized CRITICALs. Feeding these
+# into merge() is what keeps should_refine()/final_status() (which read ONLY merged_critic's
+# blocking defects) in AGREEMENT with gate(): EVERY deterministic gate() failure condition MUST
+# become a blocking merged defect, or the run could ship a false ✅ VERIFIED while the fallible
+# critics emit nothing. That covers a red runcheck (lens 5), schema errors, AND docs_clean (PASS-bar
+# item 5) — each a gate() condition, so each is synthesized here. Lens 5 is never entrusted to the
+# LLM critic the design forbids trusting for it.
+script_defects = []
+script_defects += ev["lint_defects"]
+script_defects += ev["reqcoverage_defects"]
+script_defects += ev["pathcheck_defects"]
+if not runcheck.green(rc):     # green == ok AND test_count>0 AND new/changed tests collected
+    script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
+        "location": "verify_cmd (%s)" % ev.get("verify_cmd", ""),
+        "fix": "make build+tests green: exit 0, test_count>0, new/changed tests collected"})
+if not ev["docs_clean"]:       # gate() returns UNVERIFIED on a dirty doc — mirror it as a blocking
+    script_defects.append({"id": "docs-naming", "category": "CODE-QUALITY", "severity": "CRITICAL",
+        "location": "changed .md docs",
+        "fix": "fix artifact naming / inventory-drift so check_artifact_naming passes"})
+
+merged = verdict.merge(critics, script_defects)             # PURE — no model judgment
+schema_errors = quality.enforce_critic_schema(merged)       # validate the MERGED (canonical) shape
+if schema_errors:      # a critic returned a malformed shape → synthesize a blocking SCHEMA defect
+    script_defects.append({"id": "critic-schema", "category": "SCHEMA", "severity": "CRITICAL",
+        "location": "merged_critic.json", "fix": "critic JSON must satisfy enforce_critic_schema"})
+    merged = verdict.merge(critics, script_defects)
+
+# gate() reads these EXACT keys (verdict.gate): runcheck, schema_errors, lint_defects,
+# reqcoverage_defects, pathcheck_defects, docs_clean. This is the full PASS bar.
+gate_results = {"runcheck": rc, "schema_errors": schema_errors,
+                "lint_defects": ev["lint_defects"], "reqcoverage_defects": ev["reqcoverage_defects"],
+                "pathcheck_defects": ev["pathcheck_defects"], "docs_clean": ev["docs_clean"]}
+status = verdict.gate(merged, gate_results)                 # PURE — "OK" | "UNVERIFIED"
+ctxstore.write_artifact(".atlas", run, "merged_critic.json", merged)
+ctxstore.write_artifact(".atlas", run, "gate_results.json", gate_results)
+blocking = [d for d in merged["defects"] if d.get("severity") in ("CRITICAL", "HIGH")]
+print(json.dumps({"provisional_status": status, "schema_errors": schema_errors, "blocking": blocking}))
+PY
+```
+If `schema_errors` is non-empty, re-dispatch the offending critic **once** quoting the exact errors +
+the required shape; still malformed → the synthesized `SCHEMA` CRITICAL keeps `merged_critic.json`
+blocking, so the run degrades to `⚠️ UNVERIFIED` rather than presenting a false ✅. Because
+`merged_critic.json` now carries every deterministic gate() failure (runcheck, lint, reqcoverage,
+pathcheck, docs-naming, schema), the downstream steps that read **only** the merged critic stay
+consistent with `gate()`.
+
+> **V7 — encoded at REFINE? (below).** The PASS bar (`gate`) blocks on CRITICAL/HIGH only, but per
+> V7 **any CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass.** Because
+> those defects are already in `merged_critic.json` (critic + `pathcheck`), REFINE? enforces the rule
+> by inspecting the merged defects' categories — see its decision block.
+
 - `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", verdict="<provisional_status>")`.
 - → After that call returns, proceed immediately to **REFINE?**. Do not stop.
 
 ### REFINE?  (conditional — provably-halting, hard cap `MAX_PASSES=2`)
-- Read the **authoritative** pass count from the ledger (never from memory) and decide:
+- Read the **authoritative** pass count from the ledger (never from memory) and decide. The base
+  rule is `should_refine` (a CRITICAL/HIGH defect **and** `passes < MAX_PASSES=2`); layered on top is
+  the **V7 conservative rule** — **any CORRECTNESS or SECURITY defect at ANY severity forces at least
+  one refine pass** (a downgraded-but-present correctness/security concern still drives a fix). The V7
+  clause is guarded by `passes < 1`, so it forces **exactly one** extra pass and, combined with
+  `should_refine`'s cap, the loop still provably halts at **≤2** re-drafts:
   ```
   PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   from scripts import ctxstore, verdict
   passes = ctxstore.get_refine_passes(".atlas", "${KIMI_SESSION_ID}")
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
-  print("REFINE=" + str(verdict.should_refine(merged, passes)) + " PASSES=" + str(passes))
+  should = verdict.should_refine(merged, passes)            # CRITICAL/HIGH + passes < MAX_PASSES(2)
+  # V7: any CORRECTNESS/SECURITY defect at ANY severity forces >=1 refine pass. Guard passes < 1
+  # so it drives exactly one pass (should_refine's cap still bounds the blocking case at 2) — halts.
+  v7 = passes < 1 and any(d.get("category") in ("CORRECTNESS", "SECURITY")
+                          for d in merged.get("defects", []))
+  print("REFINE=" + str(should or v7) + " PASSES=" + str(passes))
   PY
   ```
-- **`True`** → record the refine pass, then loop back to **CODED** re-dispatching the coder with
-  each CRITICAL/HIGH `fix` from `merged_critic.json`:
+- **`True`** (either `should_refine` or the V7 clause) → record the refine pass, then loop back to
+  **CODED** re-dispatching the coder with each CRITICAL/HIGH `fix` (and any forcing CORRECTNESS/
+  SECURITY `fix`) from `merged_critic.json`:
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","REFINE")` (this increments the persisted
   `refine_passes` to the count of `REFINE` ledger lines). Then re-run CODED → VERIFIED.
 - **`False`** → proceed to **OUTPUT**.
-- The hard cap is enforced by `should_refine` (`passes < 2`), so the loop halts at **exactly 2**
-  re-drafts regardless of anything else.
+- The hard cap is enforced by `should_refine` (`passes < 2`) and the `passes < 1` V7 guard, so the
+  loop halts at **≤2** re-drafts regardless of anything else.
 - → This is a decision, not a pause: loop to **CODED** on `True`, go to **OUTPUT** on `False`.
   Never end your turn here.
 
