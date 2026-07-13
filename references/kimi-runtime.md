@@ -80,13 +80,13 @@ Sessions live at `/root/.kimi-code/sessions/wd_{basename}_{sha256[:12] of abs wo
 
 ## 11. Probe log (residual unknowns → findings)
 
-_Populated during PLAN.md P4. Each `../probe/*.sh` records its finding here._
+Populated by PLAN.md P4b (probes run in a throwaway `KIMI_CODE_HOME`, never the live runtime). Each unknown has a graceful fallback (PLAN §9), so an "uncertain/deferred" finding is safe — the design never hard-depends on it.
 
-| Unknown | Probe | Finding |
+| Unknown | Probe | Finding (2026-07-13) |
 |---|---|---|
-| sessionStart re-injection after compaction | `probe_sessionstart.sh` | _pending_ |
-| hook exit-2 blocking contract | `probe_hook_block.sh` | _pending_ |
-| AgentSwarm interface/casing | `probe_agentswarm.sh` | _pending_ |
-| AGENTS.md discovery (.kimi vs .kimi-code, 32 KiB) | `probe_agents_md.sh` | _pending_ |
-| loop_control numeric defaults | `probe_loopcontrol.sh` | _pending_ |
-| ${KIMI_SESSION_ID} stability across compaction | `probe_runid_stability.sh` | _pending_ |
+| hook exit-2 blocking contract (R6) | `probe_hook_block.sh` | **CONFIRMED** — BOTH mechanisms honored: exit 2 (+stderr reason) AND `{hookSpecificOutput:{permissionDecision:"deny"}}` (exit 0) each blocked a destructive Bash command while a benign one passed. The opt-in `guard-destructive.sh` works via either path. |
+| AgentSwarm interface/casing (R5) | `probe_agentswarm.sh` | **CONFIRMED (advisory)** — tool is `AgentSwarm` (PascalCase); params near `agents/concurrency/prompt/subagent_type/tasks`; a per-call denial path (`AgentSwarmDenied…`) exists. Not depended on — critic wave uses plain `Agent` ≤3. |
+| AGENTS.md discovery (`.kimi` vs `.kimi-code`, 32 KiB) (R2) | `probe_agents_md.sh` | **CORRECTED** — scanned locations are root `AGENTS.md` and `.kimi-code/AGENTS.md` (NOT `.kimi`). No truncation observed at ~47 KB, so the "32 KiB budget" is unconfirmed/likely larger. AGENTS.md is optimization-only (orchestration guidance also ships in the SKILL). |
+| loop_control numeric defaults (R4) | `probe_loopcontrol.sh` | **PARTIAL** — `loop_control.max_steps_per_turn` is real and configurable (`LOOP_MAX_STEPS_EXCEEDED`, `config.toml [loop_control]`); exact numeric defaults not baked/extracted. kimi-atlas caps its own refine loop at `MAX_PASSES=2` regardless. |
+| `${KIMI_SESSION_ID}` stability across compaction (DS-2) | `probe_runid_stability.sh` | **UNCERTAIN** — not exercised across a forced compaction (deferred with the compaction probe). Fallback holds: resume discovery keys off "newest non-OUTPUT `.atlas/*`", which works even if the id changes. |
+| sessionStart re-injection after compaction (F4) | `probe_sessionstart.sh` | **DEFERRED to P5** — forcing a ~223 K-token compaction is a very expensive dedicated run; the P5 dogfood real-task E2E may cross the 0.85 threshold naturally and exercise it. Fallback holds: the surviving user `TextPart` re-triggers, and the `atlas-resume` skill instructs an on-disk `.atlas/` scan. |
