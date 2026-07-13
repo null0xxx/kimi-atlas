@@ -1,0 +1,10 @@
+#!/bin/sh
+# Opt-in pre-commit hook: run the same CI checks as GitHub Actions.
+# Installed via scripts/install-hooks.sh (sets core.hooksPath to .githooks).
+
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+make ci

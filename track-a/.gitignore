@@ -1,0 +1,24 @@
+# OS / editor temp files
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Kimi sessions (if local session cache is ever placed here)
+.kimi/sessions/
+
+# Build / artifacts
+build/
+dist/
+*.log
