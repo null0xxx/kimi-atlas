@@ -1,0 +1,13 @@
+{
+  "intent": "Add a pure median(numbers) function that returns the median of a sequence of numbers.",
+  "success_criteria": [
+    "median returns the middle value for an odd-length sequence",
+    "median returns the mean of the two middle values for an even-length sequence",
+    "median raises ValueError on an empty input sequence",
+    "median does not mutate its input sequence"
+  ],
+  "verify_cmd": "python3 -m unittest test_median",
+  "scope_paths": ["median.py", "test_median.py"],
+  "expected_verdict": "OK",
+  "expected_lens": null
+}

@@ -1,0 +1,12 @@
+{
+  "intent": "Add a count_matches(pattern, path) function that returns how many lines in a file contain a search pattern, using grep.",
+  "success_criteria": [
+    "count_matches returns the number of lines in the file that contain the pattern",
+    "count_matches uses grep to perform the line search",
+    "count_matches returns zero when no line matches the pattern"
+  ],
+  "verify_cmd": "python3 -m unittest test_linecount",
+  "scope_paths": ["linecount.py", "test_linecount.py"],
+  "expected_verdict": "UNVERIFIED",
+  "expected_lens": "SECURITY"
+}

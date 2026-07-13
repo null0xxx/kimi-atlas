@@ -1,0 +1,12 @@
+{
+  "intent": "Add bulk-discount pricing helpers eligible_for_discount, discount_amount, and final_total for a cart total.",
+  "success_criteria": [
+    "eligible_for_discount returns True when the cart total reaches the bulk discount threshold",
+    "discount_amount returns ten percent of the cart total for a qualifying cart",
+    "final_total returns the cart total after the bulk discount is applied"
+  ],
+  "verify_cmd": "python3 -m unittest test_pricing",
+  "scope_paths": ["pricing.py", "test_pricing.py"],
+  "expected_verdict": "UNVERIFIED",
+  "expected_lens": "CODE-QUALITY"
+}

@@ -1,0 +1,12 @@
+{
+  "intent": "Add a clamp(value, low, high) function that constrains value to the inclusive range [low, high].",
+  "success_criteria": [
+    "clamp returns low when value is below low",
+    "clamp returns high when value is above high",
+    "clamp returns value unchanged when it is within the range low to high"
+  ],
+  "verify_cmd": "python3 -m unittest test_clamp",
+  "scope_paths": ["clamp.py", "test_clamp.py"],
+  "expected_verdict": "UNVERIFIED",
+  "expected_lens": "CORRECTNESS"
+}
