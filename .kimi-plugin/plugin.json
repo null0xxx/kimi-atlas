@@ -16,6 +16,24 @@
     "name": "kimi-atlas"
   },
   "skills": "./skills/",
+  "sessionStart": { "skill": "./skills/atlas-resume/" },
+  "hooks": [
+    {
+      "event": "PostToolUse",
+      "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/telemetry.sh\"",
+      "timeout": 10
+    },
+    {
+      "event": "SubagentStart",
+      "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/telemetry.sh\"",
+      "timeout": 10
+    },
+    {
+      "event": "SubagentStop",
+      "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/telemetry.sh\"",
+      "timeout": 10
+    }
+  ],
   "skillInstructions": "kimi-atlas runs on Kimi Code's native tools. Real tool wire-names (PascalCase): Read, Write, Edit, Bash, Grep, Glob, ReadMediaFile, Agent, AskUserQuestion, TodoList, WebSearch, FetchURL, Skill. Subagent dispatch: the orchestrator calls the Agent tool with a built-in subagent_type only (coder|explore|plan) — custom types cannot be registered. To run a kimi-atlas role, first read the matching role file under the plugin's agents/ directory (${KIMI_SKILL_DIR}/../../agents/<role>.md), strip its YAML frontmatter, and prepend the body to the dispatch prompt: context-scout -> Agent(subagent_type=\"explore\"); correctness-critic / code-quality-critic / security-critic -> Agent(subagent_type=\"plan\"); elite-coder -> Agent(subagent_type=\"coder\"). Read-only subagents (explore/plan) return their result as JSON in their final message; the root orchestrator persists it. Script calls use the Bash tool with PYTHONPATH set to the plugin root (${KIMI_SKILL_DIR}/../..) so `from scripts import <mod>` resolves. Clarifying questions use AskUserQuestion. Generated code is never applied to a real working tree without a human gate.",
   "interface": {
     "displayName": "kimi-atlas",

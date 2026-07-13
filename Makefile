@@ -20,7 +20,7 @@ inventory-drift: ## Fail if references/README index drifts from the filesystem
 	python3 scripts/inventory_drift.py
 
 check-shell: ## Validate shell script syntax (hooks, installer, probes)
-	@for f in .githooks/pre-commit probe/*.sh; do [ -e "$$f" ] && sh -n "$$f" || true; done; echo "Shell scripts syntax OK."
+	@for f in .githooks/pre-commit hooks/*.sh probe/*.sh; do [ -e "$$f" ] && sh -n "$$f" || true; done; echo "Shell scripts syntax OK."
 
 negative-gate: ## Red-team fixture matrix: good->OK, each bad_*->UNVERIFIED (P3)
 	python3 scripts/run_negative_gate.py
