@@ -47,3 +47,32 @@ def charge_tokens(ledger: dict, n: int) -> dict:
     remaining = ledger.get("remaining", 0)
     charge = min(max(n, 0), remaining)
     return {"remaining": remaining - charge, "spent": ledger.get("spent", 0) + charge}
+
+
+# Relative cost to run one node's mandatory deterministic floor (scout + coder +
+# the free 6-lens floor). A fixed unit keeps the pre-flight transparent; later
+# phases may scale it by node size. Only used to SIZE the budget check.
+FLOOR_UNIT: int = 1
+
+
+def mandatory_floor_cost(node: dict, unit: int = FLOOR_UNIT) -> int:
+    """Relative cost to run one node's mandatory deterministic floor (≥1)."""
+    return max(1, unit)
+
+
+def budget_floor_gate(node_floor_costs: list[int], total_budget: int) -> dict:
+    """Report whether every node's mandatory floor is fundable up front.
+
+    The BUDGETED stage funds every node's mandatory deterministic floor BEFORE
+    any discretionary spend; if the floors alone exceed the budget the run must
+    refuse/clarify rather than start work it cannot finish. Returns a plain
+    status dict (``funded``/``required``/``available``/``shortfall``) — NOT a
+    rubric defect, because this is an orchestrator pre-flight, not a lens.
+    """
+    required = sum(node_floor_costs)
+    return {
+        "funded": required <= total_budget,
+        "required": required,
+        "available": total_budget,
+        "shortfall": max(0, required - total_budget),
+    }

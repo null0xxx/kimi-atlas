@@ -62,3 +62,27 @@ class ChargeTokensTests(unittest.TestCase):
         ledger = {"remaining": 100, "spent": 0}
         budget.charge_tokens(ledger, 40)
         self.assertEqual(ledger, {"remaining": 100, "spent": 0})
+
+
+class BudgetFloorTests(unittest.TestCase):
+    def test_mandatory_floor_cost_is_at_least_one_per_node(self) -> None:
+        self.assertGreaterEqual(budget.mandatory_floor_cost({"kind": "LEAF"}), 1)
+
+    def test_funded_when_floors_fit_budget(self) -> None:
+        result = budget.budget_floor_gate([1, 1, 1], total_budget=5)
+        self.assertTrue(result["funded"])
+        self.assertEqual(result["required"], 3)
+        self.assertEqual(result["shortfall"], 0)
+
+    def test_not_funded_when_floors_exceed_budget(self) -> None:
+        result = budget.budget_floor_gate([2, 2, 2], total_budget=5)
+        self.assertFalse(result["funded"])
+        self.assertEqual(result["required"], 6)
+        self.assertEqual(result["available"], 5)
+        self.assertEqual(result["shortfall"], 1)
+
+    def test_exactly_at_budget_is_funded(self) -> None:
+        self.assertTrue(budget.budget_floor_gate([2, 3], total_budget=5)["funded"])
+
+    def test_empty_is_funded(self) -> None:
+        self.assertTrue(budget.budget_floor_gate([], total_budget=0)["funded"])
