@@ -211,6 +211,10 @@ clarifies if it cannot fund every node's mandatory floor; `token_budget` is a **
 
 ## §9. Phased build (each phase independently valuable; each degrades to atlas)
 
+The first phase is fully specified as a test-first plan:
+[`docs/superpowers/plans/2026-07-16-atlas-weave-p6-pure-cores.md`](../docs/superpowers/plans/2026-07-16-atlas-weave-p6-pure-cores.md).
+Subsequent phase-plans (P7, P10, P8, P11, P9, P12) follow the same TDD structure as each prior phase lands.
+
 | Phase | Goal | Deliverable |
 |---|---|---|
 | **P6** | Pure cores first (no LLM, no runtime) | `scripts/plandag.py` + `verdict.aggregate` + coverage-partition + schema blocks + red-team unit fixtures (cyclic, overlapping-scope, over-depth/node, gas-exhausted, dropped-requirement) |
