@@ -46,3 +46,24 @@ def select_graph_run(runs: list[dict], session_id: str) -> str | None:
         if r.get("run_id") == session_id:
             return r["run_id"]
     return max(candidates, key=lambda r: r.get("mtime", 0))["run_id"]
+
+
+def resume(dag: dict) -> dict:
+    """Reset orphaned RUNNING jobs to PENDING for a fresh scheduler start (pure).
+
+    After a turn-kill/compaction every RUNNING job is orphaned (its agent died with the
+    turn), so reset it to PENDING and clear its lease — the scheduler then re-derives the
+    frontier (``plandag.ready_jobs``) and re-dispatches it. Deliberately does NOT
+    ``attempts++`` (a compaction is not an agent failure; a genuinely-stuck job is still
+    bounded by the live lease-clock ``scheduler.reap_expired``) and NOT refund gas
+    (charge-at-dispatch: the interrupted dispatch already spent its fuel, so re-dispatch is
+    bounded by the gas budget — halting preserved, fuel never re-lent). Idempotent: a dag
+    with no RUNNING jobs is returned unchanged. Terminal (DONE/FAILED) and PENDING jobs are
+    untouched, so no job is ever dropped.
+    """
+    out = copy.deepcopy(dag)
+    for job in out.get("jobs", []):
+        if job.get("state") == "RUNNING":
+            job.pop("lease", None)
+            job["state"] = "PENDING"
+    return out
