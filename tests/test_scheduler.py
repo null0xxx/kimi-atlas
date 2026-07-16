@@ -314,3 +314,33 @@ class MeasureTests(unittest.TestCase):
         self.assertTrue(scheduler.is_terminated(done))
         pend = _pending_dag(["CRITIC"])
         self.assertFalse(scheduler.is_terminated(pend))
+
+
+class AggregateTests(unittest.TestCase):
+    def _clean_critic(self):
+        return {"dimensions": {}, "defects": [], "verdict": "OK"}
+
+    def test_unresolved_nodes(self) -> None:
+        jobs = [{"job_id": "a#0", "node_id": "a", "state": "DONE"},
+                {"job_id": "b#0", "node_id": "b", "state": "FAILED"}]
+        dag = {"meta": {}, "nodes": {"a": {}, "b": {}, "c": {}}, "jobs": jobs}  # c has no job
+        self.assertEqual(scheduler.unresolved_nodes(dag), ["b", "c"])
+
+    def test_failed_node_forces_fail_verdict(self) -> None:
+        jobs = [{"job_id": "a#0", "node_id": "a", "state": "DONE"},
+                {"job_id": "b#0", "node_id": "b", "state": "FAILED"}]
+        dag = {"meta": {"gas_remaining": 5}, "nodes": {"a": {}, "b": {}}, "jobs": jobs}
+        merged = scheduler.final_aggregate(dag, {"a": self._clean_critic()}, None)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
+        self.assertTrue(any(d["id"] == "unresolved:b" for d in merged["defects"]))
+
+    def test_missing_node_verdict_is_skipped_no_keyerror(self) -> None:
+        dag = {"meta": {"gas_remaining": 5},
+               "nodes": {"a": {}}, "jobs": [{"job_id": "a#0", "node_id": "a", "state": "DONE"}]}
+        merged = scheduler.final_aggregate(dag, None, None)  # no verdicts supplied
+        self.assertEqual(merged["verdict"], "OK")  # resolved + no defects
+
+    def test_run_status_unverified_when_gas_frozen(self) -> None:
+        dag = {"meta": {"gas_remaining": 0}, "nodes": {}, "jobs": []}
+        self.assertEqual(scheduler.run_status(dag, {"defects": []}), "UNVERIFIED")

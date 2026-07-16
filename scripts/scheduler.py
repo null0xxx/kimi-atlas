@@ -291,3 +291,52 @@ def measure(dag: dict) -> tuple[int, int, int]:
 def is_terminated(dag: dict) -> bool:
     """The SCHEDULE* loop condition: ``plandag.is_fixpoint`` (no ready jobs AND nothing RUNNING)."""
     return plandag.is_fixpoint(dag)
+
+
+def unresolved_nodes(dag: dict) -> list[str]:
+    """Sorted node_ids whose jobs are not ALL DONE (FAILED / capped / blocked / no job).
+
+    Feeds the synthesized UNVERIFIED defect so a dead or incomplete frontier can never
+    fold to OK.
+    """
+    by_node: dict[str, list[str]] = {}
+    for job in dag.get("jobs", []):
+        by_node.setdefault(job.get("node_id"), []).append(job.get("state"))
+    out = []
+    for nid in dag.get("nodes", {}):
+        states = by_node.get(nid, [])
+        if not states or any(s != "DONE" for s in states):
+            out.append(nid)
+    return sorted(out)
+
+
+def final_aggregate(dag: dict, node_verdicts_by_node: dict | None = None,
+                    integration_verdict: dict | None = None) -> dict:
+    """Fold each node's stored verdict + a synthetic UNVERIFIED defect per unresolved node.
+
+    Reads each node's merged verdict via ``.get`` (missing -> skipped, never KeyError);
+    appends a blocking ``CORRECTNESS``/``CRITICAL`` ``unresolved:{nid}`` defect for every
+    ``unresolved_nodes`` entry; returns ``verdict.aggregate(critics, integration_verdict)``.
+    Because ``verdict.merge`` folds FAIL iff any defect is CRITICAL/HIGH, a single
+    unresolved/FAILED node forces the run to FAIL — a passing sibling can never mask it,
+    so a dead frontier yields the mandated PARTIAL ⚠️ UNVERIFIED and never a fabricated pass.
+    """
+    node_verdicts_by_node = node_verdicts_by_node or {}
+    critics = [node_verdicts_by_node[nid] for nid in dag.get("nodes", {})
+               if node_verdicts_by_node.get(nid) is not None]
+    unresolved = unresolved_nodes(dag)
+    if unresolved:
+        defects = [{"id": f"unresolved:{nid}", "category": "CORRECTNESS", "severity": "CRITICAL",
+                    "location": nid, "fix": f"node {nid} did not resolve (failed/blocked/incomplete)"}
+                   for nid in unresolved]
+        critics.append(verdict.merge([], defects))
+    return verdict.aggregate(critics, integration_verdict)
+
+
+def run_status(dag: dict, aggregate_critic: dict, budget_exhausted: bool = False) -> str:
+    """``verdict.final_status`` OR-ing gas-exhaustion into ``budget_exhausted`` -> ``OK``/``UNVERIFIED``.
+
+    A gas-frozen run is UNVERIFIED unconditionally. Descriptive label only — pass/fail is
+    computed inside ``verdict.merge``, never here.
+    """
+    return verdict.final_status(aggregate_critic, budget_exhausted or plandag.gas_exhausted(dag))
