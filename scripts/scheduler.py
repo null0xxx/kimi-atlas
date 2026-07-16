@@ -40,3 +40,66 @@ def job_class(job: dict) -> str:
 def class_rss_mb(cls: str) -> int:
     """Return the §6 resident cost (MB) of an RSS class; unknown class -> build cost."""
     return RSS_MB.get(cls, RSS_MB["build"])
+
+
+def running_jobs(dag: dict) -> list[dict]:
+    """Order-stable list of jobs currently ``RUNNING`` — the in-flight footprint source."""
+    return [j for j in dag.get("jobs", []) if j.get("state") == "RUNNING"]
+
+
+def in_flight_acc(dag: dict) -> dict:
+    """Seed a budget accumulator from the RUNNING jobs.
+
+    ``{count, rss_mb, new_rss_mb, has_build, has_coder}``. ``new_rss_mb`` starts at 0
+    because the in-flight jobs' RSS is already reflected in the live ``free_mb`` sample
+    (so the free-floor gate must not double-count them). ``rss_mb`` DOES include them,
+    for the absolute ceiling check.
+    """
+    acc = {"count": 0, "rss_mb": 0, "new_rss_mb": 0, "has_build": False, "has_coder": False}
+    for job in running_jobs(dag):
+        cls = job_class(job)
+        acc["count"] += 1
+        acc["rss_mb"] += class_rss_mb(cls)
+        if cls == "build":
+            acc["has_build"] = True
+        elif cls == "coder":
+            acc["has_coder"] = True
+    return acc
+
+
+def can_admit(acc: dict, job: dict, free_mb: int) -> bool:
+    """The full §6 admission conjunction for adding ``job`` to the current wave.
+
+    ``count < W_MAX`` AND ``ROOT_RSS_MB + acc.rss_mb + rss <= CEILING_MB`` (absolute
+    ceiling, builds included) AND ``free_mb - (acc.new_rss_mb + rss) >= FREE_FLOOR_MB``
+    (dynamic free floor over only the NEW jobs) AND the structural rule: a build forbids
+    any 2nd build OR any coder; a coder forbids any build. The structural rule is
+    load-bearing — ``build+coder`` (1024+2048+1300=4372) passes the numeric ceiling and
+    is forbidden ONLY here.
+    """
+    cls = job_class(job)
+    rss = class_rss_mb(cls)
+    if acc["count"] >= W_MAX:
+        return False
+    if ROOT_RSS_MB + acc["rss_mb"] + rss > CEILING_MB:
+        return False
+    if free_mb - (acc["new_rss_mb"] + rss) < FREE_FLOOR_MB:
+        return False
+    if cls == "build" and (acc["has_build"] or acc["has_coder"]):
+        return False
+    if cls == "coder" and acc["has_build"]:
+        return False
+    return True
+
+
+def admit(acc: dict, job: dict) -> dict:
+    """Return a NEW accumulator with ``job`` folded in (pure; input untouched)."""
+    cls = job_class(job)
+    rss = class_rss_mb(cls)
+    out = dict(acc)
+    out["count"] = acc["count"] + 1
+    out["rss_mb"] = acc["rss_mb"] + rss
+    out["new_rss_mb"] = acc["new_rss_mb"] + rss
+    out["has_build"] = acc["has_build"] or cls == "build"
+    out["has_coder"] = acc["has_coder"] or cls == "coder"
+    return out
