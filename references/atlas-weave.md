@@ -224,12 +224,13 @@ clarifies if it cannot fund every node's mandatory floor; `token_budget` is a **
 
 ## §9. Phased build (each phase independently valuable; each degrades to atlas)
 
-The first phases are fully specified as test-first plans:
+The phases are specified as test-first plans:
 [P6 — pure cores](../docs/superpowers/plans/2026-07-16-atlas-weave-p6-pure-cores.md),
-[P7 — decompose + budget](../docs/superpowers/plans/2026-07-16-atlas-weave-p7-decompose-budget.md), and
-[P10 — integrate sink](../docs/superpowers/plans/2026-07-16-atlas-weave-p10-integrate-sink.md) (all landed on `main`),
-and [P8 — scheduler](../docs/superpowers/plans/2026-07-16-atlas-weave-p8-scheduler.md).
-The remaining phase-plans (P11, P9, P12) follow the same TDD structure as each prior phase lands.
+[P7 — decompose + budget](../docs/superpowers/plans/2026-07-16-atlas-weave-p7-decompose-budget.md),
+[P10 — integrate sink](../docs/superpowers/plans/2026-07-16-atlas-weave-p10-integrate-sink.md), and
+[P8 — scheduler](../docs/superpowers/plans/2026-07-16-atlas-weave-p8-scheduler.md) (all landed on `main`),
+plus [P11 — resume](../docs/superpowers/plans/2026-07-16-atlas-weave-p11-resume.md).
+The remaining phase-plans (P9, P12) follow the same TDD structure as each prior phase lands.
 
 | Phase | Goal | Deliverable |
 |---|---|---|
