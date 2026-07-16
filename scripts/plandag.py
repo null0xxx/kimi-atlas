@@ -46,3 +46,52 @@ def is_dag(nodes: dict) -> bool:
             if indeg[nxt] == 0:
                 queue.append(nxt)
     return peeled == len(ids)
+
+
+def _norm(path: str) -> str:
+    """Normalize a scope path for prefix comparison (strip surrounding slashes/space)."""
+    return path.strip().strip("/").replace("\\", "/")
+
+
+def scope_overlap(a: list[str], b: list[str]) -> bool:
+    """Return True iff any path in ``a`` overlaps any path in ``b``.
+
+    Two paths overlap when they are equal or one is a directory-prefix of the
+    other (``src`` overlaps ``src/mod.py``). Sibling directories that merely share
+    a prefix segment (``src/a`` vs ``src/b``) do NOT overlap.
+    """
+    for pa in a:
+        na = _norm(pa)
+        if not na:
+            continue
+        for pb in b:
+            nb = _norm(pb)
+            if not nb:
+                continue
+            if na == nb or nb.startswith(na + "/") or na.startswith(nb + "/"):
+                return True
+    return False
+
+
+def disjoint(nodes: dict) -> list[dict]:
+    """Return a canonical-defect list for every pair of nodes with overlapping scope.
+
+    Two concurrently-schedulable nodes editing overlapping ``scope_paths`` would
+    corrupt each other's tree (constraint 6), so each overlapping pair is a
+    blocking ``CORRECTNESS``/``CRITICAL`` defect. An empty list means fully disjoint.
+    """
+    defects: list[dict] = []
+    items = list(nodes.items())
+    for i in range(len(items)):
+        id_a, node_a = items[i]
+        for j in range(i + 1, len(items)):
+            id_b, node_b = items[j]
+            if scope_overlap(node_a.get("scope_paths", []), node_b.get("scope_paths", [])):
+                defects.append({
+                    "id": f"scope-overlap:{id_a}~{id_b}",
+                    "category": "CORRECTNESS",
+                    "severity": "CRITICAL",
+                    "location": f"nodes {id_a}, {id_b}",
+                    "fix": f"scope_paths of {id_a} and {id_b} overlap; make node scopes disjoint",
+                })
+    return defects

@@ -53,3 +53,42 @@ class IsDagTests(unittest.TestCase):
 
     def test_dangling_dep_is_rejected(self) -> None:  # RED-TEAM: missing node
         self.assertFalse(plandag.is_dag({"a": {"deps": ["ghost"]}}))
+
+
+class ScopeOverlapTests(unittest.TestCase):
+    def test_identical_path_overlaps(self) -> None:
+        self.assertTrue(plandag.scope_overlap(["a.py"], ["a.py"]))
+
+    def test_disjoint_files_do_not_overlap(self) -> None:
+        self.assertFalse(plandag.scope_overlap(["a.py"], ["b.py"]))
+
+    def test_dir_contains_file_overlaps(self) -> None:
+        self.assertTrue(plandag.scope_overlap(["src"], ["src/mod.py"]))
+        self.assertTrue(plandag.scope_overlap(["src/mod.py"], ["src"]))
+
+    def test_sibling_dirs_do_not_overlap(self) -> None:
+        self.assertFalse(plandag.scope_overlap(["src/a"], ["src/b"]))
+
+    def test_trailing_slash_normalized(self) -> None:
+        self.assertTrue(plandag.scope_overlap(["src/"], ["src/mod.py"]))
+
+
+class DisjointTests(unittest.TestCase):
+    def test_disjoint_nodes_yield_no_defects(self) -> None:
+        nodes = {"a": {"scope_paths": ["a.py"]}, "b": {"scope_paths": ["b.py"]}}
+        self.assertEqual(plandag.disjoint(nodes), [])
+
+    def test_overlapping_nodes_yield_blocking_defect(self) -> None:  # RED-TEAM
+        nodes = {"a": {"scope_paths": ["src/x.py"]}, "b": {"scope_paths": ["src"]}}
+        defects = plandag.disjoint(nodes)
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["category"], "CORRECTNESS")
+        self.assertEqual(d["severity"], "CRITICAL")
+        self.assertIn("a", d["location"])
+        self.assertIn("b", d["location"])
+
+    def test_defect_shape_is_canonical(self) -> None:
+        nodes = {"a": {"scope_paths": ["x.py"]}, "b": {"scope_paths": ["x.py"]}}
+        d = plandag.disjoint(nodes)[0]
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
