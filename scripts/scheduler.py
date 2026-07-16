@@ -228,7 +228,12 @@ def apply_receipt(dag: dict, receipt: dict) -> dict:
     job.pop("lease", None)
     if nxt == "DONE":
         node = out.get("nodes", {}).get(job.get("node_id"), {})
-        if node.get("kind") == "DECOMPOSE" and receipt.get("children"):
+        if node.get("kind") == "DECOMPOSE":
+            if not receipt.get("children"):
+                # A decomposer that produced no children is malformed -> FAIL, never a
+                # fabricated resolved node with unverified success_criteria_subset.
+                job["state"] = "FAILED"
+                return out
             try:
                 expanded = plandag.expand(out, job["node_id"], receipt["children"])
             except plandag.CapExceeded:

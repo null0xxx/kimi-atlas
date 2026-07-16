@@ -242,6 +242,13 @@ class ApplyReceiptTests(unittest.TestCase):
         out = scheduler.apply_receipt(dag, self._receipt(j, "ok", children=[{"kind": "LEAF"}]))
         self.assertEqual(scheduler._find_job(out, "root")["state"], "FAILED")  # never DONE
 
+    def test_decompose_ok_with_no_children_fails(self) -> None:  # never fabricate a resolved node
+        j = _running("root", kind="DECOMPOSE")
+        dag = _rdag([j], nodes={"root": {"kind": "DECOMPOSE", "depth": 0, "deps": [],
+                                         "scope_paths": [], "success_criteria_subset": ["c1"]}})
+        out = scheduler.apply_receipt(dag, self._receipt(j, "ok"))  # ok but no children
+        self.assertEqual(scheduler._find_job(out, "root")["state"], "FAILED")
+
     def test_input_not_mutated(self) -> None:
         j = _running("j0"); dag = _rdag([j])
         scheduler.apply_receipt(dag, self._receipt(j, "ok"))
