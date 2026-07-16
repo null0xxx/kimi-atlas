@@ -181,3 +181,68 @@ def dispatch_wave(dag: dict, wave: list[dict]) -> dict:
         cur["state"] = "RUNNING"
         cur["lease"] = stamp_lease(job_id, cur.get("attempts", 0))
     return out
+
+
+def lease_valid(job: dict, receipt: dict) -> bool:
+    """True iff the job is RUNNING and the receipt's lease matches — fences stale/dup receipts."""
+    return job.get("state") == "RUNNING" and receipt.get("lease") == job.get("lease")
+
+
+def seed_jobs(dag: dict) -> dict:
+    """Idempotently append a 1:1 PENDING job for every node lacking one (keyed on node_id).
+
+    ``{job_id: f'{nid}#0', node_id: nid, kind: node.kind, deps: [f'{d}#0' ...], attempts: 0,
+    state: 'PENDING'}``. Re-seeding after an ``expand`` graft is a no-op. (Multi-job
+    stage-chains are the documented deferred extension.)
+    """
+    out = copy.deepcopy(dag)
+    jobs = out.setdefault("jobs", [])
+    have = {j.get("node_id") for j in jobs}
+    for nid, node in out.get("nodes", {}).items():
+        if nid in have:
+            continue
+        jobs.append({
+            "job_id": f"{nid}#0", "node_id": nid, "kind": node.get("kind", "LEAF"),
+            "deps": [f"{d}#0" for d in node.get("deps", [])], "attempts": 0, "state": "PENDING",
+        })
+    return out
+
+
+def apply_receipt(dag: dict, receipt: dict) -> dict:
+    """Apply a returned receipt to ``dag`` — THE attempts driver (pure, input untouched).
+
+    Idempotent: an unknown/stale/duplicate receipt (fails ``lease_valid``) returns the
+    dag unchanged. Otherwise, via ``plandag.next_job_state``:
+    - ``ok`` -> DONE; for a DECOMPOSE node carrying ``children``, ``plandag.expand`` +
+      ``seed_jobs`` — but on ``plandag.CapExceeded`` (over-decompose) the node is FAILED,
+      NOT DONE, so a refused split can never fabricate a resolved node.
+    - non-ok/non-timeout -> FAILED (a malformed receipt fails safe).
+    - ``timeout`` -> ``attempts++``; at ``MAX_ATTEMPTS`` -> FAILED (terminal), else PENDING,
+      closing the one unbounded backward transition.
+    """
+    out = copy.deepcopy(dag)
+    job = _find_job(out, receipt.get("job_id"))
+    if job is None or not lease_valid(job, receipt):
+        return out
+    nxt = plandag.next_job_state(receipt)
+    job.pop("lease", None)
+    if nxt == "DONE":
+        node = out.get("nodes", {}).get(job.get("node_id"), {})
+        if node.get("kind") == "DECOMPOSE" and receipt.get("children"):
+            try:
+                expanded = plandag.expand(out, job["node_id"], receipt["children"])
+            except plandag.CapExceeded:
+                job["state"] = "FAILED"        # refuse over-decompose -> never a fake DONE
+                return out
+            out = seed_jobs(expanded)
+            done = _find_job(out, receipt.get("job_id"))
+            if done is not None:
+                done["state"] = "DONE"
+            return out
+        job["state"] = "DONE"
+    elif nxt == "PENDING":                     # timeout -> bounded requeue
+        job["attempts"] = job.get("attempts", 0) + 1
+        job["state"] = "FAILED" if job["attempts"] >= plandag.MAX_ATTEMPTS else "PENDING"
+    else:
+        job["state"] = "FAILED"
+    return out

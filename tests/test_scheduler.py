@@ -178,3 +178,82 @@ class DispatchTests(unittest.TestCase):
     def test_stamp_lease_deterministic(self) -> None:
         self.assertEqual(scheduler.stamp_lease("j0", 0), "j0#0")
         self.assertEqual(scheduler.stamp_lease("j0", 1), "j0#1")
+
+
+def _running(job_id, kind="LEAF", attempts=0, node_id=None, deps=None):
+    j = {"job_id": job_id, "node_id": node_id or job_id, "kind": kind, "deps": deps or [],
+         "attempts": attempts, "state": "RUNNING", "lease": scheduler.stamp_lease(job_id, attempts)}
+    return j
+
+
+def _rdag(jobs, nodes=None, gas=100, **meta):
+    m = {"gas_remaining": gas, "depth_max": 4, "node_max": 12, "next_seq": 0}
+    m.update(meta)
+    return {"meta": m, "nodes": nodes or {j["node_id"]: {"kind": j["kind"]} for j in jobs}, "jobs": jobs}
+
+
+class ApplyReceiptTests(unittest.TestCase):
+    def _receipt(self, job, status, **extra):
+        r = {"job_id": job["job_id"], "status": status, "lease": job.get("lease")}
+        r.update(extra)
+        return r
+
+    def test_ok_marks_done(self) -> None:
+        j = _running("j0"); dag = _rdag([j])
+        out = scheduler.apply_receipt(dag, self._receipt(j, "ok"))
+        self.assertEqual(scheduler._find_job(out, "j0")["state"], "DONE")
+
+    def test_timeout_requeues_then_fails_at_cap(self) -> None:
+        j = _running("j0"); dag = _rdag([j])
+        out = scheduler.apply_receipt(dag, self._receipt(j, "timeout"))
+        rj = scheduler._find_job(out, "j0")
+        self.assertEqual((rj["state"], rj["attempts"]), ("PENDING", 1))
+        rj["lease"] = scheduler.stamp_lease("j0", 1); rj["state"] = "RUNNING"
+        out2 = scheduler.apply_receipt(out, self._receipt(rj, "timeout"))
+        rj2 = scheduler._find_job(out2, "j0")
+        self.assertEqual((rj2["state"], rj2["attempts"]), ("FAILED", 2))  # capped -> terminal
+
+    def test_error_status_fails(self) -> None:
+        j = _running("j0"); dag = _rdag([j])
+        out = scheduler.apply_receipt(dag, self._receipt(j, "error"))
+        self.assertEqual(scheduler._find_job(out, "j0")["state"], "FAILED")
+
+    def test_stale_lease_is_ignored(self) -> None:
+        j = _running("j0"); dag = _rdag([j])
+        r = self._receipt(j, "ok"); r["lease"] = "j0#9"  # stale
+        out = scheduler.apply_receipt(dag, r)
+        self.assertEqual(scheduler._find_job(out, "j0")["state"], "RUNNING")  # unchanged
+
+    def test_decompose_ok_expands_and_seeds(self) -> None:
+        j = _running("root", kind="DECOMPOSE")
+        dag = _rdag([j], nodes={"root": {"kind": "DECOMPOSE", "depth": 0, "deps": [],
+                                         "scope_paths": [], "success_criteria_subset": []}})
+        child = {"kind": "LEAF", "deps": [], "scope_paths": ["a.py"], "success_criteria_subset": ["c1"]}
+        out = scheduler.apply_receipt(dag, self._receipt(j, "ok", children=[child]))
+        self.assertEqual(scheduler._find_job(out, "root")["state"], "DONE")
+        self.assertEqual(len(out["nodes"]), 2)                       # child grafted
+        self.assertTrue(any(job["node_id"] == "root.1" for job in out["jobs"]))  # child seeded
+
+    def test_decompose_over_cap_fails_not_done(self) -> None:  # RED-TEAM: candidate-1 fatal
+        j = _running("root", kind="DECOMPOSE")
+        dag = _rdag([j], nodes={"root": {"kind": "DECOMPOSE", "depth": 1, "deps": [],
+                                         "scope_paths": [], "success_criteria_subset": []}},
+                    depth_max=1)  # child depth 2 > depth_max 1 -> CapExceeded
+        out = scheduler.apply_receipt(dag, self._receipt(j, "ok", children=[{"kind": "LEAF"}]))
+        self.assertEqual(scheduler._find_job(out, "root")["state"], "FAILED")  # never DONE
+
+    def test_input_not_mutated(self) -> None:
+        j = _running("j0"); dag = _rdag([j])
+        scheduler.apply_receipt(dag, self._receipt(j, "ok"))
+        self.assertEqual(dag["jobs"][0]["state"], "RUNNING")
+
+
+class SeedJobsTests(unittest.TestCase):
+    def test_seeds_one_job_per_unjobbed_node_idempotent(self) -> None:
+        dag = {"meta": {}, "nodes": {"a": {"kind": "LEAF", "deps": []},
+                                     "b": {"kind": "LEAF", "deps": ["a"]}}, "jobs": []}
+        out = scheduler.seed_jobs(dag)
+        self.assertEqual({j["node_id"] for j in out["jobs"]}, {"a", "b"})
+        self.assertEqual(scheduler._find_job(out, "b#0")["deps"], ["a#0"])
+        again = scheduler.seed_jobs(out)  # idempotent
+        self.assertEqual(len(again["jobs"]), 2)
