@@ -5,9 +5,12 @@ single-node DAG) at the data-model level, using P6's plandag + verdict.
 """
 from __future__ import annotations
 
+import pathlib
 import unittest
 
 from scripts import planstage, plandag, verdict, validate
+
+_PLANNER_MD = pathlib.Path(__file__).resolve().parents[1] / "agents" / "planner.md"
 
 _PACKET = {
     "intent": "do the thing",
@@ -157,3 +160,21 @@ class PlannerOutputSchemaTests(unittest.TestCase):
     def test_wrong_type_reported(self) -> None:
         self.assertIn("field nodes must be dict",
                       validate.validate({"nodes": []}, "planner-output"))
+
+
+class PlannerRoleFileTests(unittest.TestCase):
+    def test_planner_role_file_exists_with_frontmatter(self) -> None:
+        text = _PLANNER_MD.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("---"), "must open with YAML frontmatter")
+        self.assertIn("name:", text)
+        self.assertIn("description:", text)
+
+    def test_planner_specifies_output_contract_and_safe2(self) -> None:
+        text = _PLANNER_MD.read_text(encoding="utf-8")
+        # The planner must map to the read-only `plan` builtin, name its JSON
+        # output keys, and restate the untrusted-content (SAFE-2) rule.
+        self.assertIn("plan", text)
+        self.assertIn("nodes", text)
+        self.assertIn("success_criteria_subset", text)
+        self.assertIn("scope_paths", text)
+        self.assertIn("SAFE-2", text)
