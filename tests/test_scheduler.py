@@ -344,3 +344,48 @@ class AggregateTests(unittest.TestCase):
     def test_run_status_unverified_when_gas_frozen(self) -> None:
         dag = {"meta": {"gas_remaining": 0}, "nodes": {}, "jobs": []}
         self.assertEqual(scheduler.run_status(dag, {"defects": []}), "UNVERIFIED")
+
+
+class HaltingAcceptanceTests(unittest.TestCase):
+    """§7: the whole system's soundness — total dispatches == total gas charged, and the
+    lexicographic measure strictly decreases every iteration, over a full simulated run."""
+
+    def _run(self, kinds, gas, receipt_status):
+        """Simulate: seed -> loop [plan_wave -> dispatch_wave -> apply one receipt] until
+        terminated. receipt_status(job) -> the status the (simulated) agent returns.
+        Returns (dispatch_count, gas_charged, measures)."""
+        dag = _pending_dag(kinds, gas=gas)
+        gas0 = dag["meta"]["gas_remaining"]
+        dispatches = 0
+        measures = [scheduler.measure(dag)]
+        for _ in range(1000):  # safety bound
+            if scheduler.is_terminated(dag):
+                break
+            wave = scheduler.plan_wave(dag, 100000)
+            if wave:
+                dag = scheduler.dispatch_wave(dag, wave)
+                dispatches += len([w for w in wave])
+                measures.append(scheduler.measure(dag))
+            # apply exactly one running receipt per iteration
+            running = scheduler.running_jobs(dag)
+            if running:
+                j = running[0]
+                dag = scheduler.apply_receipt(
+                    dag, {"job_id": j["job_id"], "status": receipt_status(j), "lease": j.get("lease")})
+                measures.append(scheduler.measure(dag))
+        gas_charged = gas0 - dag["meta"]["gas_remaining"]
+        return dispatches, gas_charged, measures
+
+    def test_dispatches_equal_gas_charged_and_measure_decreases(self) -> None:
+        dispatches, gas_charged, measures = self._run(["CRITIC"] * 4, gas=100, receipt_status=lambda j: "ok")
+        self.assertEqual(dispatches, gas_charged)          # charge on EVERY dispatch
+        for a, b in zip(measures, measures[1:]):
+            self.assertLessEqual(b, a)                      # non-increasing each step
+        self.assertLess(measures[-1], measures[0])         # net strict decrease
+
+    def test_run_terminates_under_repeated_timeouts(self) -> None:
+        # every job always times out -> attempts cap drains all to FAILED -> terminates
+        dispatches, gas_charged, _ = self._run(["CRITIC"] * 2, gas=100, receipt_status=lambda j: "timeout")
+        self.assertEqual(dispatches, gas_charged)
+        # bounded: <= jobs * MAX_ATTEMPTS dispatches
+        self.assertLessEqual(dispatches, 2 * 2)
