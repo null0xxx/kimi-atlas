@@ -264,3 +264,27 @@ class SeedJobsTests(unittest.TestCase):
         self.assertEqual(scheduler._find_job(out, "b#0")["deps"], ["a#0"])
         again = scheduler.seed_jobs(out)  # idempotent
         self.assertEqual(len(again["jobs"]), 2)
+
+
+class ReapTests(unittest.TestCase):
+    def test_reap_requeues_running_then_caps(self) -> None:
+        j = _running("j0", attempts=0); dag = _rdag([j])
+        out = scheduler.reap_expired(dag, ["j0"])
+        rj = scheduler._find_job(out, "j0")
+        self.assertEqual((rj["state"], rj["attempts"]), ("PENDING", 1))
+        self.assertNotIn("lease", rj)
+        rj["state"] = "RUNNING"
+        out2 = scheduler.reap_expired(out, ["j0"])
+        self.assertEqual(scheduler._find_job(out2, "j0")["state"], "FAILED")  # capped
+
+    def test_non_running_id_is_noop(self) -> None:
+        j = {"job_id": "j0", "node_id": "n0", "kind": "LEAF", "deps": [], "attempts": 0, "state": "PENDING"}
+        dag = _rdag([j])
+        out = scheduler.reap_expired(dag, ["j0"])
+        self.assertEqual(scheduler._find_job(out, "j0")["state"], "PENDING")  # unchanged
+
+    def test_after_reap_fixpoint_can_fire(self) -> None:
+        # a lone crashed RUNNING job with attempts at cap-1 -> reap -> FAILED -> fixpoint
+        j = _running("j0", attempts=1); dag = _rdag([j])
+        out = scheduler.reap_expired(dag, ["j0"])
+        self.assertEqual(scheduler._find_job(out, "j0")["state"], "FAILED")

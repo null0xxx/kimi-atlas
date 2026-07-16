@@ -251,3 +251,21 @@ def apply_receipt(dag: dict, receipt: dict) -> dict:
     else:
         job["state"] = "FAILED"
     return out
+
+
+def reap_expired(dag: dict, expired_job_ids: list) -> dict:
+    """Requeue each RUNNING job whose id is lease-expired (the root's clock supplies the ids).
+
+    Applies the SAME bounded timeout transition as ``apply_receipt``'s requeue
+    (``attempts++``; at ``MAX_ATTEMPTS`` -> FAILED; clear lease), closing the lost-receipt /
+    agent-crash liveness hole (a crashed RUNNING job would otherwise hang ``is_fixpoint``
+    forever). Bounded by ``MAX_ATTEMPTS``, so it always drains. Pure.
+    """
+    out = copy.deepcopy(dag)
+    ids = set(expired_job_ids)
+    for job in out.get("jobs", []):
+        if job.get("job_id") in ids and job.get("state") == "RUNNING":
+            job.pop("lease", None)
+            job["attempts"] = job.get("attempts", 0) + 1
+            job["state"] = "FAILED" if job["attempts"] >= plandag.MAX_ATTEMPTS else "PENDING"
+    return out
