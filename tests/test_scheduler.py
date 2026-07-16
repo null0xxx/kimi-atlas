@@ -109,3 +109,46 @@ class AdmissionTests(unittest.TestCase):
         acc = self._empty()
         scheduler.admit(acc, _job("c", "CRITIC"))
         self.assertEqual(acc["count"], 0)  # input accumulator unchanged
+
+
+def _pending_dag(kinds, gas=100):
+    jobs = [{"job_id": f"j{i}", "node_id": f"n{i}", "kind": k, "deps": [],
+             "attempts": 0, "state": "PENDING"} for i, k in enumerate(kinds)]
+    return {"meta": {"gas_remaining": gas}, "nodes": {f"n{i}": {"kind": k} for i, k in enumerate(kinds)},
+            "jobs": jobs}
+
+
+class WaveTests(unittest.TestCase):
+    _HIGH = 100000
+
+    def test_wave_width_scalar(self) -> None:
+        self.assertEqual(scheduler.wave_width(self._HIGH), 3)      # W_MAX cap
+        self.assertEqual(scheduler.wave_width(3072 + 700), 1)      # only 1 fits the free floor
+        self.assertEqual(scheduler.wave_width(3072), 0)            # nothing fits
+
+    def test_plan_wave_caps_at_three(self) -> None:
+        dag = _pending_dag(["CRITIC"] * 5)
+        self.assertEqual(len(scheduler.plan_wave(dag, self._HIGH)), 3)
+
+    def test_plan_wave_gas_cap(self) -> None:  # never dispatch more than remaining gas
+        dag = _pending_dag(["CRITIC"] * 3, gas=1)
+        self.assertEqual(len(scheduler.plan_wave(dag, self._HIGH)), 1)
+
+    def test_progress_floor_admits_one_when_idle(self) -> None:
+        # free below the floor, idle pool, ready work, gas>0 -> admit exactly the smallest job
+        dag = _pending_dag(["BUILD", "CRITIC"])
+        wave = scheduler.plan_wave(dag, 100)  # free too low for can_admit
+        self.assertEqual(len(wave), 1)
+        self.assertEqual(scheduler.job_class(wave[0]), "read_only")  # smallest class chosen
+
+    def test_no_progress_floor_when_gas_exhausted(self) -> None:
+        dag = _pending_dag(["CRITIC"], gas=0)
+        self.assertEqual(scheduler.plan_wave(dag, 100), [])
+
+    def test_unadmitted_job_stays_pending_no_drop(self) -> None:
+        dag = _pending_dag(["CRITIC"] * 5)
+        wave = scheduler.plan_wave(dag, self._HIGH)
+        wave_ids = {j["job_id"] for j in wave}
+        # the 2 not in the wave are still PENDING in the dag (untouched)
+        still_pending = {j["job_id"] for j in dag["jobs"] if j["state"] == "PENDING"}
+        self.assertEqual(still_pending - wave_ids, {"j3", "j4"})

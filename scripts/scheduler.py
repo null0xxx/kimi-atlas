@@ -103,3 +103,42 @@ def admit(acc: dict, job: dict) -> dict:
     out["has_build"] = acc["has_build"] or cls == "build"
     out["has_coder"] = acc["has_coder"] or cls == "coder"
     return out
+
+
+def wave_width(free_mb: int, in_flight_rss_mb: int = 0) -> int:
+    """Advisory scalar §6 width for the homogeneous read-only case (docs/tests).
+
+    The AUTHORITATIVE class-aware selector is ``plan_wave`` via ``can_admit``; this is
+    the projection: ``max(0, min(W_MAX, ceiling-room//700, free-room//700))``.
+    """
+    unit = RSS_MB["read_only"]
+    by_ceiling = (CEILING_MB - ROOT_RSS_MB - in_flight_rss_mb) // unit
+    by_free = (free_mb - FREE_FLOOR_MB) // unit
+    return max(0, min(W_MAX, by_ceiling, by_free))
+
+
+def plan_wave(dag: dict, free_mb: int) -> list[dict]:
+    """Pick the next wave: ready jobs greedily admitted under §6, capped at remaining gas.
+
+    Folds ``plandag.ready_jobs(dag)`` through ``can_admit``/``admit`` against the
+    in-flight accumulator; the wave is capped at ``min(W_MAX - running, gas_remaining)``
+    so it never dispatches more jobs than remaining gas (the charge-on-dispatch bound).
+    Progress floor: if the wave would be empty AND nothing is RUNNING AND ready jobs
+    exist AND gas remains, admit the single smallest-RSS-class ready job (justified
+    against the STATIC ceiling — max single job = root+build = 3072 MB < 4608; the
+    root's live ``free -m`` re-check is the true OOM veto). Order-stable.
+    """
+    ready = plandag.ready_jobs(dag)
+    acc = in_flight_acc(dag)
+    gas = dag.get("meta", {}).get("gas_remaining", 0)
+    cap = min(W_MAX - acc["count"], gas)
+    wave: list[dict] = []
+    for job in ready:
+        if len(wave) >= cap:
+            break
+        if can_admit(acc, job, free_mb):
+            acc = admit(acc, job)
+            wave.append(job)
+    if not wave and not running_jobs(dag) and ready and gas > 0:
+        wave = [min(ready, key=lambda j: class_rss_mb(job_class(j)))]
+    return wave
