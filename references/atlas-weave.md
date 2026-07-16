@@ -172,7 +172,11 @@ agents / 1 build — identical to today's 3-critic wave.
 ## §7. Halting & budget (provably sound)
 
 Well-founded **lexicographic measure** `(gas_remaining ∈ [0,G_max], Σ_nodes remaining_attempts,
-non-terminal-node count)` strictly decreases each scheduler iteration:
+non-terminal-node count)` strictly decreases on every **dispatch** and every **receipt/reap** step — a
+successful DECOMPOSE-expand keeps gas fixed and adds *bounded* work (children), so termination ultimately
+rests on the **global gas bound**: every dispatch charges exactly 1 gas (floored at 0) and expansion is
+bounded by `node_max`/`depth_max`, so **total dispatches ≤ the gas budget** (finite regardless of any
+receipt sequence). Each step:
 
 - Every dispatch **charges gas** (floored at 0 → freeze frontier → drain to INTEGRATE as ⚠️ UNVERIFIED).
 - Every job incl. a **requeue** consumes one of its node's bounded attempts — a **per-job requeue
