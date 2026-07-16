@@ -354,7 +354,8 @@ class AggregateTests(unittest.TestCase):
 
 class HaltingAcceptanceTests(unittest.TestCase):
     """§7: the whole system's soundness — total dispatches == total gas charged, and the
-    lexicographic measure strictly decreases every iteration, over a full simulated run."""
+    lexicographic measure strictly decreases on dispatch/receipt steps (termination under
+    DECOMPOSE-expansion rests on the global gas bound), over a full simulated run."""
 
     def _run(self, kinds, gas, receipt_status):
         """Simulate: seed -> loop [plan_wave -> dispatch_wave -> apply one receipt] until
