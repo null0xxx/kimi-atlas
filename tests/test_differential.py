@@ -43,6 +43,12 @@ class RegressionsTests(unittest.TestCase):
     def test_empty_baseline(self) -> None:
         self.assertEqual(differential.regressions(set(), {"t1": "fail"}), [])
 
+    def test_status_must_be_exactly_pass(self) -> None:
+        # Exact-match by design: a non-"pass" spelling is treated as a regression.
+        # This pins the P8 suite-runner contract (it must emit exactly "pass").
+        self.assertEqual(differential.regressions({"t1"}, {"t1": "passed"}), ["t1"])
+        self.assertEqual(differential.regressions({"t1"}, {"t1": "PASS"}), ["t1"])
+
 
 class IntegrationDefectsTests(unittest.TestCase):
     def test_no_regressions_no_defects(self) -> None:

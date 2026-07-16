@@ -19,6 +19,10 @@ def regressions(baseline_pass: set, combined: dict) -> list[str]:
     (failed, errored, or absent) is a cross-change regression. Zero false positives:
     only tests proven green in isolation can appear, so any non-pass is a genuine
     interaction introduced by combining the changes.
+
+    Contract: the P8 suite-runner MUST report a green test as exactly the lowercase
+    token ``"pass"``; any other spelling (``"passed"``, ``"PASS"``) is treated as
+    non-green (a regression), which is precisely what keeps the oracle zero-false-positive.
     """
     return sorted(t for t in baseline_pass if combined.get(t) != "pass")
 

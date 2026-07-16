@@ -64,7 +64,7 @@ def actual_conflicts(changes: list[dict]) -> list[dict]:
     defects: list[dict] = []
     for path in sorted(file_to_ids):
         ids = sorted({i for i in file_to_ids[path] if i is not None})
-        if len(file_to_ids[path]) >= 2 and len(ids) >= 2:
+        if len(ids) >= 2:
             defects.append({
                 "id": f"integrate-conflict:{path}",
                 "category": "CORRECTNESS",
