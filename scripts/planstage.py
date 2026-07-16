@@ -67,8 +67,9 @@ def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
     """Return a validated multi-node DAG, or degrade to the 1-node atlas DAG.
 
     Degrades to ``single_node_dag(packet, caps)`` whenever the planner output is
-    not a dict, has no ``nodes``, exceeds ``node_max``, or fails
-    ``validate_planner_dag``. This is the degrade-to-atlas guarantee: any planner
+    not a dict, has no ``nodes``, exceeds ``node_max``, has a non-dict node
+    value, or fails ``validate_planner_dag``. This is the degrade-to-atlas
+    guarantee: any planner
     failure reduces to today's exact single-change behavior instead of shipping a
     broken decomposition. A usable DAG is returned unchanged.
     """
@@ -80,6 +81,8 @@ def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
     if not isinstance(nodes, dict) or not nodes:
         return single_node_dag(packet, caps)
     if len(nodes) > node_max:
+        return single_node_dag(packet, caps)
+    if not all(isinstance(n, dict) for n in nodes.values()):
         return single_node_dag(packet, caps)
     if validate_planner_dag(planner_output, packet.get("success_criteria", [])):
         return single_node_dag(packet, caps)

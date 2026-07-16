@@ -103,3 +103,17 @@ class CoerceDagTests(unittest.TestCase):
         partial = {"nodes": {"a": _node(["src/a.py"], ["c1"])}}  # c2 dropped
         self.assertEqual(planstage.coerce_dag(partial, _PACKET, _CAPS),
                          planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_malformed_node_value_degrades(self) -> None:  # non-dict node value
+        malformed = {"nodes": {"a": "not-a-dict",
+                               "b": _node(["src/b.py"], ["c2"])}}
+        self.assertEqual(planstage.coerce_dag(malformed, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_nodes_not_a_dict_degrades(self) -> None:
+        self.assertEqual(planstage.coerce_dag({"nodes": "x"}, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_nodes_absent_degrades(self) -> None:
+        self.assertEqual(planstage.coerce_dag({}, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))
