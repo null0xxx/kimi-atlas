@@ -43,3 +43,22 @@ class RiskScoreTests(unittest.TestCase):
         high = {"archetype": "security", "scope_loc": 900, "criteria_count": 5,
                 "has_existing_tests": False}
         self.assertGreater(budget.risk_score(high), budget.risk_score(low))
+
+
+class ChargeTokensTests(unittest.TestCase):
+    def test_normal_charge(self) -> None:
+        out = budget.charge_tokens({"remaining": 100, "spent": 0}, 30)
+        self.assertEqual(out, {"remaining": 70, "spent": 30})
+
+    def test_overcharge_is_floored_at_zero(self) -> None:
+        out = budget.charge_tokens({"remaining": 20, "spent": 5}, 50)
+        self.assertEqual(out, {"remaining": 0, "spent": 25})  # only 20 charged
+
+    def test_negative_charge_is_noop(self) -> None:
+        out = budget.charge_tokens({"remaining": 10, "spent": 0}, -5)
+        self.assertEqual(out, {"remaining": 10, "spent": 0})
+
+    def test_input_ledger_not_mutated(self) -> None:
+        ledger = {"remaining": 100, "spent": 0}
+        budget.charge_tokens(ledger, 40)
+        self.assertEqual(ledger, {"remaining": 100, "spent": 0})

@@ -34,3 +34,16 @@ def risk_score(features: dict) -> int:
     crit = min(int(features.get("criteria_count", 0)), 3)
     no_tests = 0 if features.get("has_existing_tests", True) else 2
     return base + size + crit + no_tests
+
+
+def charge_tokens(ledger: dict, n: int) -> dict:
+    """Return a NEW ledger with up to ``n`` tokens moved from remaining to spent.
+
+    Charges ``min(max(n, 0), remaining)`` — spend never exceeds the budget and a
+    negative request is a no-op. Monotone (spent only rises, remaining only
+    falls, floored at 0). Pure: the input ledger is never mutated. The monotone
+    token ledger is the soft-budget analogue of ``plandag``'s ``gas_remaining``.
+    """
+    remaining = ledger.get("remaining", 0)
+    charge = min(max(n, 0), remaining)
+    return {"remaining": remaining - charge, "spent": ledger.get("spent", 0) + charge}
