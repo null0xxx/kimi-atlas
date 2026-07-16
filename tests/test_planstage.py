@@ -117,3 +117,20 @@ class CoerceDagTests(unittest.TestCase):
     def test_nodes_absent_degrades(self) -> None:
         self.assertEqual(planstage.coerce_dag({}, _PACKET, _CAPS),
                          planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_malformed_node_fields_degrade(self) -> None:
+        # null/non-iterable deps, scope_paths, or success_criteria_subset inside
+        # an otherwise well-shaped node must degrade, never crash the caller.
+        cases = [
+            {"nodes": {"a": {"deps": None, "scope_paths": ["x"],
+                             "success_criteria_subset": ["c1", "c2"]}}},
+            {"nodes": {"a": {"deps": [], "scope_paths": None,
+                             "success_criteria_subset": ["c1"]},
+                       "b": {"deps": [], "scope_paths": ["src/b.py"],
+                             "success_criteria_subset": ["c2"]}}},
+            {"nodes": {"a": {"deps": [], "scope_paths": ["x"],
+                             "success_criteria_subset": 5}}},
+        ]
+        for bad in cases:
+            self.assertEqual(planstage.coerce_dag(bad, _PACKET, _CAPS),
+                             planstage.single_node_dag(_PACKET, _CAPS))

@@ -68,10 +68,10 @@ def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
 
     Degrades to ``single_node_dag(packet, caps)`` whenever the planner output is
     not a dict, has no ``nodes``, exceeds ``node_max``, has a non-dict node
-    value, or fails ``validate_planner_dag``. This is the degrade-to-atlas
-    guarantee: any planner
-    failure reduces to today's exact single-change behavior instead of shipping a
-    broken decomposition. A usable DAG is returned unchanged.
+    value, or ``validate_planner_dag`` fails or raises on a malformed node
+    field. This is the degrade-to-atlas guarantee: any planner failure reduces
+    to today's exact single-change behavior instead of shipping a broken
+    decomposition. A usable DAG is returned unchanged.
     """
     caps = caps or {}
     node_max = caps.get("node_max", 0)
@@ -82,8 +82,13 @@ def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
         return single_node_dag(packet, caps)
     if len(nodes) > node_max:
         return single_node_dag(packet, caps)
-    if not all(isinstance(n, dict) for n in nodes.values()):
-        return single_node_dag(packet, caps)
-    if validate_planner_dag(planner_output, packet.get("success_criteria", [])):
+    # Any exception from validating an untrusted planner DAG — a malformed node
+    # value, a null/non-iterable deps/scope_paths/success_criteria_subset, or any
+    # other shape the graph/coverage helpers do not expect — means the output is
+    # unusable, so degrade to atlas rather than crash the caller.
+    try:
+        if validate_planner_dag(planner_output, packet.get("success_criteria", [])):
+            return single_node_dag(packet, caps)
+    except Exception:
         return single_node_dag(packet, caps)
     return planner_output
