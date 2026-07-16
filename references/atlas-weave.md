@@ -188,6 +188,15 @@ dependents BLOCKED-UNREACHABLE → the scheduler drains siblings and emits a **P
 aggregate; it never fabricates a ✅. Budget: monotone token ledger; the budget-floor gate refuses/
 clarifies if it cannot fund every node's mandatory floor; `token_budget` is a **soft** cap (labeled).
 
+> **P6/P8 halting contract (the coupling, not a P6 guarantee).** The P6 pure cores only
+> *check* the bounds — `ready_jobs` freezes on `gas_exhausted`, `expand`/`can_dispatch` enforce
+> the depth/node/attempt caps, `is_fixpoint` terminates a dead frontier. The **P8 scheduler must
+> *drive* them**: call `charge_gas` on **every** dispatch and increment `job["attempts"]` on
+> **every** requeue. The soundness proof rests on this coupling; nothing in P6 forces the
+> scheduler to charge gas, so a scheduler that forgot to would not halt. This is a **P8 acceptance
+> test**, and `scope_overlap` canonicalizes non-standard path spellings (`./x`, `x/../x`, whole-repo
+> `.`) so the disjointness gate cannot be bypassed by an alternate spelling before P7 wires it live.
+
 ## §8. Engineering calculations
 
 - **Memory budget** — §6. The `free -m` ≥ 3072 MB guard (dynamic), not the static headroom, is the
