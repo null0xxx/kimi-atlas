@@ -71,3 +71,20 @@ class SelectTests(unittest.TestCase):
         base = [_cand(0, gate_pass=True, blocking=(), token_cost=10)]
         worse = base + [_cand(1, gate_pass=False), _cand(2, blocking=("CRITICAL",), token_cost=1)]
         self.assertEqual(bestofn.select(base)["index"], bestofn.select(worse)["index"])
+
+
+class FanoutTests(unittest.TestCase):
+    def test_high_risk_and_funded_gives_n_max(self) -> None:
+        self.assertEqual(bestofn.fanout_n(risk=5, risk_threshold=4, can_fund=True, n_max=3), 3)
+
+    def test_below_threshold_gives_one(self) -> None:
+        self.assertEqual(bestofn.fanout_n(risk=3, risk_threshold=4, can_fund=True, n_max=3), 1)
+
+    def test_unfunded_gives_one(self) -> None:
+        self.assertEqual(bestofn.fanout_n(risk=9, risk_threshold=4, can_fund=False, n_max=3), 1)
+
+    def test_at_threshold_is_high_risk(self) -> None:  # >= threshold
+        self.assertEqual(bestofn.fanout_n(risk=4, risk_threshold=4, can_fund=True, n_max=3), 3)
+
+    def test_never_below_one(self) -> None:  # a degenerate n_max still yields the floor draft
+        self.assertEqual(bestofn.fanout_n(risk=9, risk_threshold=4, can_fund=True, n_max=0), 1)

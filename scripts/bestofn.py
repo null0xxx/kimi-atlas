@@ -52,3 +52,15 @@ def select(candidates: list) -> dict | None:
     non-passer -- so more drafts can never LOWER the bar.
     """
     return min(candidates, key=rank_key) if candidates else None
+
+
+def fanout_n(risk: int, risk_threshold: int, can_fund: bool, n_max: int = 3) -> int:
+    """How many drafts to generate for a node: ``n_max`` iff high-risk AND funded, else 1.
+
+    Consequence-weighted spend: best-of-N fires only when the node's risk score meets
+    the threshold AND the budget can fund ``n_max`` drafts; otherwise the single
+    best-of-1 draft. Never returns < 1 -- there is always at least the floor draft.
+    """
+    if risk >= risk_threshold and can_fund and n_max >= 1:
+        return n_max
+    return 1
