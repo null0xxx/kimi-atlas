@@ -9,28 +9,37 @@ deliberately OUT OF SCOPE here (mirrors how P6/P7 built pure cores first).
 """
 from __future__ import annotations
 
-import re
-
 from scripts import verdict
-
-# A unified-diff file header: the path after `+++ ` / `--- ` (optionally `b/`/`a/`).
-_PLUS = re.compile(r"^\+\+\+ (?:b/)?(.+)$", re.M)
-_MINUS = re.compile(r"^--- (?:a/)?(.+)$", re.M)
 
 
 def touched_files(diff_text: str) -> list[str]:
     """Return the repo-relative paths a unified diff touches (order-preserving, deduped).
 
-    Reads both `+++ b/<path>` (adds/modifies) and `--- a/<path>` (deletes) headers so
-    a deleted file (whose `+++` is `/dev/null`) is still counted; `/dev/null` is
-    dropped. This is the ACTUAL touched-file set — the ground truth for the
-    cross-change conflict gate, which the planner's declared scope_paths and a clean
-    `git apply` cannot be trusted to reflect.
+    A line-oriented parse: ``diff --git`` starts a file section (resets hunk state),
+    ``@@`` starts a hunk body. A ``+++``/``--- `` line is read as a file header ONLY
+    when NOT inside a hunk — so a deleted line whose content starts with ``-- `` (or an
+    added ``++ ``) is never mistaken for a header. Both the ``--- a/<path>`` (deletes,
+    whose ``+++`` is ``/dev/null``) and ``+++ b/<path>`` (adds/modifies) headers are
+    read in text order, dropping ``/dev/null`` and the optional ``a/``/``b/`` prefix and
+    any trailing ``\t`` metadata. This is the ACTUAL touched-file set — ground truth for
+    the cross-change conflict gate, which declared scope_paths and a clean ``git apply``
+    cannot be trusted to reflect.
     """
     seen: set[str] = set()
     out: list[str] = []
-    for match in list(_PLUS.finditer(diff_text)) + list(_MINUS.finditer(diff_text)):
-        path = match.group(1).strip()
+    in_hunk = False
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            in_hunk = False
+            continue
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if in_hunk or not (line.startswith("+++ ") or line.startswith("--- ")):
+            continue
+        path = line[4:].split("\t", 1)[0].strip()
+        if path[:2] in ("a/", "b/"):
+            path = path[2:]
         if path and path != "/dev/null" and path not in seen:
             seen.add(path)
             out.append(path)

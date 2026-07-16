@@ -49,3 +49,18 @@ class TouchedFilesTests(unittest.TestCase):
 
     def test_empty_diff(self) -> None:
         self.assertEqual(integrate.touched_files(""), [])
+
+    def test_content_lines_not_mistaken_for_headers(self) -> None:  # RED-TEAM
+        # A hunk content line starting with '-- ' or '++ ' must NOT be read as a header.
+        diff = ("diff --git a/src/q.sql b/src/q.sql\n"
+                "--- a/src/q.sql\n"
+                "+++ b/src/q.sql\n"
+                "@@ -1,2 +1,1 @@\n"
+                "--- a comment being deleted\n"
+                "-SELECT 1;\n"
+                "+++ a marker being added\n")
+        self.assertEqual(integrate.touched_files(diff), ["src/q.sql"])
+
+    def test_deletion_then_addition_order_preserved(self) -> None:
+        self.assertEqual(integrate.touched_files(_DIFF_DEL + _DIFF_NEW),
+                         ["src/gone.py", "src/new.py"])
