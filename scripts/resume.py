@@ -60,6 +60,12 @@ def resume(dag: dict) -> dict:
     bounded by the gas budget — halting preserved, fuel never re-lent). Idempotent: a dag
     with no RUNNING jobs is returned unchanged. Terminal (DONE/FAILED) and PENDING jobs are
     untouched, so no job is ever dropped.
+
+    PRECONDITION (for the deferred receipt layer): the lease token f"{job_id}#{attempts}" does
+    NOT rotate across a resume (attempts is unchanged), so a killed turn's in-flight receipts
+    MUST NOT be delivered after resume — they would pass lease_valid against the re-dispatched
+    attempt. This holds because an orphaned agent dies with the turn; the atlas-resume SKILL
+    wiring must honor it.
     """
     out = copy.deepcopy(dag)
     for job in out.get("jobs", []):

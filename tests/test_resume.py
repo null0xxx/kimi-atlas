@@ -49,6 +49,17 @@ class SelectGraphRunTests(unittest.TestCase):
         self.assertIsNone(resume.select_graph_run(
             [self._run("d", state="DONE"), self._run("s", has_dag=False)], "sess-x"))
 
+    def test_session_id_matching_excluded_run_falls_through(self) -> None:
+        # A run whose run_id == session_id but is terminal/dag-less/sub-run is NOT a
+        # candidate, so the filter beats the preference — the live run wins, never the
+        # excluded session-id run.
+        for excluded in (self._run("sess-1", state="OUTPUT", mtime=99),
+                         self._run("sess-1", has_dag=False, mtime=99),
+                         self._run("sess-1/tasks/n0", mtime=99)):
+            runs = [excluded, self._run("live", mtime=1)]
+            sid = excluded["run_id"]
+            self.assertEqual(resume.select_graph_run(runs, sid), "live")
+
 
 def _job(job_id, state, attempts=0, lease=None):
     j = {"job_id": job_id, "node_id": job_id, "kind": "LEAF", "deps": [],
