@@ -69,5 +69,14 @@
       "lease": "dict",
       "state": "str"
     }
+  },
+  "planner-output": {
+    "required": {
+      "nodes": "dict"
+    },
+    "optional": {
+      "risk_features": "dict",
+      "meta": "dict"
+    }
   }
 }

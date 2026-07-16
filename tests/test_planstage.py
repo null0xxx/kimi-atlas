@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts import planstage, plandag, verdict
+from scripts import planstage, plandag, verdict, validate
 
 _PACKET = {
     "intent": "do the thing",
@@ -143,3 +143,17 @@ class CoerceDagTests(unittest.TestCase):
                                    "success_criteria_subset": ["c1", "c2"]}}}
             self.assertEqual(planstage.coerce_dag(dag, _PACKET, _CAPS),
                              planstage.single_node_dag(_PACKET, _CAPS))
+
+
+class PlannerOutputSchemaTests(unittest.TestCase):
+    def test_valid_planner_output(self) -> None:
+        obj = {"nodes": {"a": _node(["src/a.py"], ["c1"])}, "risk_features": {}}
+        self.assertEqual(validate.validate(obj, "planner-output"), [])
+
+    def test_missing_nodes_reported(self) -> None:
+        self.assertIn("missing field: nodes", validate.validate({"risk_features": {}},
+                                                                 "planner-output"))
+
+    def test_wrong_type_reported(self) -> None:
+        self.assertIn("field nodes must be dict",
+                      validate.validate({"nodes": []}, "planner-output"))
