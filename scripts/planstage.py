@@ -63,6 +63,22 @@ def validate_planner_dag(dag: dict, frozen_criteria: list) -> list[dict]:
     return defects
 
 
+def _node_shape_ok(node) -> bool:
+    """True iff a planner node is a dict whose ``deps`` / ``scope_paths`` /
+    ``success_criteria_subset`` (each defaulting to ``[]``) are lists of strings.
+
+    Checked unconditionally per node, so a malformed field is caught even on a
+    LONE node — where pairwise ``disjoint`` never inspects ``scope_paths``.
+    """
+    if not isinstance(node, dict):
+        return False
+    for field in ("deps", "scope_paths", "success_criteria_subset"):
+        value = node.get(field, [])
+        if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+            return False
+    return True
+
+
 def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
     """Return a validated multi-node DAG, or degrade to the 1-node atlas DAG.
 
@@ -82,13 +98,18 @@ def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
         return single_node_dag(packet, caps)
     if len(nodes) > node_max:
         return single_node_dag(packet, caps)
-    # Any exception from validating an untrusted planner DAG — a malformed node
-    # value, a null/non-iterable deps/scope_paths/success_criteria_subset, or any
-    # other shape the graph/coverage helpers do not expect — means the output is
-    # unusable, so degrade to atlas rather than crash the caller.
+    # Deterministic shape gate: every node must be a dict whose field shapes are
+    # lists of strings. This catches a malformed field even on a LONE node (where
+    # pairwise disjoint never inspects scope_paths), so a broken DAG can neither
+    # crash validation nor pass through unchanged.
+    if not all(_node_shape_ok(n) for n in nodes.values()):
+        return single_node_dag(packet, caps)
+    # Belt-and-suspenders, NARROWLY scoped to the validation call: any residual
+    # exception from validating untrusted input degrades rather than crashing.
     try:
-        if validate_planner_dag(planner_output, packet.get("success_criteria", [])):
-            return single_node_dag(packet, caps)
+        invalid = validate_planner_dag(planner_output, packet.get("success_criteria", []))
     except Exception:
+        return single_node_dag(packet, caps)
+    if invalid:
         return single_node_dag(packet, caps)
     return planner_output

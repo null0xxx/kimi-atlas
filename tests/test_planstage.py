@@ -134,3 +134,12 @@ class CoerceDagTests(unittest.TestCase):
         for bad in cases:
             self.assertEqual(planstage.coerce_dag(bad, _PACKET, _CAPS),
                              planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_single_node_malformed_scope_paths_degrades(self) -> None:
+        # Regression: a lone node's scope_paths bypasses pairwise disjoint, so the
+        # shape gate (not disjoint) must catch a null/non-string scope_paths.
+        for bad_scope in (None, 42, [None], [5]):
+            dag = {"nodes": {"a": {"deps": [], "scope_paths": bad_scope,
+                                   "success_criteria_subset": ["c1", "c2"]}}}
+            self.assertEqual(planstage.coerce_dag(dag, _PACKET, _CAPS),
+                             planstage.single_node_dag(_PACKET, _CAPS))
