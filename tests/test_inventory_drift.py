@@ -155,6 +155,16 @@ class TestMainSynthetic(unittest.TestCase):
         code, output = self._run()
         self.assertEqual(code, 0, output)
 
+    def test_superpowers_scratch_ignored(self):
+        # The SDD tooling workspace (.superpowers/) is git-ignored scratch — its
+        # briefs / reports / progress ledger are .md files but NOT tracked docs;
+        # the drift scan must never flag them as orphaned documentation.
+        (self.root / ".superpowers" / "sdd").mkdir(parents=True)
+        (self.root / ".superpowers" / "sdd" / "task-1-brief.md").write_text("x\n", encoding="utf-8")
+        (self.root / ".superpowers" / "sdd" / "progress.md").write_text("x\n", encoding="utf-8")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
 
 class TestMainRealRepo(unittest.TestCase):
     """The gate MUST be green against the actual P1 repo tree (DS-9)."""

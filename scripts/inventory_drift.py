@@ -38,8 +38,13 @@ FUTURE_DIRS: tuple[str, ...] = (
 # Basenames that are skill/config artifacts, not tracked documentation.
 EXCLUDED_BASENAMES: frozenset[str] = frozenset({"SKILL.md"})
 
-# Directory segments never walked when scanning the tree.
-_SKIP_SEGMENTS: frozenset[str] = frozenset({".git", "__pycache__", "node_modules"})
+# Directory segments never walked when scanning the tree. Alongside VCS/build
+# scratch (``.git``/``__pycache__``/``node_modules``), ``.superpowers`` is the
+# git-ignored SDD tooling workspace (task briefs, implementer reports, the
+# progress ledger) — its ``.md`` files are scratch, never tracked documentation.
+_SKIP_SEGMENTS: frozenset[str] = frozenset(
+    {".git", "__pycache__", "node_modules", ".superpowers"}
+)
 
 # Markdown inline-link target: the URL/path inside ``](...)``.
 _LINK_RE = re.compile(r"\]\(([^)]+)\)")
