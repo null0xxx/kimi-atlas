@@ -69,3 +69,37 @@ class ValidatePlannerDagTests(unittest.TestCase):
         dag = {"nodes": {"a": _node(["src/a.py"], ["c1"])}}
         defects = planstage.validate_planner_dag(dag, ["c1", "c2"])
         self.assertTrue(any(d["category"] == "REQUIREMENTS-COVERAGE" for d in defects))
+
+
+class CoerceDagTests(unittest.TestCase):
+    def _valid_output(self):
+        return {"nodes": {"a": _node(["src/a.py"], ["c1"]),
+                          "b": _node(["src/b.py"], ["c2"])}}
+
+    def test_valid_output_passes_through_unchanged(self) -> None:
+        out = self._valid_output()
+        self.assertIs(planstage.coerce_dag(out, _PACKET, _CAPS), out)
+
+    def test_non_dict_degrades(self) -> None:
+        degraded = planstage.coerce_dag("not a dag", _PACKET, _CAPS)
+        self.assertEqual(degraded, planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_empty_nodes_degrades(self) -> None:
+        self.assertEqual(planstage.coerce_dag({"nodes": {}}, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_over_node_max_degrades(self) -> None:
+        caps = {"depth_max": 4, "node_max": 1, "gas": 100}  # 2 nodes > node_max 1
+        self.assertEqual(planstage.coerce_dag(self._valid_output(), _PACKET, caps),
+                         planstage.single_node_dag(_PACKET, caps))
+
+    def test_invalid_dag_degrades(self) -> None:  # cyclic -> degrade, never ships
+        cyclic = {"nodes": {"a": _node(["src/a.py"], ["c1"], deps=["b"]),
+                            "b": _node(["src/b.py"], ["c2"], deps=["a"])}}
+        self.assertEqual(planstage.coerce_dag(cyclic, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))
+
+    def test_dropped_criterion_degrades(self) -> None:
+        partial = {"nodes": {"a": _node(["src/a.py"], ["c1"])}}  # c2 dropped
+        self.assertEqual(planstage.coerce_dag(partial, _PACKET, _CAPS),
+                         planstage.single_node_dag(_PACKET, _CAPS))

@@ -61,3 +61,26 @@ def validate_planner_dag(dag: dict, frozen_criteria: list) -> list[dict]:
     subsets = [n.get("success_criteria_subset", []) for n in nodes.values()]
     defects += verdict.coverage_partition(subsets, frozen_criteria)
     return defects
+
+
+def coerce_dag(planner_output, packet: dict, caps: dict) -> dict:
+    """Return a validated multi-node DAG, or degrade to the 1-node atlas DAG.
+
+    Degrades to ``single_node_dag(packet, caps)`` whenever the planner output is
+    not a dict, has no ``nodes``, exceeds ``node_max``, or fails
+    ``validate_planner_dag``. This is the degrade-to-atlas guarantee: any planner
+    failure reduces to today's exact single-change behavior instead of shipping a
+    broken decomposition. A usable DAG is returned unchanged.
+    """
+    caps = caps or {}
+    node_max = caps.get("node_max", 0)
+    if not isinstance(planner_output, dict):
+        return single_node_dag(packet, caps)
+    nodes = planner_output.get("nodes")
+    if not isinstance(nodes, dict) or not nodes:
+        return single_node_dag(packet, caps)
+    if len(nodes) > node_max:
+        return single_node_dag(packet, caps)
+    if validate_planner_dag(planner_output, packet.get("success_criteria", [])):
+        return single_node_dag(packet, caps)
+    return planner_output
