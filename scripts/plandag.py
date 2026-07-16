@@ -115,36 +115,39 @@ def disjoint(nodes: dict) -> list[dict]:
 def criteria_conservation_defects(nodes: dict) -> list[dict]:
     """A CRITICAL defect per DECOMPOSE node that drops a success criterion (else []).
 
-    A DECOMPOSE node produces no 6-lens verdict of its own — it verifies its criteria
-    only by pushing every one down to a child (transitively, a leaf). A criterion parked
-    on a DECOMPOSE node that no child re-covers is credited as covered yet verified by
-    nobody — a false green. So each DECOMPOSE whose ``success_criteria_subset`` is not a
-    subset of the union of its children's subsets is a blocking conservation break.
-    Non-DECOMPOSE and criteria-less DECOMPOSE nodes are clean; a missing ``children``
-    field counts as no coverage (the safe, over-flagging direction). Deterministic:
-    nodes are walked in insertion order and dropped criteria are sorted.
+    A DECOMPOSE node produces no 6-lens verdict of its own — a criterion is verified only
+    when it also lives on a LEAF/INTEGRATION node (which DOES get a verdict). So a
+    criterion parked on a DECOMPOSE that appears in NO non-DECOMPOSE node's subset is
+    credited as covered yet verified by nobody — a false green — and is a blocking
+    conservation break.
+
+    Coverage is tested against the GLOBAL set of criteria on verifying (non-DECOMPOSE)
+    nodes, NOT the DECOMPOSE's immediate ``children``. This is deliberate and immune to
+    the ``children`` graph's shape: a self-referential or cyclic ``children`` field (which
+    nothing validates — ``is_dag`` only checks ``deps``) cannot launder a criterion by
+    re-listing it among DECOMPOSE nodes, and a criterion routed to a deep leaf past an
+    empty-subset intermediate DECOMPOSE is correctly accepted. A leaf that resolves without
+    a verdict (or unresolved) is already caught elsewhere, so membership here means "some
+    leaf is charged with this criterion". Non-DECOMPOSE and criteria-less DECOMPOSE nodes
+    are clean. Deterministic: insertion order, sorted missing criteria.
     """
+    verified: set[str] = set()
+    for node in nodes.values():
+        if isinstance(node, dict) and node.get("kind") != "DECOMPOSE":
+            verified.update(node.get("success_criteria_subset") or [])
     defects: list[dict] = []
     for nid, node in nodes.items():
         if not isinstance(node, dict) or node.get("kind") != "DECOMPOSE":
             continue
-        own = set(node.get("success_criteria_subset") or [])
-        if not own:
-            continue
-        covered: set[str] = set()
-        for child_id in (node.get("children") or []):
-            child = nodes.get(child_id)
-            if isinstance(child, dict):
-                covered.update(child.get("success_criteria_subset") or [])
-        missing = own - covered
+        missing = set(node.get("success_criteria_subset") or []) - verified
         if missing:
             defects.append({
                 "id": f"decompose-drops-criteria:{nid}",
                 "category": "CORRECTNESS",
                 "severity": "CRITICAL",
                 "location": nid,
-                "fix": f"DECOMPOSE node {nid} does not push criteria {sorted(missing)} down "
-                       f"to its children; re-partition so every criterion reaches a leaf",
+                "fix": f"DECOMPOSE node {nid} holds criteria {sorted(missing)} that reach no "
+                       f"LEAF/INTEGRATION verifier; re-partition so every criterion lands on a leaf",
             })
     return defects
 

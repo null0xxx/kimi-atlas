@@ -146,6 +146,30 @@ class PlandagConservationTests(unittest.TestCase):
         nodes = {"a": {"kind": "LEAF", "success_criteria_subset": ["c1"]}}
         self.assertEqual(plandag.criteria_conservation_defects(nodes), [])
 
+    def test_self_referential_children_cannot_launder(self) -> None:
+        # A DECOMPOSE listing ITSELF as a child must not "cover" its own criterion:
+        # no LEAF ever verifies it. (Cyclic `children` is unvalidated by is_dag.)
+        nodes = {"d": {"kind": "DECOMPOSE", "success_criteria_subset": ["c1"], "children": ["d"]}}
+        defects = plandag.criteria_conservation_defects(nodes)
+        self.assertEqual([x["location"] for x in defects], ["d"])
+
+    def test_cyclic_children_cannot_launder(self) -> None:
+        nodes = {
+            "d1": {"kind": "DECOMPOSE", "success_criteria_subset": ["c1"], "children": ["d2"]},
+            "d2": {"kind": "DECOMPOSE", "success_criteria_subset": ["c1"], "children": ["d1"]},
+        }
+        self.assertEqual(len(plandag.criteria_conservation_defects(nodes)), 2)  # both dropped
+
+    def test_deep_leaf_past_empty_intermediate_is_clean(self) -> None:
+        # A criterion routed to a deep leaf while an intermediate DECOMPOSE's own subset is
+        # empty is genuinely verified -> must NOT be flagged (no false red).
+        nodes = {
+            "top": {"kind": "DECOMPOSE", "success_criteria_subset": ["c1"], "children": ["mid"]},
+            "mid": {"kind": "DECOMPOSE", "success_criteria_subset": [], "children": ["leaf"]},
+            "leaf": {"kind": "LEAF", "success_criteria_subset": ["c1"]},
+        }
+        self.assertEqual(plandag.criteria_conservation_defects(nodes), [])
+
 
 class FinalAggregateFalseGreenTests(unittest.TestCase):
     """F5 (HIGH) + F6 (MEDIUM): the runtime fold must never green a criteria-dropping
@@ -183,6 +207,16 @@ class FinalAggregateFalseGreenTests(unittest.TestCase):
         dag = {"meta": {"gas_remaining": 5}, "nodes": {}, "jobs": []}
         merged = scheduler.final_aggregate(dag, None, None)
         self.assertNotEqual(merged["verdict"], "OK")
+
+    def test_self_referential_decompose_is_not_ok(self) -> None:
+        # The reviewer's repro: a resolved DECOMPOSE whose only "child" is itself launders
+        # c1 to nobody. Must FAIL, never green.
+        dag = {"meta": {"gas_remaining": 5},
+               "nodes": {"d": {"kind": "DECOMPOSE", "success_criteria_subset": ["c1"],
+                               "children": ["d"]}},
+               "jobs": [{"node_id": "d", "state": "DONE"}]}
+        merged = scheduler.final_aggregate(dag, {}, None)
+        self.assertEqual(merged["verdict"], "FAIL")
 
 
 class RunStatusGasFrozenTests(unittest.TestCase):
