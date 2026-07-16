@@ -172,3 +172,30 @@ def aggregate(node_verdicts: list[dict], integration_verdict: dict | None = None
     if integration_verdict:
         critics.append(integration_verdict)
     return merge(critics, [])
+
+
+def coverage_partition(node_criteria: list[list[str]], frozen_criteria: list[str]) -> list[dict]:
+    """Return a blocking defect if the node criteria fail to cover every frozen one.
+
+    ATLAS-WEAVE freezes ``success_criteria`` once and partitions them across nodes.
+    If the UNION of the per-node ``success_criteria_subset`` lists drops any frozen
+    criterion, every node can pass its own REQUIREMENTS-COVERAGE lens while the
+    feature ships incomplete — so a dropped criterion is a CRITICAL
+    ``REQUIREMENTS-COVERAGE`` defect. This is an exact set-difference (not a
+    gameable text heuristic), so CRITICAL severity is legitimate (contrast V6).
+    An empty list means the partition covers every frozen criterion.
+    """
+    covered: set[str] = set()
+    for subset in node_criteria:
+        covered.update(subset or [])
+    dropped = set(frozen_criteria or []) - covered
+    if not dropped:
+        return []
+    return [{
+        "id": "coverage-partition",
+        "category": "REQUIREMENTS-COVERAGE",
+        "severity": "CRITICAL",
+        "location": "task-dag",
+        "fix": "assign every frozen success criterion to a node; dropped: "
+               + ", ".join(sorted(dropped)),
+    }]

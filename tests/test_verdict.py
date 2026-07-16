@@ -288,5 +288,26 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(set(merged.keys()), {"dimensions", "defects", "verdict"})
 
 
+class CoveragePartitionTests(unittest.TestCase):
+    def test_complete_partition_yields_no_defect(self) -> None:
+        self.assertEqual(
+            verdict.coverage_partition([["c1", "c2"], ["c3"]], ["c1", "c2", "c3"]), [])
+
+    def test_dropped_requirement_is_blocking(self) -> None:  # RED-TEAM: dropped requirement
+        defects = verdict.coverage_partition([["c1"], ["c2"]], ["c1", "c2", "c3"])
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["category"], "REQUIREMENTS-COVERAGE")
+        self.assertEqual(d["severity"], "CRITICAL")
+        self.assertIn("c3", d["fix"])
+
+    def test_overcoverage_is_allowed(self) -> None:
+        # Assigning a criterion to more than one node is not a partition failure.
+        self.assertEqual(verdict.coverage_partition([["c1", "c2"], ["c2"]], ["c1", "c2"]), [])
+
+    def test_empty_frozen_criteria_is_clean(self) -> None:
+        self.assertEqual(verdict.coverage_partition([[], []], []), [])
+
+
 if __name__ == "__main__":
     unittest.main()
