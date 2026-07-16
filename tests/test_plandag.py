@@ -98,6 +98,45 @@ def _dag(jobs, gas=10):
     return {"meta": {"gas_remaining": gas}, "nodes": {}, "jobs": jobs}
 
 
+def _expand_dag(gas=10, depth_max=4, node_max=8):
+    return {"meta": {"gas_remaining": gas, "depth_max": depth_max,
+                     "node_max": node_max, "next_seq": 0},
+            "nodes": {"root": {"kind": "DECOMPOSE", "depth": 0, "deps": [],
+                               "scope_paths": [], "success_criteria_subset": [],
+                               "children": []}},
+            "jobs": []}
+
+
+class ExpandTests(unittest.TestCase):
+    def test_expand_appends_children_at_next_depth(self) -> None:
+        dag = _expand_dag()
+        child = {"kind": "LEAF", "deps": [], "scope_paths": ["a.py"],
+                 "success_criteria_subset": ["c1"]}
+        out = plandag.expand(dag, "root", [child, dict(child, scope_paths=["b.py"])])
+        self.assertEqual(len(out["nodes"]), 3)
+        self.assertEqual(out["nodes"]["root.1"]["depth"], 1)
+        self.assertEqual(out["nodes"]["root.1"]["parent"], "root")
+        self.assertEqual(out["nodes"]["root"]["children"], ["root.1", "root.2"])
+        self.assertEqual(out["meta"]["next_seq"], 2)
+        self.assertEqual(len(dag["nodes"]), 1)  # input not mutated
+
+    def test_over_depth_is_rejected(self) -> None:  # RED-TEAM: over-depth
+        dag = _expand_dag(depth_max=1)
+        dag["nodes"]["root"]["depth"] = 1  # child would be depth 2 > 1
+        with self.assertRaises(plandag.CapExceeded):
+            plandag.expand(dag, "root", [{"kind": "LEAF"}])
+
+    def test_over_node_max_is_rejected(self) -> None:  # RED-TEAM: over-node
+        dag = _expand_dag(node_max=2)  # already 1 node; adding 2 -> 3 > 2
+        with self.assertRaises(plandag.CapExceeded):
+            plandag.expand(dag, "root", [{"kind": "LEAF"}, {"kind": "LEAF"}])
+
+    def test_gas_exhausted_blocks_expand(self) -> None:  # RED-TEAM: gas exhausted
+        dag = _expand_dag(gas=0)
+        with self.assertRaises(plandag.CapExceeded):
+            plandag.expand(dag, "root", [{"kind": "LEAF"}])
+
+
 class JobReadinessTests(unittest.TestCase):
     def test_pending_job_with_no_deps_is_ready(self) -> None:
         jobs = [{"job_id": "j1", "state": "PENDING", "deps": []}]

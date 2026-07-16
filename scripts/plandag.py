@@ -153,3 +153,39 @@ def next_job_state(result: dict) -> str:
     if status == "timeout":
         return "PENDING"
     return "FAILED"
+
+
+def expand(dag: dict, node_id: str, child_specs: list[dict]) -> dict:
+    """Append ``child_specs`` under ``node_id`` at the next depth, respecting caps.
+
+    Returns a NEW dag (the input is never mutated). Each child id is
+    ``f"{node_id}.{seq}"`` drawn from a monotone ``meta["next_seq"]``, is stamped
+    with ``depth = parent.depth + 1`` and ``parent = node_id``, and defaults
+    ``deps``/``children``. Raises ``CapExceeded`` if gas is spent, the child depth
+    would exceed ``depth_max``, or the resulting node count would exceed ``node_max``
+    — this is how over-decomposition is deterministically refused.
+    """
+    if gas_exhausted(dag):
+        raise CapExceeded("gas exhausted")
+    meta = dag.get("meta", {})
+    parent = dag["nodes"][node_id]
+    child_depth = parent.get("depth", 0) + 1
+    if child_depth > meta.get("depth_max", 0):
+        raise CapExceeded(f"child depth {child_depth} exceeds depth_max {meta.get('depth_max', 0)}")
+    if len(dag["nodes"]) + len(child_specs) > meta.get("node_max", 0):
+        raise CapExceeded(f"node count would exceed node_max {meta.get('node_max', 0)}")
+
+    out = copy.deepcopy(dag)
+    seq = out["meta"].get("next_seq", 0)
+    for spec in child_specs:
+        seq += 1
+        child_id = f"{node_id}.{seq}"
+        child = copy.deepcopy(spec)
+        child["depth"] = child_depth
+        child["parent"] = node_id
+        child.setdefault("deps", [])
+        child.setdefault("children", [])
+        out["nodes"][child_id] = child
+        out["nodes"][node_id].setdefault("children", []).append(child_id)
+    out["meta"]["next_seq"] = seq
+    return out
