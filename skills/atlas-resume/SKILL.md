@@ -9,9 +9,10 @@ This is a **pure instruction**. It injects **no live state** — it only tells y
 ledger lives on disk* so you can find it yourself. kimi-atlas keeps its authoritative run state on
 disk (never in context), because the full orchestrator prompt is **not guaranteed to survive
 compaction**. This skill body IS re-injected at session start and after compaction, so it is the
-reliable pointer back to that on-disk state. For a multi-node run, **compaction is the NORMAL path**
-(the root reads every node's return into its own context), so this resumption is load-bearing, not an
-edge case.
+reliable pointer back to that on-disk state. On the 256K models a multi-node run compacts often (the
+root reads every node's return into its own context), but **on the 1M `k3`/Kimi-3 model compaction is
+RARE** — this resumption then covers turn-kills and crashes more than compaction. It stays
+load-bearing (correctness must survive it either way), just no longer the common path at 1M.
 
 ## What to do at session start
 

@@ -280,15 +280,26 @@ dogfood; all six pure-core phases landed first).
    keeps the union suites green — a false green that falls back to seam critics with no better
    guarantee than baseline. Sold as "closes a large, precisely-characterized chunk of the gap," never
    "closes the gap."
-3. **Compaction + resume is the NORMAL path for K≥4** (the root reads every job's return into its own
-   context) → correctness rests on the run-shape-aware, state-as-projection resume being bug-free —
-   the single highest-risk new surface. Solved by deterministic re-derivation, **not** the unproven
-   `resume-by-id`, but the outer-graph resume / atomic dag writes / dirty-worktree reset are genuinely
-   new code to red-team.
+3. **Compaction + resume** (the root reads every job's return into its own context) → correctness
+   rests on the run-shape-aware, state-as-projection resume being bug-free. Solved by deterministic
+   re-derivation, **not** the unproven `resume-by-id`, but the outer-graph resume / atomic dag writes
+   / dirty-worktree reset are genuinely new code to red-team.
+   *DOWNGRADED (Kimi v0.26.0 / k3, 2026-07-16):* this was "the single highest-risk new surface" because
+   at 256K compaction was the NORMAL path for K≥4. On the **1M `k3` model the FullCompaction trigger is
+   ~891K → compaction is RARE**, so resume is now a **safety net for turn-kills/crashes**, not the hot
+   path — the surface is still exercised (and must stay correct) but far less often. Context is no
+   longer what forces compaction; the resume code remains the same, its risk weight drops.
 4. **The integration node is a non-decomposable serial bottleneck** — the combined diff and union
    suite grow with K, and the integration critic cannot decompose to recover from a 30-min timeout.
    Bounded by capping integrated-diff size and sharding the combined critic → effective **K capped at
    ~12–16**. "Unbounded total agents" is true across the run; **K per turn is bounded.**
+   *Re-calibrated (k3/1M + AgentSwarm, 2026-07-16):* **context is no longer the K limiter** — at 1M the
+   root holds ~4× more node returns, and the integration critic can hold a much larger union diff
+   before it must shard (raise the shard threshold with the window). The binding constraints are now
+   the **≤3 memory limit** (RSS/OOM — unchanged by context) and this integration serial bottleneck.
+   Separately, **AgentSwarm is now present on v0.26.0** (`concurrency`/`tasks` params, probe R5) — a
+   real path to lift the ≤3-wave star-topology cap; adopt only after a dedicated behavior probe, but
+   1M + AgentSwarm together are the concrete next step to a larger, faster K.
 5. **Best-of-N diversity is prompt-persona-only and correlated** on this single-model/no-temperature
    runtime → modest lift; the risk allocator rarely funds N>1. No independence / `1−(1−p)^N` claim.
 6. **The `free -m` guard sees only pre-spawn availability**, not intra-agent RSS growth mid-build —

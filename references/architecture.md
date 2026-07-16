@@ -4,7 +4,7 @@
 
 ## The problem
 
-On medium/large tasks the root agent's context fills with research, design, code, and error-fixing until it crosses the FullCompaction threshold (0.85 × 262144 tokens), and intermediate reasoning is compressed away. Orchestration state held only in context is lost. Parallel delegation without a contract loses results. And a single agent grading its own code cannot be trusted to catch subtle defects.
+On medium/large tasks the root agent's context fills with research, design, code, and error-fixing until it crosses the FullCompaction threshold (0.85 × the model's `max_context_size` — ~223K on the 256K coding models, ~891K on the 1M `k3`/Kimi-3 model), and intermediate reasoning is compressed away. Orchestration state held only in context is lost. Parallel delegation without a contract loses results. And a single agent grading its own code cannot be trusted to catch subtle defects.
 
 ## The approach
 
