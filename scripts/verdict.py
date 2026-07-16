@@ -157,3 +157,18 @@ def gate(critic_dict: dict, gate_results: dict) -> str:
         return "UNVERIFIED"
 
     return "OK"
+
+
+def aggregate(node_verdicts: list[dict], integration_verdict: dict | None = None) -> dict:
+    """Fold N per-node merged critics + the integration critic into one canonical verdict.
+
+    A pure roll-up for the ATLAS-WEAVE combined run: it reuses ``merge`` (which
+    already accepts a LIST of critic dicts), so the aggregate ``verdict`` is
+    ``"FAIL"`` iff ANY node or the integration step carries a blocking (CRITICAL/
+    HIGH) defect — a passing node can never mask a failing one. Returns the same
+    ``{dimensions, defects, verdict}`` shape ``enforce_critic_schema`` validates.
+    """
+    critics = list(node_verdicts)
+    if integration_verdict:
+        critics.append(integration_verdict)
+    return merge(critics, [])

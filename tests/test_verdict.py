@@ -257,5 +257,36 @@ class PermanentlyBlockingLoopTests(unittest.TestCase):
             self.assertEqual(verdict.gate(critic, _green_gate_results()), "UNVERIFIED")
 
 
+class AggregateTests(unittest.TestCase):
+    def _node(self, category=None, severity=None):
+        defects = [_defect(category, severity)] if category else []
+        return {"dimensions": {}, "defects": defects, "verdict": "FAIL" if defects else "OK"}
+
+    def test_all_nodes_clean_is_ok(self) -> None:
+        merged = verdict.aggregate([self._node(), self._node()], None)
+        self.assertEqual(merged["verdict"], "OK")
+        self.assertEqual(merged["defects"], [])
+        self.assertTrue(all(v == "yes" for v in merged["dimensions"].values()))
+
+    def test_one_failing_node_fails_the_aggregate(self) -> None:
+        merged = verdict.aggregate(
+            [self._node(), self._node("CORRECTNESS", "HIGH")], None)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
+
+    def test_integration_defect_fails_even_if_all_nodes_pass(self) -> None:
+        integ = {"dimensions": {}, "defects": [_defect("CORRECTNESS", "CRITICAL")],
+                 "verdict": "FAIL"}
+        merged = verdict.aggregate([self._node(), self._node()], integ)
+        self.assertEqual(merged["verdict"], "FAIL")
+
+    def test_none_integration_is_accepted(self) -> None:
+        self.assertEqual(verdict.aggregate([], None)["verdict"], "OK")
+
+    def test_output_is_merge_shaped(self) -> None:
+        merged = verdict.aggregate([self._node("SECURITY", "CRITICAL")], None)
+        self.assertEqual(set(merged.keys()), {"dimensions", "defects", "verdict"})
+
+
 if __name__ == "__main__":
     unittest.main()
