@@ -21,28 +21,39 @@ def touched_files(diff_text: str) -> list[str]:
     added ``++ ``) is never mistaken for a header. Both the ``--- a/<path>`` (deletes,
     whose ``+++`` is ``/dev/null``) and ``+++ b/<path>`` (adds/modifies) headers are
     read in text order, dropping ``/dev/null`` and the optional ``a/``/``b/`` prefix and
-    any trailing ``\t`` metadata. This is the ACTUAL touched-file set — ground truth for
-    the cross-change conflict gate, which declared scope_paths and a clean ``git apply``
-    cannot be trusted to reflect.
+    any trailing ``\t`` metadata. Header-less changes (pure ``rename``/``copy``) are read
+    from their ``rename from/to`` / ``copy from/to`` lines, so a rename endpoint is never
+    invisible to the conflict gate. Splits strictly on ``"\n"`` (git's line separator) —
+    NOT ``str.splitlines()``, which would fragment a hunk-content line on a form-feed or
+    other Unicode boundary git emits verbatim and desync the state machine into a phantom
+    path. This is the ACTUAL touched-file set — ground truth for the cross-change conflict
+    gate, which declared scope_paths and a clean ``git apply`` cannot be trusted to reflect.
     """
     seen: set[str] = set()
     out: list[str] = []
+
+    def add(raw: str) -> None:
+        path = raw.split("\t", 1)[0].strip()
+        if path[:2] in ("a/", "b/"):
+            path = path[2:]
+        if path and path != "/dev/null" and path not in seen:
+            seen.add(path)
+            out.append(path)
+
     in_hunk = False
-    for line in diff_text.splitlines():
+    for line in diff_text.split("\n"):
         if line.startswith("diff --git "):
             in_hunk = False
             continue
         if line.startswith("@@"):
             in_hunk = True
             continue
-        if in_hunk or not (line.startswith("+++ ") or line.startswith("--- ")):
+        if in_hunk:
             continue
-        path = line[4:].split("\t", 1)[0].strip()
-        if path[:2] in ("a/", "b/"):
-            path = path[2:]
-        if path and path != "/dev/null" and path not in seen:
-            seen.add(path)
-            out.append(path)
+        if line.startswith("+++ ") or line.startswith("--- "):
+            add(line[4:])
+        elif line.startswith(("rename from ", "rename to ", "copy from ", "copy to ")):
+            add(line.split(" ", 2)[2])
     return out
 
 
@@ -54,25 +65,30 @@ def actual_conflicts(changes: list[dict]) -> list[dict]:
     required, because a planner's declared ``scope_paths`` and a clean ``git apply``
     both miss same-file-different-hunk edits (which concatenate silently). Two
     changes editing one file would corrupt each other, so each shared file is a
-    blocking conflict. Defects are sorted by path for deterministic output; empty
-    list means the changes are actually disjoint.
+    blocking conflict. Conflict is counted by the number of distinct CHANGES touching a
+    file (their list position), NOT distinct non-None ids — so a missing or duplicate
+    ``id`` fails SAFE (still flagged) rather than open, and one change touching a file in
+    two hunks is never a self-conflict. Defects are sorted by path for deterministic
+    output; empty list means the changes are actually disjoint.
     """
-    file_to_ids: dict[str, list[str]] = {}
-    for change in changes:
+    file_to_touchers: dict[str, list[tuple[int, object]]] = {}
+    for idx, change in enumerate(changes):
         for path in touched_files(change.get("diff", "")):
-            file_to_ids.setdefault(path, []).append(change.get("id"))
+            file_to_touchers.setdefault(path, []).append((idx, change.get("id")))
     defects: list[dict] = []
-    for path in sorted(file_to_ids):
-        ids = sorted({i for i in file_to_ids[path] if i is not None})
-        if len(ids) >= 2:
-            defects.append({
-                "id": f"integrate-conflict:{path}",
-                "category": "CORRECTNESS",
-                "severity": "CRITICAL",
-                "location": path,
-                "fix": f"file {path} is edited by multiple changes ({', '.join(ids)}); "
-                       f"make the node scopes actually disjoint",
-            })
+    for path in sorted(file_to_touchers):
+        touchers = file_to_touchers[path]
+        if len({idx for idx, _ in touchers}) < 2:
+            continue
+        labels = sorted({cid if cid is not None else f"#{idx}" for idx, cid in touchers})
+        defects.append({
+            "id": f"integrate-conflict:{path}",
+            "category": "CORRECTNESS",
+            "severity": "CRITICAL",
+            "location": path,
+            "fix": f"file {path} is edited by multiple changes ({', '.join(labels)}); "
+                   f"make the node scopes actually disjoint",
+        })
     return defects
 
 

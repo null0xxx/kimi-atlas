@@ -18,6 +18,12 @@ def single_node_dag(packet: dict, caps: dict) -> dict:
     ``success_criteria`` (so coverage-partition is satisfied), all
     ``scope_paths``, and the ``verify_cmd``. With one node and no deps its
     schedule reduces to exactly the inner ``INIT→OUTPUT``.
+
+    The gas default is ``MAX_ATTEMPTS + 1`` — STRICTLY greater than the lone node's
+    retry-bounded dispatch count — so an absent ``caps["gas"]`` still lets the node
+    dispatch, run, and leave gas > 0 (``run_status`` is then never spuriously frozen).
+    This is what makes the degrade byte-identical to single-shot atlas rather than an
+    instant UNVERIFIED. An explicit ``caps["gas"]`` is always honored.
     """
     caps = caps or {}
     packet = packet or {}
@@ -34,7 +40,7 @@ def single_node_dag(packet: dict, caps: dict) -> dict:
     meta = {
         "depth_max": caps.get("depth_max", 0),
         "node_max": caps.get("node_max", 1),
-        "gas_remaining": caps.get("gas", 0),
+        "gas_remaining": caps.get("gas", plandag.MAX_ATTEMPTS + 1),
         "next_seq": 0,
     }
     return {"meta": meta, "nodes": {"root": node}, "jobs": []}

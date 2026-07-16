@@ -112,6 +112,43 @@ def disjoint(nodes: dict) -> list[dict]:
     return defects
 
 
+def criteria_conservation_defects(nodes: dict) -> list[dict]:
+    """A CRITICAL defect per DECOMPOSE node that drops a success criterion (else []).
+
+    A DECOMPOSE node produces no 6-lens verdict of its own — it verifies its criteria
+    only by pushing every one down to a child (transitively, a leaf). A criterion parked
+    on a DECOMPOSE node that no child re-covers is credited as covered yet verified by
+    nobody — a false green. So each DECOMPOSE whose ``success_criteria_subset`` is not a
+    subset of the union of its children's subsets is a blocking conservation break.
+    Non-DECOMPOSE and criteria-less DECOMPOSE nodes are clean; a missing ``children``
+    field counts as no coverage (the safe, over-flagging direction). Deterministic:
+    nodes are walked in insertion order and dropped criteria are sorted.
+    """
+    defects: list[dict] = []
+    for nid, node in nodes.items():
+        if not isinstance(node, dict) or node.get("kind") != "DECOMPOSE":
+            continue
+        own = set(node.get("success_criteria_subset") or [])
+        if not own:
+            continue
+        covered: set[str] = set()
+        for child_id in (node.get("children") or []):
+            child = nodes.get(child_id)
+            if isinstance(child, dict):
+                covered.update(child.get("success_criteria_subset") or [])
+        missing = own - covered
+        if missing:
+            defects.append({
+                "id": f"decompose-drops-criteria:{nid}",
+                "category": "CORRECTNESS",
+                "severity": "CRITICAL",
+                "location": nid,
+                "fix": f"DECOMPOSE node {nid} does not push criteria {sorted(missing)} down "
+                       f"to its children; re-partition so every criterion reaches a leaf",
+            })
+    return defects
+
+
 def gas_exhausted(dag: dict) -> bool:
     """True iff the run's fuel is spent — the frontier must freeze and drain out."""
     return dag.get("meta", {}).get("gas_remaining", 0) <= 0

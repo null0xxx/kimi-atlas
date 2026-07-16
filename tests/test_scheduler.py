@@ -347,8 +347,9 @@ class AggregateTests(unittest.TestCase):
         merged = scheduler.final_aggregate(dag, None, None)
         self.assertEqual(merged["verdict"], "OK")
 
-    def test_run_status_unverified_when_gas_frozen(self) -> None:
-        dag = {"meta": {"gas_remaining": 0}, "nodes": {}, "jobs": []}
+    def test_run_status_unverified_when_gas_frozen(self) -> None:  # only with unresolved work
+        dag = {"meta": {"gas_remaining": 0}, "nodes": {"a": {"kind": "LEAF"}},
+               "jobs": [{"node_id": "a", "state": "PENDING"}]}
         self.assertEqual(scheduler.run_status(dag, {"defects": []}), "UNVERIFIED")
 
 

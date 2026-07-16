@@ -31,8 +31,10 @@ def select_graph_run(runs: list[dict], session_id: str) -> str | None:
 
     ``runs`` = ``[{run_id, has_dag, state, mtime}]``. A candidate is a non-terminal run
     that carries a plan-DAG (``has_dag``) and is NOT a task sub-run. Prefer the candidate
-    whose ``run_id == session_id`` (DS-2 run-id stability); else the newest by ``mtime``;
-    else None. Pure over the supplied data (the root reads the real ``mtime`` values).
+    whose ``run_id == session_id`` (DS-2 run-id stability); else the newest by ``mtime``,
+    breaking an mtime tie by the higher ``run_id`` so the choice is deterministic
+    regardless of the root's (unordered) disk-scan order; else None. Pure over the
+    supplied data (the root reads the real ``mtime`` values).
     """
     candidates = [
         r for r in runs
@@ -45,7 +47,7 @@ def select_graph_run(runs: list[dict], session_id: str) -> str | None:
     for r in candidates:
         if r.get("run_id") == session_id:
             return r["run_id"]
-    return max(candidates, key=lambda r: r.get("mtime", 0))["run_id"]
+    return max(candidates, key=lambda r: (r.get("mtime", 0), r.get("run_id", "")))["run_id"]
 
 
 def resume(dag: dict) -> dict:

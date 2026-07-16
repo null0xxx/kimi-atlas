@@ -348,15 +348,31 @@ def final_aggregate(dag: dict, node_verdicts_by_node: dict | None = None,
             synth.append({"id": f"unverified:{nid}", "category": "CORRECTNESS",
                           "severity": "CRITICAL", "location": nid,
                           "fix": f"node {nid} resolved without a 6-lens verdict"})
+    # A resolved DECOMPOSE contributes no verdict, so it is only sound if every criterion
+    # it holds is re-covered by a child (else those criteria are credited-but-unverified
+    # -> a false green). Unresolved DECOMPOSE nodes already carry an unresolved defect.
+    for cd in plandag.criteria_conservation_defects(dag.get("nodes", {})):
+        if cd["location"] not in unresolved:
+            synth.append(cd)
+    # An empty node set verified nothing; it must never fold to OK.
+    if not dag.get("nodes"):
+        synth.append({"id": "empty-dag", "category": "CORRECTNESS", "severity": "CRITICAL",
+                      "location": "plan.dag.json",
+                      "fix": "run produced no nodes; nothing was verified"})
     if synth:
         critics.append(verdict.merge([], synth))
     return verdict.aggregate(critics, integration_verdict)
 
 
 def run_status(dag: dict, aggregate_critic: dict, budget_exhausted: bool = False) -> str:
-    """``verdict.final_status`` OR-ing gas-exhaustion into ``budget_exhausted`` -> ``OK``/``UNVERIFIED``.
+    """``verdict.final_status`` OR-ing a gas freeze into ``budget_exhausted`` -> ``OK``/``UNVERIFIED``.
 
-    A gas-frozen run is UNVERIFIED unconditionally. Descriptive label only — pass/fail is
-    computed inside ``verdict.merge``, never here.
+    Gas exhaustion marks a run UNVERIFIED only when work is still UNRESOLVED — a run whose
+    every node resolved is legitimately complete and keeps its real verdict even if the last
+    dispatch landed gas on 0 (otherwise a 1-node degrade could never reproduce atlas's OK).
+    A dead-frontier run is already forced to FAIL by ``final_aggregate``'s unresolved defect;
+    this label just surfaces the budget cause. Descriptive only — pass/fail is computed inside
+    ``verdict.merge``, never here.
     """
-    return verdict.final_status(aggregate_critic, budget_exhausted or plandag.gas_exhausted(dag))
+    gas_frozen = plandag.gas_exhausted(dag) and bool(unresolved_nodes(dag))
+    return verdict.final_status(aggregate_critic, budget_exhausted or gas_frozen)
