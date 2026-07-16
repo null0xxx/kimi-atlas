@@ -152,3 +152,29 @@ class WaveTests(unittest.TestCase):
         # the 2 not in the wave are still PENDING in the dag (untouched)
         still_pending = {j["job_id"] for j in dag["jobs"] if j["state"] == "PENDING"}
         self.assertEqual(still_pending - wave_ids, {"j3", "j4"})
+
+
+class DispatchTests(unittest.TestCase):
+    def test_charges_exactly_len_pending_wave(self) -> None:
+        dag = _pending_dag(["CRITIC", "CRITIC"], gas=5)
+        wave = dag["jobs"]
+        out = scheduler.dispatch_wave(dag, wave)
+        self.assertEqual(out["meta"]["gas_remaining"], 3)  # 5 - 2
+        self.assertTrue(all(j["state"] == "RUNNING" for j in out["jobs"]))
+        self.assertTrue(all(j.get("lease") for j in out["jobs"]))
+
+    def test_non_pending_job_is_noop_no_double_charge(self) -> None:
+        dag = _pending_dag(["CRITIC"], gas=5)
+        dag["jobs"][0]["state"] = "RUNNING"  # already running
+        out = scheduler.dispatch_wave(dag, dag["jobs"])
+        self.assertEqual(out["meta"]["gas_remaining"], 5)  # no charge
+
+    def test_input_dag_not_mutated(self) -> None:
+        dag = _pending_dag(["CRITIC"], gas=5)
+        scheduler.dispatch_wave(dag, dag["jobs"])
+        self.assertEqual(dag["meta"]["gas_remaining"], 5)
+        self.assertEqual(dag["jobs"][0]["state"], "PENDING")
+
+    def test_stamp_lease_deterministic(self) -> None:
+        self.assertEqual(scheduler.stamp_lease("j0", 0), "j0#0")
+        self.assertEqual(scheduler.stamp_lease("j0", 1), "j0#1")

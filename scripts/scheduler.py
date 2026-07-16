@@ -142,3 +142,42 @@ def plan_wave(dag: dict, free_mb: int) -> list[dict]:
     if not wave and not running_jobs(dag) and ready and gas > 0:
         wave = [min(ready, key=lambda j: class_rss_mb(job_class(j)))]
     return wave
+
+
+def _find_job(dag: dict, job_id: str) -> dict | None:
+    """Return the job dict with ``job_id`` in ``dag`` (or None)."""
+    for job in dag.get("jobs", []):
+        if job.get("job_id") == job_id:
+            return job
+    return None
+
+
+def stamp_lease(job_id: str, attempts: int) -> str:
+    """Deterministic fence token ``f'{job_id}#{attempts}'`` (no clock/random).
+
+    A requeue bumps ``attempts`` -> a new token, so a stale receipt from the prior
+    attempt is detectable by ``lease_valid``.
+    """
+    return f"{job_id}#{attempts}"
+
+
+def dispatch_wave(dag: dict, wave: list[dict]) -> dict:
+    """Charge gas + mark RUNNING + stamp a lease for each PENDING job in ``wave``.
+
+    THE gas driver: for each wave job whose CURRENT state is PENDING, call
+    ``plandag.charge_gas`` (the sole gas-charging site) THEN set RUNNING and stamp its
+    lease. A non-PENDING job is a no-op (guards against a double-charge on accidental
+    re-invocation). Charging at dispatch (not receipt) means a crashed agent has still
+    spent its fuel — gas can never be re-lent. Pure (input untouched).
+    """
+    out = copy.deepcopy(dag)
+    for wjob in wave:
+        job_id = wjob.get("job_id")
+        cur = _find_job(out, job_id)
+        if cur is None or cur.get("state") != "PENDING":
+            continue
+        out = plandag.charge_gas(out)          # deepcopies; charge THEN mark
+        cur = _find_job(out, job_id)
+        cur["state"] = "RUNNING"
+        cur["lease"] = stamp_lease(job_id, cur.get("attempts", 0))
+    return out
