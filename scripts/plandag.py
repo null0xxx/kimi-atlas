@@ -95,3 +95,61 @@ def disjoint(nodes: dict) -> list[dict]:
                     "fix": f"scope_paths of {id_a} and {id_b} overlap; make node scopes disjoint",
                 })
     return defects
+
+
+def gas_exhausted(dag: dict) -> bool:
+    """True iff the run's fuel is spent — the frontier must freeze and drain out."""
+    return dag.get("meta", {}).get("gas_remaining", 0) <= 0
+
+
+def charge_gas(dag: dict) -> dict:
+    """Return a NEW dag with ``gas_remaining`` decremented by 1, floored at 0.
+
+    Pure (the input dag is never mutated). Charging gas on every dispatch is the
+    monotone measure that, with ``MAX_ATTEMPTS``, makes the scheduler provably halt.
+    """
+    out = copy.deepcopy(dag)
+    meta = out.setdefault("meta", {})
+    meta["gas_remaining"] = max(0, meta.get("gas_remaining", 0) - 1)
+    return out
+
+
+def can_dispatch(job: dict) -> bool:
+    """True iff the job has attempts left under the per-job requeue cap."""
+    return job.get("attempts", 0) < MAX_ATTEMPTS
+
+
+def ready_jobs(dag: dict) -> list[dict]:
+    """Return the jobs that may be dispatched right now (pure over on-disk facts).
+
+    A job is ready iff: gas remains, its state is ``PENDING``, it is under the
+    attempt cap, and every dependency job is ``DONE``. Order is preserved from
+    ``dag["jobs"]``.
+    """
+    if gas_exhausted(dag):
+        return []
+    jobs = dag.get("jobs", [])
+    done = {j["job_id"] for j in jobs if j.get("state") == "DONE"}
+    ready: list[dict] = []
+    for job in jobs:
+        if job.get("state", "PENDING") != "PENDING":
+            continue
+        if not can_dispatch(job):
+            continue
+        if all(dep in done for dep in job.get("deps", [])):
+            ready.append(job)
+    return ready
+
+
+def next_job_state(result: dict) -> str:
+    """Map a returned job result to its next state.
+
+    ``{"status": "ok"} -> "DONE"``; ``"timeout" -> "PENDING"`` (a bounded requeue,
+    capped by ``MAX_ATTEMPTS``); anything else ``-> "FAILED"``.
+    """
+    status = result.get("status")
+    if status == "ok":
+        return "DONE"
+    if status == "timeout":
+        return "PENDING"
+    return "FAILED"

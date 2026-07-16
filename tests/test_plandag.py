@@ -92,3 +92,51 @@ class DisjointTests(unittest.TestCase):
         nodes = {"a": {"scope_paths": ["x.py"]}, "b": {"scope_paths": ["x.py"]}}
         d = plandag.disjoint(nodes)[0]
         self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+
+def _dag(jobs, gas=10):
+    return {"meta": {"gas_remaining": gas}, "nodes": {}, "jobs": jobs}
+
+
+class JobReadinessTests(unittest.TestCase):
+    def test_pending_job_with_no_deps_is_ready(self) -> None:
+        jobs = [{"job_id": "j1", "state": "PENDING", "deps": []}]
+        self.assertEqual([j["job_id"] for j in plandag.ready_jobs(_dag(jobs))], ["j1"])
+
+    def test_job_blocked_until_deps_done(self) -> None:
+        jobs = [{"job_id": "j1", "state": "DONE", "deps": []},
+                {"job_id": "j2", "state": "PENDING", "deps": ["j1"]}]
+        self.assertEqual([j["job_id"] for j in plandag.ready_jobs(_dag(jobs))], ["j2"])
+        jobs[0]["state"] = "RUNNING"
+        self.assertEqual(plandag.ready_jobs(_dag(jobs)), [])
+
+    def test_running_and_terminal_jobs_never_ready(self) -> None:
+        jobs = [{"job_id": "r", "state": "RUNNING", "deps": []},
+                {"job_id": "d", "state": "DONE", "deps": []},
+                {"job_id": "f", "state": "FAILED", "deps": []}]
+        self.assertEqual(plandag.ready_jobs(_dag(jobs)), [])
+
+    def test_attempt_cap_removes_job_from_ready(self) -> None:
+        jobs = [{"job_id": "j1", "state": "PENDING", "deps": [], "attempts": 2}]
+        self.assertEqual(plandag.ready_jobs(_dag(jobs)), [])
+
+    def test_gas_exhausted_freezes_ready_set(self) -> None:  # RED-TEAM: gas exhausted
+        jobs = [{"job_id": "j1", "state": "PENDING", "deps": []}]
+        self.assertEqual(plandag.ready_jobs(_dag(jobs, gas=0)), [])
+
+    def test_gas_exhausted_and_charge_gas_floor(self) -> None:
+        self.assertTrue(plandag.gas_exhausted(_dag([], gas=0)))
+        self.assertFalse(plandag.gas_exhausted(_dag([], gas=1)))
+        d0 = _dag([], gas=0)
+        self.assertEqual(plandag.charge_gas(d0)["meta"]["gas_remaining"], 0)  # floored
+        self.assertEqual(d0["meta"]["gas_remaining"], 0)  # input not mutated
+        d3 = _dag([], gas=3)
+        self.assertEqual(plandag.charge_gas(d3)["meta"]["gas_remaining"], 2)
+        self.assertEqual(d3["meta"]["gas_remaining"], 3)  # input not mutated
+
+    def test_can_dispatch_and_next_job_state(self) -> None:
+        self.assertTrue(plandag.can_dispatch({"attempts": 1}))
+        self.assertFalse(plandag.can_dispatch({"attempts": 2}))
+        self.assertEqual(plandag.next_job_state({"status": "ok"}), "DONE")
+        self.assertEqual(plandag.next_job_state({"status": "timeout"}), "PENDING")
+        self.assertEqual(plandag.next_job_state({"status": "error"}), "FAILED")
