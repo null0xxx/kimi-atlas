@@ -9,7 +9,11 @@ monotone ``gas_remaining`` are the two bounds that make the scheduler provably h
 from __future__ import annotations
 
 import copy
+import posixpath
 
+# Canonical state vocabulary for the plan-DAG. Later phases (the scheduler,
+# integration) reference these names; the P6 pure functions compare against the
+# string literals directly, so these are kept as documentary named constants.
 NODE_KINDS: tuple[str, ...] = ("DECOMPOSE", "LEAF", "INTEGRATION")
 JOB_STATES: tuple[str, ...] = ("PENDING", "RUNNING", "DONE", "FAILED")
 TERMINAL_JOB_STATES: frozenset[str] = frozenset({"DONE", "FAILED"})
@@ -49,25 +53,36 @@ def is_dag(nodes: dict) -> bool:
 
 
 def _norm(path: str) -> str:
-    """Normalize a scope path for prefix comparison (strip surrounding slashes/space)."""
-    return path.strip().strip("/").replace("\\", "/")
+    """Canonicalize a scope path for prefix comparison.
+
+    Strips surrounding whitespace, normalizes separators, collapses ``.``/``..``
+    and redundant slashes via ``posixpath.normpath``, then strips surrounding
+    slashes. A whole-repo or empty path (``.``, ``/``, ``""``) normalizes to the
+    empty sentinel ``""``, which ``scope_overlap`` treats as overlapping
+    everything — the safe direction for a conflict gate.
+    """
+    p = path.strip().replace("\\", "/")
+    if not p:
+        return ""
+    p = posixpath.normpath(p).strip("/")
+    return "" if p in ("", ".") else p
 
 
 def scope_overlap(a: list[str], b: list[str]) -> bool:
     """Return True iff any path in ``a`` overlaps any path in ``b``.
 
-    Two paths overlap when they are equal or one is a directory-prefix of the
-    other (``src`` overlaps ``src/mod.py``). Sibling directories that merely share
-    a prefix segment (``src/a`` vs ``src/b``) do NOT overlap.
+    Paths overlap when they are equal or one is a directory-prefix of the other
+    (``src`` overlaps ``src/mod.py``). Sibling directories sharing a prefix
+    segment (``src/a`` vs ``src/b``) do NOT overlap. Non-canonical spellings
+    (``./src/x``, ``src/../src/x``) are canonicalized first, and a whole-repo /
+    empty scope (the ``""`` sentinel) overlaps everything.
     """
-    for pa in a:
-        na = _norm(pa)
-        if not na:
-            continue
-        for pb in b:
-            nb = _norm(pb)
-            if not nb:
-                continue
+    na_list = [_norm(p) for p in a]
+    nb_list = [_norm(p) for p in b]
+    for na in na_list:
+        for nb in nb_list:
+            if na == "" or nb == "":
+                return True
             if na == nb or nb.startswith(na + "/") or na.startswith(nb + "/"):
                 return True
     return False
@@ -129,7 +144,7 @@ def ready_jobs(dag: dict) -> list[dict]:
     if gas_exhausted(dag):
         return []
     jobs = dag.get("jobs", [])
-    done = {j["job_id"] for j in jobs if j.get("state") == "DONE"}
+    done = {j.get("job_id") for j in jobs if j.get("state") == "DONE"}
     ready: list[dict] = []
     for job in jobs:
         if job.get("state", "PENDING") != "PENDING":
@@ -165,10 +180,12 @@ def expand(dag: dict, node_id: str, child_specs: list[dict]) -> dict:
     would exceed ``depth_max``, or the resulting node count would exceed ``node_max``
     — this is how over-decomposition is deterministically refused.
     """
+    parent = dag.get("nodes", {}).get(node_id)
+    if parent is None:
+        raise CapExceeded(f"expand: unknown node_id {node_id!r}")
     if gas_exhausted(dag):
         raise CapExceeded("gas exhausted")
     meta = dag.get("meta", {})
-    parent = dag["nodes"][node_id]
     child_depth = parent.get("depth", 0) + 1
     if child_depth > meta.get("depth_max", 0):
         raise CapExceeded(f"child depth {child_depth} exceeds depth_max {meta.get('depth_max', 0)}")

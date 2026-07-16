@@ -1,7 +1,8 @@
 """Structural validation of kimi-atlas data artifacts against the canonical schemas.
 
-The single source of truth for schemas is ``references/schemas.json`` (three
-schemas: ``task-packet`` / ``context`` / ``critic``). This module holds NO
+The single source of truth for schemas is ``references/schemas.json`` (six
+schemas: ``task-packet`` / ``context`` / ``critic`` / ``task-dag`` / ``dag-node``
+/ ``job``). This module holds NO
 orchestration knowledge — only data-contract enforcement (required-field
 presence + type). Ported from apex ``scripts/validate.py``; the schema path is
 resolved relative to this file exactly as apex does, and an ``optional`` block

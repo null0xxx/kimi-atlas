@@ -72,6 +72,19 @@ class ScopeOverlapTests(unittest.TestCase):
     def test_trailing_slash_normalized(self) -> None:
         self.assertTrue(plandag.scope_overlap(["src/"], ["src/mod.py"]))
 
+    def test_dot_prefix_same_file_overlaps(self) -> None:  # hardening
+        self.assertTrue(plandag.scope_overlap(["./src/x.py"], ["src/x.py"]))
+        self.assertTrue(plandag.scope_overlap(["src/../src/x.py"], ["src/x.py"]))
+
+    def test_substring_prefix_is_not_overlap(self) -> None:
+        self.assertFalse(plandag.scope_overlap(["src"], ["src2"]))
+        self.assertFalse(plandag.scope_overlap(["src"], ["src2/foo.py"]))
+
+    def test_whole_repo_scope_overlaps_everything(self) -> None:
+        self.assertTrue(plandag.scope_overlap(["."], ["src/x.py"]))
+        self.assertTrue(plandag.scope_overlap(["/"], ["anything.py"]))
+        self.assertTrue(plandag.scope_overlap([""], ["x.py"]))
+
 
 class DisjointTests(unittest.TestCase):
     def test_disjoint_nodes_yield_no_defects(self) -> None:
@@ -92,6 +105,15 @@ class DisjointTests(unittest.TestCase):
         nodes = {"a": {"scope_paths": ["x.py"]}, "b": {"scope_paths": ["x.py"]}}
         d = plandag.disjoint(nodes)[0]
         self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+    def test_three_nodes_report_only_overlapping_pair(self) -> None:
+        nodes = {"a": {"scope_paths": ["src/x.py"]},
+                 "b": {"scope_paths": ["src"]},        # overlaps a
+                 "c": {"scope_paths": ["other.py"]}}   # disjoint from both
+        defects = plandag.disjoint(nodes)
+        self.assertEqual(len(defects), 1)
+        self.assertIn("a", defects[0]["location"])
+        self.assertIn("b", defects[0]["location"])
 
 
 def _dag(jobs, gas=10):
@@ -135,6 +157,21 @@ class ExpandTests(unittest.TestCase):
         dag = _expand_dag(gas=0)
         with self.assertRaises(plandag.CapExceeded):
             plandag.expand(dag, "root", [{"kind": "LEAF"}])
+
+    def test_exactly_at_depth_max_is_allowed(self) -> None:
+        dag = _expand_dag(depth_max=1)  # root depth 0 -> child depth 1 == depth_max
+        out = plandag.expand(dag, "root", [{"kind": "LEAF"}])
+        self.assertEqual(out["nodes"]["root.1"]["depth"], 1)
+
+    def test_exactly_at_node_max_is_allowed(self) -> None:
+        dag = _expand_dag(node_max=3)  # 1 existing + 2 == node_max
+        out = plandag.expand(dag, "root", [{"kind": "LEAF"}, {"kind": "LEAF"}])
+        self.assertEqual(len(out["nodes"]), 3)
+
+    def test_unknown_node_id_raises_cap_exceeded(self) -> None:
+        dag = _expand_dag()
+        with self.assertRaises(plandag.CapExceeded):
+            plandag.expand(dag, "ghost", [{"kind": "LEAF"}])
 
 
 class JobReadinessTests(unittest.TestCase):
