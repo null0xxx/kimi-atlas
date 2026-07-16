@@ -238,8 +238,10 @@ The phases are specified as test-first plans:
 [P10 — integrate sink](../docs/superpowers/plans/2026-07-16-atlas-weave-p10-integrate-sink.md), and
 [P8 — scheduler](../docs/superpowers/plans/2026-07-16-atlas-weave-p8-scheduler.md), and
 [P11 — resume](../docs/superpowers/plans/2026-07-16-atlas-weave-p11-resume.md) (all landed on `main`),
-plus [P9 — best-of-N](../docs/superpowers/plans/2026-07-16-atlas-weave-p9-best-of-n.md).
-The remaining phase-plan (P12 — dogfood) follows the same TDD structure once P9 lands.
+plus [P9 — best-of-N](../docs/superpowers/plans/2026-07-16-atlas-weave-p9-best-of-n.md) and
+[P12 — runtime hands + dogfood](../docs/superpowers/plans/2026-07-16-atlas-weave-p12-runtime-dogfood.md)
+(the outer SKILL loop + deterministic I/O hands + combined-tree negative-gate teeth + a real end-to-end
+dogfood; all six pure-core phases landed first).
 
 | Phase | Goal | Deliverable |
 |---|---|---|
