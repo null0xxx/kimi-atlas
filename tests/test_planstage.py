@@ -39,3 +39,33 @@ class SingleNodeDagTests(unittest.TestCase):
         dag = planstage.single_node_dag(_PACKET, _CAPS)
         self.assertEqual(dag["meta"]["node_max"], 12)
         self.assertEqual(dag["meta"]["gas_remaining"], 100)
+
+
+def _node(scope, crit, deps=None):
+    return {"kind": "LEAF", "depth": 1, "deps": deps or [],
+            "scope_paths": scope, "success_criteria_subset": crit}
+
+
+class ValidatePlannerDagTests(unittest.TestCase):
+    def test_valid_disjoint_covering_dag_has_no_defects(self) -> None:
+        dag = {"nodes": {"a": _node(["src/a.py"], ["c1"]),
+                         "b": _node(["src/b.py"], ["c2"])}}
+        self.assertEqual(planstage.validate_planner_dag(dag, ["c1", "c2"]), [])
+
+    def test_cyclic_dag_is_critical(self) -> None:
+        dag = {"nodes": {"a": _node(["src/a.py"], ["c1"], deps=["b"]),
+                         "b": _node(["src/b.py"], ["c2"], deps=["a"])}}
+        defects = planstage.validate_planner_dag(dag, ["c1", "c2"])
+        self.assertTrue(any(d["category"] == "CORRECTNESS" and d["severity"] == "CRITICAL"
+                            for d in defects))
+
+    def test_overlapping_scopes_flagged(self) -> None:
+        dag = {"nodes": {"a": _node(["src"], ["c1"]),
+                         "b": _node(["src/a.py"], ["c2"])}}
+        defects = planstage.validate_planner_dag(dag, ["c1", "c2"])
+        self.assertTrue(any(d["id"].startswith("scope-overlap") for d in defects))
+
+    def test_dropped_criterion_flagged(self) -> None:
+        dag = {"nodes": {"a": _node(["src/a.py"], ["c1"])}}
+        defects = planstage.validate_planner_dag(dag, ["c1", "c2"])
+        self.assertTrue(any(d["category"] == "REQUIREMENTS-COVERAGE" for d in defects))
