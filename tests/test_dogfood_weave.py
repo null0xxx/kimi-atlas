@@ -182,6 +182,10 @@ class DogfoodWeaveTest(unittest.TestCase):
     def _assert_no_litter(self, repo):
         self.assertFalse(os.path.exists(os.path.join(repo, ".atlas")),
                          "dogfood left .atlas litter behind")
+        branches = subprocess.run(
+            ["git", "-C", repo, "branch", "--list", "atlas__*"],
+            capture_output=True, text=True, check=False).stdout.strip()
+        self.assertEqual(branches, "", "dogfood left dangling atlas__* branch refs")
 
     # 1 ------------------------------------------------------------------
     def test_clean_multi_file_greens(self):
@@ -201,6 +205,9 @@ class DogfoodWeaveTest(unittest.TestCase):
         self.assertEqual(out["conflicts"], [], out)
         self.assertEqual(out["regressions"], [], out)
         self.assertEqual(out["nodes"], 2, out)
+        # Green for the RIGHT reason: the union suite genuinely ran and passed
+        # (guards against a dead runner returning {} and greening vacuously).
+        self.assertGreaterEqual(out["combined_pass"], 2, out)
         self._assert_no_litter(repo)
 
     # 2 ------------------------------------------------------------------
@@ -251,6 +258,7 @@ class DogfoodWeaveTest(unittest.TestCase):
         self.assertEqual(out["run_status"], "OK", out)
         self.assertEqual(out["conflicts"], [], out)
         self.assertEqual(out["regressions"], [], out)
+        self.assertGreaterEqual(out["combined_pass"], 1, out)  # the suite genuinely ran
         self._assert_no_litter(repo)
 
 

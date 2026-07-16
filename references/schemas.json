@@ -66,7 +66,7 @@
     },
     "optional": {
       "attempts": "int",
-      "lease": "dict",
+      "lease": "str",
       "state": "str"
     }
   },

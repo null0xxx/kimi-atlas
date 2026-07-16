@@ -41,20 +41,20 @@ def _worktree_path(repo_cwd: str, session: str) -> str:
 def apply_union(baseline_sha: str, changes: list, repo_cwd: str, session: str) -> dict:
     """Apply the union of node diffs onto an isolated worktree at `baseline_sha`.
 
-    ``changes`` = ``[{"id", "diff"}]``. Creates a worktree with the FLAT branch name
-    ``atlas__{session}__union`` (flat to avoid the ``.git/refs`` dir/file collision
-    that nested ``atlas/{session}/...`` names cause) under
-    ``.atlas/{session}/union-worktree`` via ``git worktree add -b``, then ``git
-    apply``s each change's diff in list order. A change whose apply exits non-zero is
-    recorded in ``failed`` as ``{"id", "reason"}`` (the hidden-overlap net);
-    ``applied`` lists the ids that applied clean.
+    ``changes`` = ``[{"id", "diff"}]``. Creates a **detached** worktree at
+    ``baseline_sha`` (``git worktree add --detach`` — NO branch ref, so nothing is left
+    in ``.git/refs`` and a second run with the same ``session`` cannot collide with a
+    leftover branch; the union tree only needs to apply+diff+test, never to commit)
+    under ``.atlas/{session}/union-worktree``, then ``git apply``s each change's diff in
+    list order. A change whose apply exits non-zero is recorded in ``failed`` as
+    ``{"id", "reason"}`` (the hidden-overlap net); ``applied`` lists the ids that
+    applied clean.
 
     Returns ``{"worktree", "applied", "failed", "combined_diff"}``. All git failures
     degrade safe: a failed ``worktree add`` yields ``worktree=None`` with every change
     ``failed`` and an empty ``combined_diff``.
     """
     changes = list(changes or [])
-    branch = f"atlas__{session}__union"
     path = _worktree_path(repo_cwd, session)
 
     # Ensure the parent dir exists; git worktree add creates the leaf itself.
@@ -64,7 +64,7 @@ def apply_union(baseline_sha: str, changes: list, repo_cwd: str, session: str) -
         pass
 
     rc, _out, err = _run(
-        repo_cwd, ["worktree", "add", "-b", branch, path, baseline_sha]
+        repo_cwd, ["worktree", "add", "--detach", path, baseline_sha]
     )
     if rc != 0:
         reason = (err or "worktree add failed").strip()
@@ -103,7 +103,13 @@ def apply_union(baseline_sha: str, changes: list, repo_cwd: str, session: str) -
 
 
 def cleanup(worktree, repo_cwd: str, session: str) -> None:
-    """Remove the union worktree (``git worktree remove --force``). Never raises."""
+    """Remove the union worktree + prune stale registrations. Never raises.
+
+    A detached worktree leaves no branch ref, so removing it (``git worktree remove
+    --force``) plus a ``prune`` returns the repo to its exact prior state — the union
+    machinery is fully idempotent across re-runs with the same ``session``.
+    """
     if not worktree:
         return
     _run(repo_cwd, ["worktree", "remove", "--force", worktree])
+    _run(repo_cwd, ["worktree", "prune"])

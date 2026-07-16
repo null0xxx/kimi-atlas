@@ -92,7 +92,7 @@ def dogfood(repo_cwd: str, packet: dict, planner_output, scripted_nodes: dict) -
     """Drive the full ATLAS-WEAVE flow end-to-end and return its aggregate result.
 
     Returns ``{"verdict", "run_status", "nodes", "waves", "gas_spent", "conflicts",
-    "regressions"}``. ``planner_output=None`` (or any invalid DAG) degrades to the
+    "regressions", "combined_pass"}``. ``planner_output=None`` (or any invalid DAG) degrades to the
     byte-identical 1-node atlas run. See the module docstring for the fail-safe
     contract.
     """
@@ -216,6 +216,9 @@ def dogfood(repo_cwd: str, packet: dict, planner_output, scripted_nodes: dict) -
             "gas_spent": gas_spent,
             "conflicts": [d["location"] for d in conflicts],
             "regressions": regressions,
+            # How many union tests genuinely reported the "pass" token — lets a green
+            # assertion prove the combined suite actually RAN, not that it was skipped.
+            "combined_pass": sum(1 for s in combined.values() if s == "pass"),
         }
     finally:
         for wt, session in worktrees:

@@ -133,6 +133,20 @@ class UnionTreeTest(unittest.TestCase):
         self.assertEqual([f["id"] for f in res["failed"]], ["n1"])
         self.assertEqual(res["combined_diff"], "")
 
+    def test_no_branch_left_and_rerun_is_idempotent(self):
+        # A detached worktree leaves no branch ref, so a second run with the SAME
+        # session cannot collide with a leftover branch (the P12 review finding).
+        changes = [{"id": "n1", "diff": _DIFF_A}]
+        res1 = uniontree.apply_union(self.sha, changes, self.repo, self.session)
+        uniontree.cleanup(res1["worktree"], self.repo, self.session)
+        branches = _git(self.repo, "branch", "--list", "atlas__*").stdout.strip()
+        self.assertEqual(branches, "")  # no dangling branch ref
+        # Re-run: must succeed identically, not fail on a branch/worktree collision.
+        res2 = self._run(changes)
+        self.assertIsNotNone(res2["worktree"])
+        self.assertEqual(res2["applied"], ["n1"])
+        self.assertEqual(res2["failed"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

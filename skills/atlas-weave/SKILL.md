@@ -39,8 +39,9 @@ plus the outer-loop specifics:
 3. **A node IS an inner atlas sub-run.** You dispatch each ready node as a normal atlas run whose
    `run_id` is the **hierarchical** `${KIMI_SESSION_ID}/tasks/<node_id>` (free per-node isolation via
    `ctxstore._run_dir`). The node runs its own `INIT→OUTPUT` 6-lens machine in an **isolated
-   worktree** over its `scope_paths`, and **returns a thin receipt** as its final message — it writes
-   its own `.atlas/${SESSION}/tasks/<id>/` ledger; you never inherit its context.
+   worktree** over its `scope_paths`, and **reports its completion** — the orchestrator (which holds the
+   stamped lease) forms the fenced receipt from that outcome (SCHEDULE step 5). The node writes its own
+   `.atlas/${SESSION}/tasks/<id>/` ledger; you never inherit its context.
 4. **Star topology, ≤3 concurrent, builds-in-pool.** Subagents cannot spawn subagents. You launch at
    most **3 node runs at once** (memory-bound; a build counts against the pool and is never overlapped
    with a coder wave — the `free -m` guard below). Total nodes across the run are unbounded; only the
@@ -75,11 +76,16 @@ via `ctxstore` under `.atlas/${KIMI_SESSION_ID}/`; write the DAG with the **atom
 
 ### DECOMPOSED — plan the DAG (1 fenced LLM decision)
 
-- Freeze the task packet. Dispatch the **planner** (`agents/planner.md → plan`, read-only) with the
-  packet; it RETURNS one JSON object — a file-disjoint plan-DAG (or a single node) plus per-node risk
-  features. It writes nothing; **you** persist it.
-- **Coerce, never trust.** `caps = runcaps.seed_caps(packet)`; `dag = planstage.coerce_dag(
-  planner_output, packet, caps)`. `coerce_dag` returns the planner's DAG **only if**
+- **Initialize the run + freeze the packet.** `ctxstore.init_run(".atlas","${SESSION}", packet)` —
+  this creates `.atlas/${SESSION}/` and writes `state.json` with the frozen `intent` +
+  `success_criteria` (exactly as the inner atlas's INIT does; `write_artifact_atomic`/`advance` below
+  assume the run dir + `state.json` already exist).
+- Dispatch the **planner** (`agents/planner.md → plan`, read-only) with the packet; it RETURNS one
+  JSON object — a file-disjoint plan-DAG (or a single node) plus per-node risk features. It writes
+  nothing; **you** persist it.
+- **Coerce, never trust.** `caps = runcaps.seed_caps(packet)` (sizes the run: `gas`/`depth_max`/
+  `node_max` bound halting; the soft `token_budget` only sizes spend and never gates — per-node risk
+  is applied later at BUDGETED). `dag = planstage.coerce_dag(planner_output, packet, caps)`. `coerce_dag` returns the planner's DAG **only if**
   `planstage.validate_planner_dag` passes (acyclic, file-disjoint scopes, every frozen criterion
   covered); otherwise it **degrades to the 1-node atlas DAG**. A degraded (1-node) DAG means: run the
   inner `atlas` once and you are done — skip straight to OUTPUT with that node's verdict.
@@ -101,8 +107,11 @@ Loop until `scheduler.is_terminated(dag)` is true:
 1. **Sample memory.** `avail=$(free -m | awk '/^Mem:/{print $7}')` (MB). This is the live admission
    input — re-sample before **every** wave.
 2. **Plan the wave.** `wave = scheduler.plan_wave(dag, free_mb=avail)` — the ready, memory-admissible
-   frontier (≤3, gas-capped, with a progress floor). If `wave` is empty and not terminated, the
-   frontier is blocked (cyclic/dead) → let it drain to the fixpoint (it will fold to UNVERIFIED).
+   frontier (≤3, gas-capped, with a progress floor). An **empty wave while jobs are still RUNNING is
+   the normal in-flight/memory-blocked wait** — do NOT exit; keep iterating (the loop guard is
+   `scheduler.is_terminated`, and steps 3–7 are harmless no-ops on an empty wave). A genuinely blocked
+   frontier (every remaining node's deps FAILED) drains to the fixpoint and folds to UNVERIFIED. (A
+   cycle cannot occur here — `coerce_dag` rejected it at DECOMPOSED via `plandag.is_dag`.)
 3. **Charge + dispatch.** `dag = scheduler.dispatch_wave(dag, wave)` (charges 1 gas + marks RUNNING +
    stamps the fence lease per job). For each RUNNING job, record a real deadline:
    `leaseclock.stamp(job_id, attempts, now, ttl_s=1800)`.
@@ -111,10 +120,14 @@ Loop until `scheduler.is_terminated(dag)` is true:
    (On a high-risk funded node, `bestofn.fanout_n` may fund N draft coders; rerank with `bestofn.select`
    and collapse N→1 **before** that node's VERIFIED — the merge machinery is never touched intra-node.)
    A build wave never overlaps a coder wave (the `free -m` guard blocks it).
-5. **Collect thin receipts.** Each node returns `{job_id, lease, status: "ok"|"timeout"|…, children?}`.
-   Fence it: `apply_receipt` ignores any receipt whose lease ≠ the RUNNING job's lease (stale/dup).
-   `dag = scheduler.apply_receipt(dag, receipt)`; persist the node's `merged_critic.json` as that
-   node's verdict.
+5. **Collect thin receipts.** The node's inner atlas run ends by presenting its OUTPUT — it emits no
+   `job_id`/`lease`/`status`. **YOU (the orchestrator) synthesize the receipt** for `apply_receipt`:
+   attach the RUNNING job's stamped `lease` (the fence token you wrote in step 3, `f"{job_id}#{attempts}"`)
+   and set `status` from the node's **completion outcome** — completed → `"ok"`, lease-expired/no-return
+   → `"timeout"` — NOT the 6-lens verdict (that travels in the node's `merged_critic.json` and is folded
+   later by `final_aggregate`). Fence: `apply_receipt` ignores any receipt whose lease ≠ the RUNNING
+   job's current lease (stale/dup — e.g. a killed turn's receipt after a resume). `dag =
+   scheduler.apply_receipt(dag, receipt)`; persist the node's `merged_critic.json` as that node's verdict.
 6. **Reap the dead.** `expired = leaseclock.expired(leases, now)`; `dag =
    scheduler.reap_expired(dag, expired)` (a crashed/silent node is requeued, bounded by MAX_ATTEMPTS).
 7. Re-write `plan.dag.json` atomically; `ctxstore.advance(".atlas","${SESSION}","SCHEDULE",
@@ -129,10 +142,12 @@ Loop until `scheduler.is_terminated(dag)` is true:
 - **Re-validate disjointness against ACTUAL touched files:** `conflicts =
   integrate.actual_conflicts(changes)` (a clean `git apply` is NOT credited as proof —
   same-file-different-hunk concatenates silently).
-- **Cross-suite differential.** Run the UNION of every node's baseline-green suite on the merged tree
-  with `suiterun.run_suite(verify_cmd, u.worktree)` (green == exactly `"pass"`); `regressions =
-  differential.regressions(baseline_pass, combined)` — a zero-false-positive combined-tree regression
-  oracle.
+- **Cross-suite differential.** First gather **`baseline_pass`** = the UNION, over all nodes, of the
+  test-ids that were green in *that node's own* isolated suite (each node's inner run recorded them; or
+  re-derive by running `suiterun.run_suite` on each node's own worktree). Then run the union suite on
+  the merged tree: `combined = suiterun.run_suite(verify_cmd, u["worktree"])` (green == exactly
+  `"pass"`); `regressions = differential.regressions(baseline_pass, combined)` — a zero-false-positive
+  combined-tree regression oracle (a test green-alone but red-combined).
 - **Seam wave.** Dispatch `agents/integration-critic.md → plan` over the `combined_diff` + touched
   exported symbols (sharded above a diff-size threshold, honestly labeled weaker there). It RETURNS a
   critic-schema report; persist as `critic_integration.json`.
@@ -144,10 +159,12 @@ Loop until `scheduler.is_terminated(dag)` is true:
 
 - `agg = scheduler.final_aggregate(dag, node_verdicts_by_node, integration)` — folds every node's
   6-lens verdict + a synthetic UNVERIFIED per unresolved node + the DECOMPOSE criteria-conservation
-  backstop; then also fold the run-wide coverage assertion `verdict.coverage_partition(<union of
-  per-node success_criteria_subset>, frozen success_criteria)` into the defects. A single unresolved
-  node, a dropped requirement, a combined regression, or a seam defect forces FAIL — a passing sibling
-  can never mask it.
+  backstop. (The run-wide coverage assertion `verdict.coverage_partition(<union of per-node
+  success_criteria_subset>, frozen success_criteria)` was already enforced at DECOMPOSED by
+  `coerce_dag → validate_planner_dag`; re-assert it here defensively —
+  `verdict.merge([agg], coverage_partition(...))` — for a DAG reconstructed by resume.) A single
+  unresolved node, a dropped requirement, a combined regression, or a seam defect forces FAIL — a
+  passing sibling can never mask it.
 - `status = scheduler.run_status(dag, agg)` (UNVERIFIED if a genuinely-unresolved frontier ran the
   gas out; a fully-resolved run keeps its real verdict).
 - `ctxstore.advance(".atlas","${SESSION}","AGGREGATE", verdict=agg["verdict"])`.
