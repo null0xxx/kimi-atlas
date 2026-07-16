@@ -288,3 +288,29 @@ class ReapTests(unittest.TestCase):
         j = _running("j0", attempts=1); dag = _rdag([j])
         out = scheduler.reap_expired(dag, ["j0"])
         self.assertEqual(scheduler._find_job(out, "j0")["state"], "FAILED")
+        self.assertTrue(scheduler.is_terminated(out))
+
+
+class MeasureTests(unittest.TestCase):
+    def test_remaining_attempts(self) -> None:
+        self.assertEqual(scheduler.remaining_attempts({"attempts": 0}), 2)
+        self.assertEqual(scheduler.remaining_attempts({"attempts": 2}), 0)
+
+    def test_measure_components(self) -> None:
+        jobs = [{"job_id": "a", "node_id": "a", "kind": "LEAF", "attempts": 0, "state": "PENDING"},
+                {"job_id": "b", "node_id": "b", "kind": "LEAF", "attempts": 1, "state": "RUNNING"},
+                {"job_id": "c", "node_id": "c", "kind": "LEAF", "attempts": 0, "state": "DONE"}]
+        dag = _rdag(jobs, gas=7)
+        self.assertEqual(scheduler.measure(dag), (7, 2 + 1, 2))  # gas, Σremaining over non-terminal, count
+
+    def test_dispatch_strictly_decreases_measure(self) -> None:
+        dag = _pending_dag(["CRITIC"], gas=5)
+        before = scheduler.measure(dag)
+        after = scheduler.measure(scheduler.dispatch_wave(dag, dag["jobs"]))
+        self.assertLess(after, before)  # lexicographic: gas dropped
+
+    def test_is_terminated_delegates_to_fixpoint(self) -> None:
+        done = _rdag([{"job_id": "a", "node_id": "a", "kind": "LEAF", "state": "DONE"}])
+        self.assertTrue(scheduler.is_terminated(done))
+        pend = _pending_dag(["CRITIC"])
+        self.assertFalse(scheduler.is_terminated(pend))

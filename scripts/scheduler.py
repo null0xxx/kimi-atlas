@@ -269,3 +269,25 @@ def reap_expired(dag: dict, expired_job_ids: list) -> dict:
             job["attempts"] = job.get("attempts", 0) + 1
             job["state"] = "FAILED" if job["attempts"] >= plandag.MAX_ATTEMPTS else "PENDING"
     return out
+
+
+def remaining_attempts(job: dict) -> int:
+    """``max(0, MAX_ATTEMPTS - job.attempts)`` — the per-job term of the measure's 2nd component."""
+    return max(0, plandag.MAX_ATTEMPTS - job.get("attempts", 0))
+
+
+def measure(dag: dict) -> tuple[int, int, int]:
+    """The §7 lexicographic measure ``(gas_remaining, Σ remaining_attempts, non-terminal count)``.
+
+    Summed over non-terminal jobs (not DONE/FAILED). Exposed so the P8 acceptance suite
+    asserts strict decrease each iteration; well-founded on the naturals.
+    """
+    gas = dag.get("meta", {}).get("gas_remaining", 0)
+    non_terminal = [j for j in dag.get("jobs", [])
+                    if j.get("state") not in plandag.TERMINAL_JOB_STATES]
+    return (gas, sum(remaining_attempts(j) for j in non_terminal), len(non_terminal))
+
+
+def is_terminated(dag: dict) -> bool:
+    """The SCHEDULE* loop condition: ``plandag.is_fixpoint`` (no ready jobs AND nothing RUNNING)."""
+    return plandag.is_fixpoint(dag)
