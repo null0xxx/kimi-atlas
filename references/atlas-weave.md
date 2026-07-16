@@ -149,6 +149,14 @@ success_criteria) == the frozen success_criteria set`, so a dropped requirement 
 instead of shipping green), then the pure `gate`/`final_status`. **No LLM computes any schedule
 decision, disjointness, cycle-check, differential result, or pass/fail.**
 
+**Criteria-conservation (no-false-green backstop).** A DECOMPOSE node produces no verdict of its own,
+so coverage-partition crediting a criterion parked *only* on a DECOMPOSE would be a false green.
+`plandag.criteria_conservation_defects` (folded into `scheduler.final_aggregate` for resolved
+DECOMPOSE nodes) therefore requires every DECOMPOSE criterion to also appear on a **verifying
+(non-DECOMPOSE) node's** subset — tested against the global verified-criteria set, *not* the
+`children` graph, so a self-referential/cyclic `children` field cannot launder a criterion. (Both
+this hole and the cycle-laundering edge were caught by the 2026-07-16 elite opus re-audit; see §10.)
+
 ## §6. Concurrency & memory (pinned conservatively)
 
 Usable ceiling **C = 4.5 GB** (0.5 GB below the ~5 GB observed-OOM line); root ~1.0 GB resident.
@@ -253,6 +261,17 @@ The remaining phase-plans (P9, P12) follow the same TDD structure as each prior 
    regressions*, not a *semantically bad split*: K coders each seeing only their slice can each
    invent a local abstraction (duplicated symbols, fragmentation) a coherent single atlas run would
    not. Mitigated by degrade-to-atlas, the static coupling check, and seam critics — **not solved.**
+   *Narrowed (2026-07-16 re-audit):* the credited-but-unverified-criterion sub-hole is now closed by
+   the §5 criteria-conservation backstop, so a lossy split can no longer ship a dropped requirement
+   green — but a *coherent-looking yet semantically wrong* split remains the open residual.
+
+   **Elite opus re-audit (2026-07-16).** After the merged P6–P11 pure cores landed, an opus
+   adversarial re-audit (per-module + cross-invariant auditors, then 3 opus skeptics/finding, plus
+   empirical brute-force) **proved the spine sound** (always-halts with bound `G0`; purity/determinism
+   byte-identical across hash-seeds; verdict-gate / budget-fence / differential-zero-FP / degrade-to-atlas
+   all clean) and **found + fixed 7 real defects** the cheap task-level reviews had missed — one HIGH
+   (this criteria-conservation false-green, incl. a cyclic-`children` laundering edge found on
+   re-verification), four MEDIUM, two LOW. Regression suite: `tests/test_audit_findings.py`.
 2. **Differential is SOUND, not COMPLETE.** An emergent interaction with no covering test
    (signature/config/shared-state/schema drift neither suite exercises) merges clean, builds green,
    keeps the union suites green — a false green that falls back to seam critics with no better
