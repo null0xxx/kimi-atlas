@@ -44,3 +44,33 @@ def touched_files(diff_text: str) -> list[str]:
             seen.add(path)
             out.append(path)
     return out
+
+
+def actual_conflicts(changes: list[dict]) -> list[dict]:
+    """Return a CORRECTNESS/CRITICAL defect per file touched by more than one change.
+
+    ``changes`` = ``[{"id": str, "diff": str}]``. Re-validates disjointness against
+    the files each diff ACTUALLY touched — the post-coding backstop the P6 review
+    required, because a planner's declared ``scope_paths`` and a clean ``git apply``
+    both miss same-file-different-hunk edits (which concatenate silently). Two
+    changes editing one file would corrupt each other, so each shared file is a
+    blocking conflict. Defects are sorted by path for deterministic output; empty
+    list means the changes are actually disjoint.
+    """
+    file_to_ids: dict[str, list[str]] = {}
+    for change in changes:
+        for path in touched_files(change.get("diff", "")):
+            file_to_ids.setdefault(path, []).append(change.get("id"))
+    defects: list[dict] = []
+    for path in sorted(file_to_ids):
+        ids = sorted({i for i in file_to_ids[path] if i is not None})
+        if len(file_to_ids[path]) >= 2 and len(ids) >= 2:
+            defects.append({
+                "id": f"integrate-conflict:{path}",
+                "category": "CORRECTNESS",
+                "severity": "CRITICAL",
+                "location": path,
+                "fix": f"file {path} is edited by multiple changes ({', '.join(ids)}); "
+                       f"make the node scopes actually disjoint",
+            })
+    return defects

@@ -64,3 +64,34 @@ class TouchedFilesTests(unittest.TestCase):
     def test_deletion_then_addition_order_preserved(self) -> None:
         self.assertEqual(integrate.touched_files(_DIFF_DEL + _DIFF_NEW),
                          ["src/gone.py", "src/new.py"])
+
+
+class ActualConflictsTests(unittest.TestCase):
+    def test_disjoint_changes_no_conflict(self) -> None:
+        changes = [{"id": "n1", "diff": _DIFF_A}, {"id": "n2", "diff": _DIFF_NEW}]
+        self.assertEqual(integrate.actual_conflicts(changes), [])
+
+    def test_same_file_two_changes_is_critical_conflict(self) -> None:  # RED-TEAM
+        # Both touch src/a.py — a clean git apply would silently concatenate them.
+        changes = [{"id": "n1", "diff": _DIFF_A}, {"id": "n2", "diff": _DIFF_A}]
+        defects = integrate.actual_conflicts(changes)
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["category"], "CORRECTNESS")
+        self.assertEqual(d["severity"], "CRITICAL")
+        self.assertEqual(d["location"], "src/a.py")
+        self.assertIn("n1", d["fix"])
+        self.assertIn("n2", d["fix"])
+
+    def test_defect_shape_is_canonical(self) -> None:
+        changes = [{"id": "n1", "diff": _DIFF_A}, {"id": "n2", "diff": _DIFF_A}]
+        d = integrate.actual_conflicts(changes)[0]
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+    def test_conflicts_sorted_by_path(self) -> None:
+        d2 = _DIFF_A.replace("src/a.py", "src/z.py")
+        d3 = _DIFF_A.replace("src/a.py", "src/m.py")
+        changes = [{"id": "n1", "diff": _DIFF_A + d2}, {"id": "n2", "diff": _DIFF_A + d2 + d3},
+                   {"id": "n3", "diff": d3}]
+        locations = [d["location"] for d in integrate.actual_conflicts(changes)]
+        self.assertEqual(locations, sorted(locations))
