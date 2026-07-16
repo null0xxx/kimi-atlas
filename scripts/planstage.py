@@ -20,6 +20,7 @@ def single_node_dag(packet: dict, caps: dict) -> dict:
     schedule reduces to exactly the inner ``INIT→OUTPUT``.
     """
     caps = caps or {}
+    packet = packet or {}
     node = {
         "kind": "LEAF",
         "depth": 0,

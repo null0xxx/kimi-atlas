@@ -173,7 +173,7 @@ class PlannerRoleFileTests(unittest.TestCase):
         text = _PLANNER_MD.read_text(encoding="utf-8")
         # The planner must map to the read-only `plan` builtin, name its JSON
         # output keys, and restate the untrusted-content (SAFE-2) rule.
-        self.assertIn("plan", text)
+        self.assertIn("subagent_type", text)  # the plan-builtin mapping must be documented
         self.assertIn("nodes", text)
         self.assertIn("success_criteria_subset", text)
         self.assertIn("scope_paths", text)
