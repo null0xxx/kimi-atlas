@@ -66,6 +66,34 @@ class TouchedFilesTests(unittest.TestCase):
                          ["src/gone.py", "src/new.py"])
 
 
+class IntegrationVerdictTests(unittest.TestCase):
+    def _conflict(self):
+        return {"id": "c", "category": "CORRECTNESS", "severity": "CRITICAL",
+                "location": "src/a.py", "fix": "..."}
+
+    def _regression(self):
+        return {"id": "r", "category": "CORRECTNESS", "severity": "HIGH",
+                "location": "t2", "fix": "..."}
+
+    def test_clean_integration_is_ok(self) -> None:
+        merged = integrate.integration_verdict([[], []])
+        self.assertEqual(merged["verdict"], "OK")
+        self.assertEqual(merged["defects"], [])
+        self.assertEqual(set(merged.keys()), {"dimensions", "defects", "verdict"})
+
+    def test_any_conflict_or_regression_fails(self) -> None:
+        merged = integrate.integration_verdict([[self._conflict()], [self._regression()]])
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertEqual(len(merged["defects"]), 2)
+        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
+
+    def test_output_is_merge_shaped(self) -> None:
+        merged = integrate.integration_verdict([[self._regression()]])
+        for dim in ("CORRECTNESS", "CODE-QUALITY", "SECURITY", "TEST-ADEQUACY",
+                    "DOES-IT-RUN", "REQUIREMENTS-COVERAGE"):
+            self.assertIn(merged["dimensions"][dim], ("yes", "no"))
+
+
 class ActualConflictsTests(unittest.TestCase):
     def test_disjoint_changes_no_conflict(self) -> None:
         changes = [{"id": "n1", "diff": _DIFF_A}, {"id": "n2", "diff": _DIFF_NEW}]

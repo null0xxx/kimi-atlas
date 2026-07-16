@@ -74,3 +74,16 @@ def actual_conflicts(changes: list[dict]) -> list[dict]:
                        f"make the node scopes actually disjoint",
             })
     return defects
+
+
+def integration_verdict(defect_lists) -> dict:
+    """Fold conflict + differential defect lists into one canonical integration critic.
+
+    ``defect_lists`` is an iterable of defect lists (e.g. ``actual_conflicts(...)``
+    plus ``differential.integration_defects(...)``). Reuses ``verdict.merge`` (which
+    already accepts a list of script defects), so the result is the canonical
+    ``{dimensions, defects, verdict}`` shape that ``verdict.aggregate``/``gate``
+    consume, with ``verdict == "FAIL"`` iff any folded defect is blocking. Pure.
+    """
+    all_defects = [defect for lst in defect_lists for defect in (lst or [])]
+    return verdict.merge([], all_defects)
