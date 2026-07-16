@@ -277,10 +277,16 @@ def remaining_attempts(job: dict) -> int:
 
 
 def measure(dag: dict) -> tuple[int, int, int]:
-    """The §7 lexicographic measure ``(gas_remaining, Σ remaining_attempts, non-terminal count)``.
+    """The halting measure ``(gas_remaining, Σ remaining_attempts, non-terminal-job count)``.
 
-    Summed over non-terminal jobs (not DONE/FAILED). Exposed so the P8 acceptance suite
-    asserts strict decrease each iteration; well-founded on the naturals.
+    Summed over non-terminal jobs (not DONE/FAILED). STRICTLY DECREASES on every
+    DISPATCH step (gas drops) and every receipt/reap step (a job goes terminal, or
+    remaining_attempts drops on a requeue). A successful DECOMPOSE-expand keeps gas
+    fixed and ADDS bounded work (children), so the lower components may rise on that
+    one step — termination therefore rests on the GLOBAL GAS BOUND: every dispatch
+    charges exactly 1 gas (floored at 0) and expansion is bounded by
+    ``node_max``/``depth_max`` (``plandag.expand``), so total dispatches ≤ the gas
+    budget — finite regardless of any receipt sequence. Exposed for the acceptance suite.
     """
     gas = dag.get("meta", {}).get("gas_remaining", 0)
     non_terminal = [j for j in dag.get("jobs", [])
@@ -314,22 +320,36 @@ def final_aggregate(dag: dict, node_verdicts_by_node: dict | None = None,
                     integration_verdict: dict | None = None) -> dict:
     """Fold each node's stored verdict + a synthetic UNVERIFIED defect per unresolved node.
 
-    Reads each node's merged verdict via ``.get`` (missing -> skipped, never KeyError);
-    appends a blocking ``CORRECTNESS``/``CRITICAL`` ``unresolved:{nid}`` defect for every
+    Reads each node's merged verdict via ``.get`` (missing -> a resolved NON-DECOMPOSE
+    node is flagged UNVERIFIED, never KeyError, never a fabricated pass); appends a
+    blocking ``CORRECTNESS``/``CRITICAL`` ``unresolved:{nid}`` defect for every
     ``unresolved_nodes`` entry; returns ``verdict.aggregate(critics, integration_verdict)``.
     Because ``verdict.merge`` folds FAIL iff any defect is CRITICAL/HIGH, a single
     unresolved/FAILED node forces the run to FAIL — a passing sibling can never mask it,
     so a dead frontier yields the mandated PARTIAL ⚠️ UNVERIFIED and never a fabricated pass.
     """
     node_verdicts_by_node = node_verdicts_by_node or {}
-    critics = [node_verdicts_by_node[nid] for nid in dag.get("nodes", {})
-               if node_verdicts_by_node.get(nid) is not None]
-    unresolved = unresolved_nodes(dag)
-    if unresolved:
-        defects = [{"id": f"unresolved:{nid}", "category": "CORRECTNESS", "severity": "CRITICAL",
-                    "location": nid, "fix": f"node {nid} did not resolve (failed/blocked/incomplete)"}
-                   for nid in unresolved]
-        critics.append(verdict.merge([], defects))
+    unresolved = set(unresolved_nodes(dag))
+    critics: list = []
+    synth: list = []
+    for nid, node in dag.get("nodes", {}).items():
+        if nid in unresolved:
+            synth.append({"id": f"unresolved:{nid}", "category": "CORRECTNESS",
+                          "severity": "CRITICAL", "location": nid,
+                          "fix": f"node {nid} did not resolve (failed/blocked/incomplete)"})
+            continue
+        node_verdict = node_verdicts_by_node.get(nid)
+        if node_verdict is not None:
+            critics.append(node_verdict)
+        elif node.get("kind") != "DECOMPOSE":
+            # A resolved LEAF/INTEGRATION with no folded 6-lens verdict was never verified
+            # -> UNVERIFIED, never a fabricated pass. A DECOMPOSE resolves via its children,
+            # so a missing verdict there is legitimate (it contributes nothing).
+            synth.append({"id": f"unverified:{nid}", "category": "CORRECTNESS",
+                          "severity": "CRITICAL", "location": nid,
+                          "fix": f"node {nid} resolved without a 6-lens verdict"})
+    if synth:
+        critics.append(verdict.merge([], synth))
     return verdict.aggregate(critics, integration_verdict)
 
 

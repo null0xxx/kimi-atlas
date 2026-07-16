@@ -335,11 +335,17 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
         self.assertTrue(any(d["id"] == "unresolved:b" for d in merged["defects"]))
 
-    def test_missing_node_verdict_is_skipped_no_keyerror(self) -> None:
-        dag = {"meta": {"gas_remaining": 5},
-               "nodes": {"a": {}}, "jobs": [{"job_id": "a#0", "node_id": "a", "state": "DONE"}]}
-        merged = scheduler.final_aggregate(dag, None, None)  # no verdicts supplied
-        self.assertEqual(merged["verdict"], "OK")  # resolved + no defects
+    def test_done_leaf_without_verdict_is_unverified(self) -> None:  # never fabricate a pass
+        dag = {"meta": {"gas_remaining": 5}, "nodes": {"a": {"kind": "LEAF"}},
+               "jobs": [{"job_id": "a#0", "node_id": "a", "state": "DONE"}]}
+        merged = scheduler.final_aggregate(dag, None, None)  # no verdict supplied, no KeyError
+        self.assertEqual(merged["verdict"], "FAIL")  # a DONE leaf with no verdict was never verified
+
+    def test_done_decompose_without_verdict_is_ok(self) -> None:  # children carry the criteria
+        dag = {"meta": {"gas_remaining": 5}, "nodes": {"d": {"kind": "DECOMPOSE"}},
+               "jobs": [{"job_id": "d#0", "node_id": "d", "state": "DONE"}]}
+        merged = scheduler.final_aggregate(dag, None, None)
+        self.assertEqual(merged["verdict"], "OK")
 
     def test_run_status_unverified_when_gas_frozen(self) -> None:
         dag = {"meta": {"gas_remaining": 0}, "nodes": {}, "jobs": []}
@@ -389,3 +395,34 @@ class HaltingAcceptanceTests(unittest.TestCase):
         self.assertEqual(dispatches, gas_charged)
         # bounded: <= jobs * MAX_ATTEMPTS dispatches
         self.assertLessEqual(dispatches, 2 * 2)
+
+    def test_decompose_expand_run_halts_and_dispatches_equal_gas(self) -> None:
+        # A DECOMPOSE node expands to 2 leaves. The measure is NOT per-step monotone
+        # across the expand (gas fixed, work added), so termination rests on the global
+        # gas bound: dispatches == gas charged, bounded by the budget, and the run halts.
+        dag = {"meta": {"gas_remaining": 100, "depth_max": 4, "node_max": 12, "next_seq": 0},
+               "nodes": {"root": {"kind": "DECOMPOSE", "depth": 0, "deps": [],
+                                  "scope_paths": [], "success_criteria_subset": []}}, "jobs": []}
+        dag = scheduler.seed_jobs(dag)
+        gas0 = dag["meta"]["gas_remaining"]
+        dispatches = 0
+        children = [{"kind": "LEAF", "deps": [], "scope_paths": ["a.py"], "success_criteria_subset": []},
+                    {"kind": "LEAF", "deps": [], "scope_paths": ["b.py"], "success_criteria_subset": []}]
+        for _ in range(1000):
+            if scheduler.is_terminated(dag):
+                break
+            wave = scheduler.plan_wave(dag, 100000)
+            if wave:
+                dag = scheduler.dispatch_wave(dag, wave)
+                dispatches += len(wave)
+            running = scheduler.running_jobs(dag)
+            if running:
+                j = running[0]
+                receipt = {"job_id": j["job_id"], "status": "ok", "lease": j.get("lease")}
+                if j["node_id"] == "root":
+                    receipt["children"] = children
+                dag = scheduler.apply_receipt(dag, receipt)
+        self.assertTrue(scheduler.is_terminated(dag))
+        self.assertEqual(dispatches, gas0 - dag["meta"]["gas_remaining"])  # dispatches == gas charged
+        self.assertLessEqual(dispatches, gas0)                             # bounded by the budget
+        self.assertEqual(len(dag["nodes"]), 3)                            # root + 2 children resolved
