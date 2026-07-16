@@ -20,6 +20,7 @@ Key kimi-atlas extensions over apex:
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import time
 
@@ -187,6 +188,26 @@ def write_artifact(base: str, run_id: str, name: str, data) -> str:
         encoding="utf-8",
     )
     return str(p)
+
+
+def write_artifact_atomic(base: str, run_id: str, name: str, data) -> pathlib.Path:
+    """Crash-safe ``write_artifact``: serialize to a ``.tmp`` sibling then atomically
+    ``os.replace`` it onto the target.
+
+    Matches ``write_artifact``'s serialization (JSON for dict/list, else ``str``) and
+    return-value semantics, adding only atomicity: because ``os.replace`` is atomic on
+    POSIX, a crash mid-write can leave at most a stale ``.tmp`` sibling — never a torn
+    ``plan.dag.json``. On success the ``.tmp`` sibling is consumed by the rename, so no
+    partial file remains. Returns the target ``Path``. Does not touch ``write_artifact``.
+    """
+    p = _run_dir(base, run_id) / name
+    tmp = p.with_name(p.name + ".tmp")
+    payload = (
+        json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
+    )
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, p)
+    return p
 
 
 def read_artifact(base: str, run_id: str, name: str):
