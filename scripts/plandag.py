@@ -189,3 +189,17 @@ def expand(dag: dict, node_id: str, child_specs: list[dict]) -> dict:
         out["nodes"][node_id].setdefault("children", []).append(child_id)
     out["meta"]["next_seq"] = seq
     return out
+
+
+def is_fixpoint(dag: dict) -> bool:
+    """True iff the scheduler must terminate: no ready jobs AND nothing in flight.
+
+    Pinned so an empty-frontier-with-blocked-or-exhausted-nodes iteration cannot
+    spin — when this holds, the run drains to its aggregate (UNVERIFIED if any node
+    is unresolved).
+    """
+    if ready_jobs(dag):
+        return False
+    if any(job.get("state") == "RUNNING" for job in dag.get("jobs", [])):
+        return False
+    return True

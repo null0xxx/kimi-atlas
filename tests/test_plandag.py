@@ -179,3 +179,30 @@ class JobReadinessTests(unittest.TestCase):
         self.assertEqual(plandag.next_job_state({"status": "ok"}), "DONE")
         self.assertEqual(plandag.next_job_state({"status": "timeout"}), "PENDING")
         self.assertEqual(plandag.next_job_state({"status": "error"}), "FAILED")
+
+
+class FixpointTests(unittest.TestCase):
+    def test_all_terminal_is_fixpoint(self) -> None:
+        dag = _dag([{"job_id": "j1", "state": "DONE", "deps": []},
+                    {"job_id": "j2", "state": "FAILED", "deps": []}])
+        self.assertTrue(plandag.is_fixpoint(dag))
+
+    def test_ready_job_is_not_fixpoint(self) -> None:
+        dag = _dag([{"job_id": "j1", "state": "PENDING", "deps": []}])
+        self.assertFalse(plandag.is_fixpoint(dag))
+
+    def test_running_job_is_not_fixpoint(self) -> None:
+        dag = _dag([{"job_id": "j1", "state": "RUNNING", "deps": []}])
+        self.assertFalse(plandag.is_fixpoint(dag))
+
+    def test_blocked_frontier_with_no_inflight_is_fixpoint(self) -> None:
+        # A PENDING job whose dep FAILED is not ready and nothing is running ->
+        # terminate (drains to UNVERIFIED) rather than spin forever.
+        dag = _dag([{"job_id": "j1", "state": "FAILED", "deps": []},
+                    {"job_id": "j2", "state": "PENDING", "deps": ["j1"]}])
+        self.assertEqual(plandag.ready_jobs(dag), [])
+        self.assertTrue(plandag.is_fixpoint(dag))
+
+    def test_gas_exhausted_with_no_inflight_is_fixpoint(self) -> None:
+        dag = _dag([{"job_id": "j1", "state": "PENDING", "deps": []}], gas=0)
+        self.assertTrue(plandag.is_fixpoint(dag))
