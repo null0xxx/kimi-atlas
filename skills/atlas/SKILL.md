@@ -22,7 +22,7 @@ human-gated or confined to an isolated sandbox.
 
 ## 🧭 KIMI ADAPTATION — read first
 
-This skill runs natively on **Kimi Code v0.23.5**. Four platform facts govern everything below:
+This skill runs natively on **Kimi Code v0.23.5** (authored against it; **revalidated live on v0.26.0 / `k3` 1M** — see `references/live-validation.md`). Four platform facts govern everything below:
 
 1. **Real tool wire-names only.** Use `Read, Write, Edit, Bash, Grep, Glob, Agent,
    AskUserQuestion, TodoList, WebSearch, FetchURL, Skill`. There is **no** `Shell`, `WriteFile`,

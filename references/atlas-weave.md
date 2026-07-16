@@ -129,7 +129,10 @@ old states still validate).
 1. **Per-node.** Today's unchanged 6-lens harness in each node's own worktree, **cascade-ordered**:
    the FREE deterministic floor (`runcheck`/`lint`/`reqcoverage`/`pathcheck`/`sast`, plus fail-open
    mutation/property/metamorphic tiers feeding `script_defects` into the untouched `verdict.merge`)
-   gates whether the *paid* 3-critic judgment wave runs at all. (Risk-funded best-of-N, when enabled
+   runs first and contributes blocking defects on its own — the deterministic `sast` SECURITY floor can
+   fail the gate with the paid 3-critic wave never dispatched (`run_negative_gate` pins this) — and its
+   evidence then feeds the paid critic wave, which the shipped SKILL otherwise dispatches for every node.
+   (Risk-funded best-of-N, when enabled
    in P9, is deterministically reranked **among full-gate passers only** and collapsed **N→1 before
    that node's `VERIFIED`**, so no merge machinery is touched intra-node.)
 2. **Disjointness (mechanical enforcement of constraint 6).** Pre-dispatch structural gate on
@@ -257,6 +260,11 @@ dogfood; all six pure-core phases landed first).
 > sink (P10)** banks the biggest quality win *before* the throughput scheduler (P8), so even a partial
 > build is safe and valuable. Resume (P11) is P-priority, not an afterthought, because it is the
 > normal path once K≥4.
+
+**Live validation.** The whole system is proven end-to-end on the live Kimi CLI v0.26.0 / `k3`
+(1M context) — decompose → per-node 6-lens → combined-tree differential → pure aggregate → human
+gate, with the real tree untouched. Full ledgers and the Q/T comparison vs single-shot atlas are in
+[live-validation.md](live-validation.md).
 
 ## §10. Honest risks / named residuals
 

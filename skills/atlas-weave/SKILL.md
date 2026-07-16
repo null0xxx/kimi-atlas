@@ -25,7 +25,7 @@ facts** — you only marshal.
 
 ## 🧭 KIMI ADAPTATION — read first
 
-Runs natively on **Kimi Code v0.23.5**. The same four platform facts as `atlas` govern everything,
+Runs natively on **Kimi Code v0.23.5** (authored against it; **revalidated live on v0.26.0 / `k3` 1M** — see `references/live-validation.md`). The same four platform facts as `atlas` govern everything,
 plus the outer-loop specifics:
 
 1. **Real tool wire-names only** — `Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion,
