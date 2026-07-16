@@ -32,5 +32,42 @@
       "defects": "list",
       "verdict": "str"
     }
+  },
+  "task-dag": {
+    "required": {
+      "meta": "dict",
+      "nodes": "dict",
+      "jobs": "list"
+    }
+  },
+  "dag-node": {
+    "required": {
+      "kind": "str",
+      "depth": "int",
+      "deps": "list",
+      "scope_paths": "list",
+      "success_criteria_subset": "list"
+    },
+    "optional": {
+      "verify_cmd": "str",
+      "risk": "int",
+      "run_id": "str",
+      "parent": "str",
+      "children": "list",
+      "state": "str"
+    }
+  },
+  "job": {
+    "required": {
+      "job_id": "str",
+      "node_id": "str",
+      "kind": "str",
+      "deps": "list"
+    },
+    "optional": {
+      "attempts": "int",
+      "lease": "dict",
+      "state": "str"
+    }
   }
 }
