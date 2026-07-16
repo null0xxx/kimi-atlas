@@ -42,3 +42,24 @@ class RegressionsTests(unittest.TestCase):
 
     def test_empty_baseline(self) -> None:
         self.assertEqual(differential.regressions(set(), {"t1": "fail"}), [])
+
+
+class IntegrationDefectsTests(unittest.TestCase):
+    def test_no_regressions_no_defects(self) -> None:
+        self.assertEqual(differential.integration_defects([]), [])
+
+    def test_regression_is_high_correctness_defect(self) -> None:
+        defects = differential.integration_defects(["t2"])
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["category"], "CORRECTNESS")
+        self.assertEqual(d["severity"], "HIGH")
+        self.assertEqual(d["location"], "t2")
+        self.assertIn("t2", d["fix"])
+
+    def test_defect_shape_is_canonical(self) -> None:
+        d = differential.integration_defects(["t2"])[0]
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+    def test_one_defect_per_regression(self) -> None:
+        self.assertEqual(len(differential.integration_defects(["t1", "t2", "t3"])), 3)

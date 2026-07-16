@@ -21,3 +21,23 @@ def regressions(baseline_pass: set, combined: dict) -> list[str]:
     interaction introduced by combining the changes.
     """
     return sorted(t for t in baseline_pass if combined.get(t) != "pass")
+
+
+def integration_defects(regressed: list) -> list[dict]:
+    """Map each cross-change regression to a blocking CORRECTNESS/HIGH defect.
+
+    A test that passes in isolation but fails on the combined tree means the
+    combination produces a wrong result — HIGH (likely wrong), blocking. One defect
+    per regressed test-id, canonical shape.
+    """
+    return [
+        {
+            "id": f"integration-regression:{test_id}",
+            "category": "CORRECTNESS",
+            "severity": "HIGH",
+            "location": test_id,
+            "fix": f"test {test_id} passes in isolation but fails on the combined "
+                   f"tree; resolve the cross-change interaction",
+        }
+        for test_id in regressed
+    ]
