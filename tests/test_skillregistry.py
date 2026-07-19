@@ -1,10 +1,10 @@
 """Unit tests for scripts/skillregistry.py (skill-registry builder + E4 audit).
 
-Fixtures are synthetic zip trees built with tempfile + zipfile — the tests never
-depend on the real Skills/ tree. The one exception is the E3 test, which validates
-the COMMITTED references/skill-registry.json against the canonical schemas and,
-when the (untracked) Skills/ tree is present on disk, cross-checks it against the
-live zips.
+Fixtures are synthetic ``skills/<name>/`` package trees written with tempfile —
+the tests never depend on the real skills/ tree. The one exception is the E3
+test, which validates the COMMITTED references/skill-registry.json against the
+canonical schemas and cross-checks it against the committed skills manifest
+(zip-free — both are committed, so it runs anywhere the repo is checked out).
 """
 import contextlib
 import io
@@ -12,7 +12,6 @@ import json
 import pathlib
 import tempfile
 import unittest
-import zipfile
 
 from scripts import skillregistry, validate
 
@@ -35,17 +34,38 @@ def _skill_md(name="demo-skill", description="Does demo things."):
     return _FRONTMATTER.format(name=name, description=description)
 
 
-def _make_zip(category_dir: pathlib.Path, filename: str, skill_md=None, extra=None):
-    """Write a synthetic skill zip: SKILL.md (unless None) + LICENSE + extras."""
-    category_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = category_dir / filename
-    with zipfile.ZipFile(zip_path, "w") as archive:
-        if skill_md is not None:
-            archive.writestr("SKILL.md", skill_md)
-        archive.writestr("LICENSE", "MIT")
-        for member, content in (extra or {}).items():
-            archive.writestr(member, content)
-    return zip_path
+def _make_skill(skills_root: pathlib.Path, name: str, skill_md=None, extra=None):
+    """Write a synthetic extracted package: ``skills/<name>/SKILL.md`` + extras."""
+    skill_dir = skills_root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        _skill_md(name) if skill_md is None else skill_md, encoding="utf-8"
+    )
+    for member, content in (extra or {}).items():
+        target = skill_dir / member
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return skill_dir
+
+
+def _manifest_for(mapping: dict[str, str]) -> dict:
+    """Build a synthetic skills manifest document for a name→category mapping."""
+    return {
+        "version": 2,
+        "skill_count": len(mapping),
+        "file_count": 0,
+        "skills": [
+            {"name": name, "category": category, "dir": f"skills/{name}", "files": []}
+            for name, category in sorted(mapping.items())
+        ],
+    }
+
+
+def _write_manifest(root: pathlib.Path, mapping: dict[str, str]) -> pathlib.Path:
+    path = root / "refs" / "skills-manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_manifest_for(mapping)), encoding="utf-8")
+    return path
 
 
 class TestParseFrontmatter(unittest.TestCase):
@@ -106,128 +126,187 @@ class TestExtractTriggers(unittest.TestCase):
         self.assertEqual(skillregistry.extract_triggers(""), [])
 
 
-class TestClassifyZip(unittest.TestCase):
+class TestClassifyDir(unittest.TestCase):
     def test_full_entry_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
-            zip_path = _make_zip(
-                pathlib.Path(tmp) / "Engineering",
-                "demo-skill.zip",
-                _skill_md(description="Does demos. Trigger when users mention demos."),
+            skill_dir = _make_skill(
+                pathlib.Path(tmp) / "skills",
+                "demo-skill",
+                _skill_md("demo-skill", "Does demos. Trigger when users mention demos."),
                 extra={"scripts/run.sh": "#/bin/sh\n"},
             )
-            entry = skillregistry.classify_zip(zip_path, "Engineering")
+            entry = skillregistry.classify_dir(skill_dir, "Engineering")
         self.assertEqual(entry["name"], "demo-skill")
         self.assertEqual(entry["category"], "Engineering")
         self.assertEqual(entry["triggers"], ["demos"])
-        self.assertEqual(entry["zip"], "demo-skill.zip")
-        # The registry stays compact: archive member lists are not carried.
+        self.assertEqual(entry["path"], "skills/demo-skill/")
+        # The registry stays compact: payload member lists are not carried.
         self.assertNotIn("entries", entry)
         self.assertNotIn("has_payload", entry)
+        self.assertNotIn("zip", entry)  # the tree build retired the archive field
 
-    # ---- failure paths: missing manifest / corrupt archive / no frontmatter ----
+    # ---- failure paths: missing manifest file / no frontmatter ----
     def test_missing_skill_md_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
-            zip_path = _make_zip(pathlib.Path(tmp) / "Finance", "empty.zip", skill_md=None)
+            skill_dir = pathlib.Path(tmp) / "skills" / "empty"
+            skill_dir.mkdir(parents=True)
             with self.assertRaises(ValueError):
-                skillregistry.classify_zip(zip_path, "Finance")
-
-    def test_non_zip_file_raises(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            bad = pathlib.Path(tmp) / "Finance"
-            bad.mkdir()
-            zip_path = bad / "broken.zip"
-            zip_path.write_text("this is not a zip archive", encoding="utf-8")
-            with self.assertRaises(ValueError):
-                skillregistry.classify_zip(zip_path, "Finance")
+                skillregistry.classify_dir(skill_dir, "Finance")
 
     def test_no_frontmatter_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
-            zip_path = _make_zip(
-                pathlib.Path(tmp) / "Finance", "bare.zip", "# just a body\n"
+            skill_dir = _make_skill(
+                pathlib.Path(tmp) / "skills", "bare", "# just a body\n"
             )
             with self.assertRaises(ValueError):
-                skillregistry.classify_zip(zip_path, "Finance")
+                skillregistry.classify_dir(skill_dir, "Finance")
 
     # ---- boundary: a missing description is tolerated (entry still classifies) ----
     def test_missing_description_tolerated(self):
         with tempfile.TemporaryDirectory() as tmp:
-            zip_path = _make_zip(
-                pathlib.Path(tmp) / "Finance", "nodesc.zip", "---\nname: nodesc\nlicense: MIT\n---\n"
+            skill_dir = _make_skill(
+                pathlib.Path(tmp) / "skills",
+                "nodesc",
+                "---\nname: nodesc\nlicense: MIT\n---\n",
             )
-            entry = skillregistry.classify_zip(zip_path, "Finance")
+            entry = skillregistry.classify_dir(skill_dir, "Finance")
         self.assertEqual(entry["description"], "")
         self.assertEqual(entry["triggers"], [])
+
+    def test_empty_name_falls_back_to_dir_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = _make_skill(
+                pathlib.Path(tmp) / "skills", "dir-name", "---\nname: \n---\n"
+            )
+            entry = skillregistry.classify_dir(skill_dir, "Finance")
+        self.assertEqual(entry["name"], "dir-name")
+
+
+class TestIterSkillDirs(unittest.TestCase):
+    def test_first_party_dirs_excluded(self):
+        # atlas / atlas-weave / atlas-resume are plugin machinery, never vendored
+        # packages — they must be skipped BEFORE the manifest-membership check.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "skills"
+            for first_party in ("atlas", "atlas-weave", "atlas-resume"):
+                _make_skill(root, first_party, "---\nname: x\ndescription: y\n---\n")
+            _make_skill(root, "vendored")
+            dirs = skillregistry.iter_skill_dirs(root)
+        self.assertEqual([d.name for d in dirs], ["vendored"])
+
+    def test_dirs_without_skill_md_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "skills"
+            (root / "not-a-package").mkdir(parents=True)
+            _make_skill(root, "packaged")
+            dirs = skillregistry.iter_skill_dirs(root)
+        self.assertEqual([d.name for d in dirs], ["packaged"])
 
 
 class TestBuildEntries(unittest.TestCase):
     def test_deterministic_category_then_name_order(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            # Created in reverse order; build_entries must sort by (category, name, zip).
-            _make_zip(root / "Zeta", "beta.zip", _skill_md("beta"))
-            _make_zip(root / "Alpha", "omega.zip", _skill_md("omega"))
-            _make_zip(root / "Alpha", "alpha.zip", _skill_md("alpha"))
-            entries, failures = skillregistry.build_entries(root)
+            root = pathlib.Path(tmp) / "skills"
+            # Created in reverse order; build_entries must sort by (category, name).
+            _make_skill(root, "beta", _skill_md("beta"))
+            _make_skill(root, "omega", _skill_md("omega"))
+            _make_skill(root, "alpha", _skill_md("alpha"))
+            entries, failures = skillregistry.build_entries(
+                root, manifest=_manifest_for(
+                    {"beta": "Zeta", "omega": "Alpha", "alpha": "Alpha"}
+                )
+            )
         self.assertEqual(failures, [])
         self.assertEqual(
-            [(e["category"], e["name"]) for e in entries],
-            [("Alpha", "alpha"), ("Alpha", "omega"), ("Zeta", "beta")],
+            [(e["category"], e["name"], e["path"]) for e in entries],
+            [
+                ("Alpha", "alpha", "skills/alpha/"),
+                ("Alpha", "omega", "skills/omega/"),
+                ("Zeta", "beta", "skills/beta/"),
+            ],
         )
 
-    def test_zip_paths_can_be_presupplied(self):
-        # A caller that already globbed passes the scan in — same result, one glob.
+    def test_category_comes_from_manifest_not_disk(self):
+        # The manifest is the anchor: a dir's category is whatever the manifest
+        # records, independent of where the fixture happens to live.
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            _make_zip(root / "Alpha", "one.zip", _skill_md("one"))
-            zip_paths = skillregistry.iter_zip_paths(root)
-            entries, failures = skillregistry.build_entries(root, zip_paths)
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "demo", _skill_md("demo"))
+            entries, failures = skillregistry.build_entries(
+                root, manifest=_manifest_for({"demo": "Finance"})
+            )
+        self.assertEqual(failures, [])
+        self.assertEqual(entries[0]["category"], "Finance")
+
+    def test_skill_dirs_can_be_presupplied(self):
+        # A caller that already listed the tree passes the scan in — same result.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "one", _skill_md("one"))
+            manifest = _manifest_for({"one": "Alpha"})
+            skill_dirs = skillregistry.iter_skill_dirs(root)
+            entries, failures = skillregistry.build_entries(root, skill_dirs, manifest)
         self.assertEqual(failures, [])
         self.assertEqual([e["name"] for e in entries], ["one"])
 
-    def test_duplicate_names_are_all_registered(self):
+    def test_dir_missing_from_manifest_is_failure(self):
+        # A skill dir the manifest does not anchor is an audit FAILURE, never
+        # silently categorized.
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            _make_zip(root / "Alpha", "dup.zip", _skill_md("dup"))
-            _make_zip(root / "Alpha", "dup (1).zip", _skill_md("dup"))
-            entries, failures = skillregistry.build_entries(root)
-        self.assertEqual(failures, [])
-        self.assertEqual(len(entries), 2)
-        self.assertEqual([e["zip"] for e in entries], ["dup (1).zip", "dup.zip"])
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "anchored", _skill_md("anchored"))
+            _make_skill(root, "stowaway", _skill_md("stowaway"))
+            entries, failures = skillregistry.build_entries(
+                root, manifest=_manifest_for({"anchored": "Alpha"})
+            )
+        self.assertEqual([e["name"] for e in entries], ["anchored"])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("stowaway", failures[0][0])
+        self.assertIn("missing from the skills manifest", failures[0][1])
 
     def test_rebuild_is_byte_identical(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            _make_zip(root / "Alpha", "one.zip", _skill_md("one"))
-            _make_zip(root / "Beta", "two.zip", _skill_md("two"))
-            first = json.dumps(skillregistry.build_registry(skillregistry.build_entries(root)[0]),
-                               indent=2, ensure_ascii=False)
-            second = json.dumps(skillregistry.build_registry(skillregistry.build_entries(root)[0]),
-                                indent=2, ensure_ascii=False)
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "one", _skill_md("one"))
+            _make_skill(root, "two", _skill_md("two"))
+            manifest = _manifest_for({"one": "Alpha", "two": "Beta"})
+            first = json.dumps(
+                skillregistry.build_registry(skillregistry.build_entries(root, manifest=manifest)[0]),
+                indent=2, ensure_ascii=False,
+            )
+            second = json.dumps(
+                skillregistry.build_registry(skillregistry.build_entries(root, manifest=manifest)[0]),
+                indent=2, ensure_ascii=False,
+            )
         self.assertEqual(first, second)
 
-    def test_bad_zip_recorded_as_failure_not_crash(self):
+    def test_bad_skill_md_recorded_as_failure_not_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / "Alpha").mkdir()
-            (root / "Alpha" / "broken.zip").write_text("nope", encoding="utf-8")
-            _make_zip(root / "Alpha", "good.zip", _skill_md("good"))
-            entries, failures = skillregistry.build_entries(root)
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "broken", "# no frontmatter fence\n")
+            _make_skill(root, "good", _skill_md("good"))
+            entries, failures = skillregistry.build_entries(
+                root, manifest=_manifest_for({"broken": "Alpha", "good": "Alpha"})
+            )
         self.assertEqual([e["name"] for e in entries], ["good"])
         self.assertEqual(len(failures), 1)
-        self.assertIn("broken.zip", failures[0][0])
+        self.assertIn("broken", failures[0][0])
 
 
 class TestRegistryValidation(unittest.TestCase):
     def test_valid_registry_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            _make_zip(root / "Alpha", "one.zip", _skill_md("one"))
-            registry = skillregistry.build_registry(skillregistry.build_entries(root)[0])
+            root = pathlib.Path(tmp) / "skills"
+            _make_skill(root, "one", _skill_md("one"))
+            registry = skillregistry.build_registry(
+                skillregistry.build_entries(root, manifest=_manifest_for({"one": "Alpha"}))[0]
+            )
+        self.assertEqual(registry["version"], 2)
         self.assertEqual(skillregistry.validate_registry(registry), [])
 
     # ---- failure: schema violations and count drift are caught ----
     def test_missing_field_detected(self):
-        registry = {"version": 1, "skill_count": 0}  # no "skills"
+        registry = {"version": 2, "skill_count": 0}  # no "skills"
         errors = skillregistry.validate_registry(registry)
         self.assertTrue(any("skills" in err for err in errors))
 
@@ -242,6 +321,13 @@ class TestRegistryValidation(unittest.TestCase):
         errors = skillregistry.validate_registry(registry)
         self.assertTrue(any("skills[0]" in err for err in errors))
 
+    def test_zip_keyed_entry_detected(self):
+        # The v1 archive-keyed shape no longer satisfies the schema (path now).
+        old = {"name": "x", "category": "A", "description": "", "triggers": [],
+               "zip": "x.zip"}
+        errors = skillregistry.validate_registry(skillregistry.build_registry([old]))
+        self.assertTrue(any("path" in err for err in errors))
+
 
 class TestAudit(unittest.TestCase):
     def test_counts_and_ok_line(self):
@@ -250,10 +336,10 @@ class TestAudit(unittest.TestCase):
             {"name": "b", "category": "Alpha"},
             {"name": "c", "category": "Beta"},
         ]
-        lines, ok = skillregistry.audit(entries, zip_count=3, failures=[])
+        lines, ok = skillregistry.audit(entries, manifest_skill_count=3, failures=[])
         self.assertIn("AUDIT category=Alpha skills=2", lines)
         self.assertIn("AUDIT category=Beta skills=1", lines)
-        self.assertEqual(lines[-2], "AUDIT zips=3 registry=3")
+        self.assertEqual(lines[-2], "AUDIT manifest=3 registry=3")
         self.assertEqual(lines[-1], "AUDIT ok")
         self.assertTrue(ok)
 
@@ -263,9 +349,9 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(lines[-1], "AUDIT MISMATCH")
         self.assertFalse(ok)
 
-    def test_parse_failure_flagged(self):
-        lines, ok = skillregistry.audit([], 1, [("Skills/A/bad.zip", "not a readable zip")])
-        self.assertIn("AUDIT parse-failure zip=Skills/A/bad.zip reason=not a readable zip", lines)
+    def test_failure_flagged(self):
+        lines, ok = skillregistry.audit([], 1, [("skills/bad", "no frontmatter fence")])
+        self.assertIn("AUDIT failure dir=skills/bad reason=no frontmatter fence", lines)
         self.assertEqual(lines[-1], "AUDIT MISMATCH")
         self.assertFalse(ok)
 
@@ -277,49 +363,78 @@ class TestMain(unittest.TestCase):
             rc = skillregistry.main(argv)
         return rc, out.getvalue(), err.getvalue()
 
+    def _args(self, root, mapping, out_name="registry.json"):
+        return [
+            "--skills-root", str(root / "skills"),
+            "--manifest", str(_write_manifest(root, mapping)),
+            "--out", str(root / "out" / out_name),
+        ]
+
     def test_happy_path_writes_registry_and_audits(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            _make_zip(root / "Skills" / "Alpha", "one.zip", _skill_md("one"))
-            _make_zip(root / "Skills" / "Alpha", "two.zip", _skill_md("two"))
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            _make_skill(root / "skills", "two", _skill_md("two"))
             out_path = root / "out" / "registry.json"
-            rc, stdout, _ = self._run(
-                ["--skills-root", str(root / "Skills"), "--out", str(out_path)]
-            )
+            rc, stdout, _ = self._run(self._args(root, {"one": "Alpha", "two": "Alpha"}))
             registry = json.loads(out_path.read_text(encoding="utf-8"))
         self.assertEqual(rc, 0)
+        self.assertEqual(registry["version"], 2)
         self.assertEqual(registry["skill_count"], 2)
+        self.assertEqual([e["path"] for e in registry["skills"]],
+                         ["skills/one/", "skills/two/"])
         self.assertEqual(skillregistry.validate_registry(registry), [])
-        self.assertIn("AUDIT zips=2 registry=2", stdout)
+        self.assertIn("AUDIT manifest=2 registry=2", stdout)
         self.assertIn("AUDIT ok", stdout)
 
-    # ---- E4 failure: a corrupt zip fails the run with a non-zero exit ----
-    def test_corrupt_zip_exits_nonzero(self):
+    # ---- E4 failure: a stowaway dir fails the run with a non-zero exit ----
+    def test_stowaway_dir_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            (root / "Skills" / "Alpha").mkdir(parents=True)
-            (root / "Skills" / "Alpha" / "broken.zip").write_text("nope", encoding="utf-8")
-            _make_zip(root / "Skills" / "Alpha", "good.zip", _skill_md("good"))
-            out_path = root / "registry.json"
-            rc, stdout, _ = self._run(
-                ["--skills-root", str(root / "Skills"), "--out", str(out_path)]
-            )
+            _make_skill(root / "skills", "good", _skill_md("good"))
+            _make_skill(root / "skills", "stowaway", _skill_md("stowaway"))
+            out_path = root / "out" / "registry.json"
+            rc, stdout, _ = self._run(self._args(root, {"good": "Alpha"}))
             out_written = out_path.exists()
         self.assertEqual(rc, 1)
-        self.assertIn("parse-failure", stdout)
+        self.assertIn("missing from the skills manifest", stdout)
         self.assertIn("AUDIT MISMATCH", stdout)
         # A failed audit must never leave a partial registry behind.
         self.assertFalse(out_written)
 
-    # ---- failure: a missing skills root is a hard error ----
+    def test_count_mismatch_exits_nonzero(self):
+        # Manifest records two packages; disk holds one — the counts disagree.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            out_path = root / "out" / "registry.json"
+            rc, stdout, _ = self._run(
+                self._args(root, {"one": "Alpha", "ghost": "Alpha"})
+            )
+            out_written = out_path.exists()
+        self.assertEqual(rc, 1)
+        self.assertIn("AUDIT manifest=2 registry=1", stdout)
+        self.assertFalse(out_written)
+
+    # ---- failure: missing skills root / manifest are hard errors ----
     def test_missing_skills_root_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as tmp:
-            rc, _, stderr = self._run(
-                ["--skills-root", str(pathlib.Path(tmp) / "absent"),
-                 "--out", str(pathlib.Path(tmp) / "registry.json")]
-            )
+            root = pathlib.Path(tmp)
+            rc, _, stderr = self._run(self._args(root, {"one": "Alpha"}))
         self.assertEqual(rc, 1)
         self.assertIn("skills root not found", stderr)
+
+    def test_missing_manifest_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            rc, _, stderr = self._run([
+                "--skills-root", str(root / "skills"),
+                "--manifest", str(root / "absent.json"),
+                "--out", str(root / "registry.json"),
+            ])
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot load skills manifest", stderr)
 
 
 class TestCommittedRegistry(unittest.TestCase):
@@ -339,26 +454,27 @@ class TestCommittedRegistry(unittest.TestCase):
 
     def test_committed_registry_count_and_order(self):
         skills = self.registry["skills"]
+        self.assertEqual(self.registry["version"], 2)
         self.assertEqual(self.registry["skill_count"], len(skills))
         self.assertGreater(len(skills), 0)
         self.assertEqual(
-            [(e["category"], e["name"], e["zip"]) for e in skills],
-            sorted((e["category"], e["name"], e["zip"]) for e in skills),
+            [(e["category"], e["name"]) for e in skills],
+            sorted((e["category"], e["name"]) for e in skills),
         )
         self.assertEqual(skillregistry.validate_registry(self.registry), [])
 
     def test_committed_registry_exact_inventory(self):
         # Pin the real inventory so an under-count regeneration fails in CI.
-        self.assertEqual(self.registry["skill_count"], 117)
-        self.assertEqual(len(self.registry["skills"]), 117)
+        self.assertEqual(self.registry["skill_count"], 115)
+        self.assertEqual(len(self.registry["skills"]), 115)
         expected = {
             "Academic": 8,
             "Creative": 15,
             "Engineering": 28,
-            "Featured": 19,
+            "Featured": 18,
             "Finance": 19,
             "Marketing": 11,
-            "Productivity": 17,
+            "Productivity": 16,
         }
         self.assertEqual({e["category"] for e in self.registry["skills"]}, set(expected))
         counts: dict[str, int] = {}
@@ -371,15 +487,24 @@ class TestCommittedRegistry(unittest.TestCase):
         overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
         self.assertEqual(validate.validate(overrides, "skill-overrides"), [])
 
-    def test_registry_matches_live_zips_when_present(self):
-        skills_root = _REPO_ROOT / "Skills"
-        if not skills_root.is_dir():
-            self.skipTest("Skills/ tree not present on disk (untracked; absent in CI)")
-        live = sorted(
-            (p.parent.name, p.name) for p in skillregistry.iter_zip_paths(skills_root)
+    def test_registry_matches_committed_manifest(self):
+        # Zip-free cross-check (runs in GitHub CI): every manifest package is
+        # registered exactly once, with the manifest's category, and its path
+        # points at a real on-disk package dir holding a SKILL.md.
+        manifest = json.loads(
+            (_REPO_ROOT / "references" / "skills-manifest.json").read_text(encoding="utf-8")
         )
-        registered = sorted((e["category"], e["zip"]) for e in self.registry["skills"])
-        self.assertEqual(registered, live)
+        by_name = {e["name"]: e for e in manifest["skills"]}
+        self.assertEqual(len(by_name), len(self.registry["skills"]))
+        for entry in self.registry["skills"]:
+            anchored = by_name.get(entry["name"])
+            self.assertIsNotNone(anchored, f"{entry['name']} missing from the manifest")
+            self.assertEqual(entry["category"], anchored["category"])
+            self.assertEqual(entry["path"], anchored["dir"] + "/")
+            self.assertTrue(
+                (_REPO_ROOT / entry["path"] / "SKILL.md").is_file(),
+                f"{entry['path']} has no SKILL.md on disk",
+            )
 
 
 if __name__ == "__main__":

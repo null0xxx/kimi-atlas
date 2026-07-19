@@ -15,6 +15,15 @@ Two behavioural changes for kimi-atlas:
 * **Nested-subdirectory fix:** the old ``main`` iterated a single directory level
   and *silently skipped* any subdirectory, so nested ``.md`` files went
   unchecked. ``main`` now walks the tree recursively.
+
+Plus one walk-level exemption for the vendored skill tree:
+
+* **Skill-package exemption:** a directory containing a ``SKILL.md`` is a
+  vendored skill package (``skills/<name>/``) whose payload markdown (e.g.
+  ``skills/chart-image/CAPABILITY.md``) is third-party data, not a project
+  artifact — the walk does not descend into it. The exemption lives in the
+  shared walk (``scripts/skillpkgs.py``) ONLY; :func:`check_file` stays pure
+  per-path.
 """
 from __future__ import annotations
 
@@ -22,6 +31,17 @@ import argparse
 import re
 import sys
 from pathlib import Path
+
+# When run directly as ``python3 scripts/check_artifact_naming.py`` the
+# interpreter puts ``scripts/`` (not the repo root) on ``sys.path[0]``, so
+# ``from scripts import ...`` would fail. Put the plugin root on the path so
+# the package imports resolve both when run directly and when imported as
+# ``scripts.check_artifact_naming`` (a no-op then).
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts import skillpkgs  # noqa: E402  (path shim precedes this import)
 
 # Project fixtures whose filenames are fixed by convention — exempt from all
 # naming rules (DS-9) so uppercase docs (README.md, SKILL.md, …) never fail CI.
@@ -109,15 +129,11 @@ def _iter_markdown(project_root: Path):
     """Yield repo-relative POSIX paths of every ``.md`` file (recursive).
 
     Walks the whole tree (fixing the legacy single-level skip of nested
-    subdirectories) while skipping version-control and cache directories.
+    subdirectories) via the shared skill-package-aware walk
+    (:func:`skillpkgs.walk_markdown` — a skill package's payload markdown is
+    never scanned) and layers this gate's deterministic ordering on top.
     """
-    for path in sorted(project_root.rglob("*.md")):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(project_root).as_posix()
-        if any(seg in _SKIP_SEGMENTS for seg in rel.split("/")):
-            continue
-        yield rel
+    yield from sorted(skillpkgs.walk_markdown(project_root, _SKIP_SEGMENTS))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,25 +164,24 @@ def main(argv: list[str] | None = None) -> int:
         warnings.extend(file_warnings)
 
     for warning in warnings:
-        print(f"WARNING: {warning}", file=sys.stderr)
+        sys.stderr.write(f"WARNING: {warning}\n")
     for error in errors:
-        print(f"ERROR: {error}", file=sys.stderr)
+        sys.stderr.write(f"ERROR: {error}\n")
 
     if errors:
-        print(f"\n{len(errors)} naming violation(s) found.", file=sys.stderr)
+        sys.stderr.write(f"\n{len(errors)} naming violation(s) found.\n")
         return 1
 
     if args.strict and warnings:
-        print(
+        sys.stderr.write(
             f"\n{len(warnings)} naming warning(s) found "
-            "(treated as fatal in strict mode).",
-            file=sys.stderr,
+            "(treated as fatal in strict mode).\n",
         )
         return 1
 
-    print("All checked artifact files conform to naming conventions.")
+    sys.stdout.write("All checked artifact files conform to naming conventions.\n")
     if warnings:
-        print(f"{len(warnings)} prefix warning(s).")
+        sys.stdout.write(f"{len(warnings)} prefix warning(s).\n")
     return 0
 
 

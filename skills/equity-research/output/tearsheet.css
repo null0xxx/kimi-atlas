@@ -1,0 +1,1255 @@
+/* ============================================
+   投资研报视觉系统 CSS
+   Investment Research Report Visual System
+
+   文件位置: output/tearsheet.css
+   引用方式: <link rel="stylesheet" href="output/tearsheet.css">
+   ============================================ */
+
+/* ============================================
+   1. 基础样式 - 紧凑页边距
+   ============================================ */
+
+/* 物理页边距 — 必须用 @page margin（每页生效）。
+   注意：不要用 .report-container padding 来兜边距，
+   因为 padding 在跨页时只在第一页顶部和最后一页底部生效，
+   中间页会丢边距。 */
+@page {
+    size: A4;
+    margin: 8mm 12mm;
+}
+
+.report-container {
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 9pt;
+    line-height: 1.4;
+    color: #333333;
+    max-width: 210mm; /* A4宽度 */
+    margin: 0 auto;
+    /* padding 设为 0 — 物理页边距已由上方 @page 规则统一控制 */
+    padding: 0;
+}
+
+/* ============================================
+   2. 分页控制 - 防止模块被砍断
+   ============================================ */
+
+/* 模块允许跨页，避免产生大面积空白 */
+.module-row, .two-column {
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+/* 包含大图表/表格的模块必须标题和内容一起分页 */
+.module-row.keep-together {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+.module-row.keep-together .section-title {
+    page-break-after: avoid;
+    break-after: avoid;
+}
+
+/* 强制从新页开始，防止标题和内容被分页截断 */
+.module-newpage {
+    page-break-before: always;
+    break-before: always;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+/* 文字型 box 允许在内容过长时自然分页，减少空白页 */
+.box {
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+/* 整个表格禁止分页 */
+.report-table, .debate-table,
+.report-table tr, .debate-table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+/* 图表禁止分页（包括独立的 figure / img / svg） */
+.chart-container, .mermaid, figure, .figure, .chart {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+/* 标题与后续内容保持在一起 — 防止标题和模块跨页
+   （补全 h1/h2/h5/h6，配合 .section-title 和 .box-title 全覆盖） */
+.section-title, .box-title, h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+    orphans: 3;
+    widows: 3;
+}
+
+/* 段落和列表项也启用孤行/寡行保护，防止单行漂移到下一页 */
+p, li {
+    orphans: 3;
+    widows: 3;
+}
+
+/* ============================================
+   标题跟随保护（CRITICAL — 不要删除或修改）
+   
+   当表格/图表因 page-break-inside: avoid 被整体推至下一页时，
+   这些规则确保前面的标题（模块标题或 exhibit 标题）跟着一起走，
+   不会产生"标题在页底、内容在下页"的孤儿标题问题。
+   ============================================ */
+
+/* 模块标题粘住后面的内容 */
+.section-title + * {
+    page-break-before: avoid;
+    break-before: avoid;
+}
+
+/* Exhibit 标题粘住后面的图表/表格 */
+.exhibit-label + * {
+    page-break-before: avoid;
+    break-before: avoid;
+}
+
+/* 模块行容器 */
+.module-row {
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+/* ============================================
+   3. 统一头部样式
+   ============================================ */
+.header-unified {
+    background: #fff;
+    border: 1px solid #E0E0E0;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #003366 0%, #1E3A5F 100%);
+    color: #fff;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.header-company {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.header-name {
+    font-size: 15pt;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.header-code {
+    font-size: 7.5pt;
+    opacity: 0.85;
+    font-family: "Helvetica Neue", Helvetica, Arial, "Noto Sans SC", sans-serif;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+}
+
+.header-byline {
+    font-size: 7.5pt;
+    font-style: italic;
+    color: #888888;
+    padding-left: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.header-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex-shrink: 1;
+    max-width: 52%;
+}
+
+.header-tags .tag {
+    background: rgba(255,255,255,0.15);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 7.5pt;
+    white-space: nowrap;
+}
+
+.header-tags .tag.highlight {
+    background: rgba(255,255,255,0.35);
+    font-weight: bold;
+}
+
+.header-divider {
+    height: 1px;
+    background: #E0E0E0;
+    margin: 0 14px;
+}
+
+.header-main-title {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #003366;
+    padding: 10px 14px 4px 14px;
+    line-height: 1.3;
+}
+
+.header-title-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0 14px 6px 14px;
+}
+
+.header-sub-title {
+    font-size: 9pt;
+    color: #666;
+    font-style: italic;
+    line-height: 1.3;
+    flex: 1;
+}
+
+.header-summary {
+    background: #F8F9FA;
+    padding: 8px 14px;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    color: #444;
+    border-top: 1px solid #EFEFEF;
+}
+
+.summary-label {
+    font-weight: bold;
+    color: #003366;
+    margin-right: 4px;
+}
+
+/* ============================================
+   4. 模块标题样式 - 紧凑
+   ============================================ */
+
+.section-title {
+    font-size: 10pt;  /* 从11pt减少 */
+    font-weight: bold;
+    color: #003366;
+    border-bottom: 2px solid #003366;
+    padding-bottom: 2px;  /* 从3px减少 */
+    margin: 10px 0 6px 0;  /* 从12px 0 8px减少 */
+}
+
+.subsection-title {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #1E3A5F;
+    margin: 6px 0 4px 0;  /* 从8px 0 5px减少 */
+}
+
+/* ============================================
+   5. 双栏容器 - 紧凑间距
+   ============================================ */
+
+.two-column {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    align-items: stretch;     /* 左右Box等高对齐 */
+}
+
+/* 堆叠回退：当左右Box严重不平衡时，右Box移到左Box下方 */
+.two-column.stacked-layout {
+    flex-direction: column;
+    gap: 6px;
+}
+
+.two-column.stacked-layout .box {
+    width: 100%;
+    flex: none;
+}
+
+/* ============================================
+   6. Box样式 - 紧凑内边距
+   ============================================ */
+
+.box {
+    flex: 1;
+    padding: 6px 8px;
+    border-left: 3px solid;
+    background: #FAFAFA;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+}
+
+.box-title {
+    font-size: 9pt;
+    font-weight: bold;
+    margin-bottom: 4px;  /* 从6px减少 */
+    color: #333333;
+}
+
+/* Box类型颜色 */
+.box-primary { border-color: #003366; background: #F5F8FC; }
+.box-secondary { border-color: #1E3A5F; background: #F8F9FA; }
+.box-accent { border-color: #1E90FF; background: #F0F7FF; }
+.box-success { border-color: #2E7D32; background: #F1F8E9; }
+.box-warning { border-color: #F57C00; background: #FFF8E1; }
+.box-danger { border-color: #D32F2F; background: #FFEBEE; }
+
+/* ============================================
+   7. 股价图Box + 核心数据Box
+   ============================================ */
+
+.stock-chart-box {
+    flex: 1.2;
+    padding: 4px 6px;
+    background: #FAFAFA;
+    border-left: 3px solid #003366;
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: auto;
+    overflow: hidden;
+    page-break-inside: avoid !important;
+}
+
+.stock-chart-box .box-title {
+    font-size: 9pt;
+    font-weight: bold;
+    margin-bottom: 3px;
+    color: #333333;
+    flex-shrink: 0;
+}
+
+/* 图表容器 - 宽度撑满，高度跟随内容自适应 */
+/* ⚠️ 170px max-height 仅用于52周股价图（stock-chart-box内）
+   产业链全景图等全宽模块请使用 .chart-container-free，不受此限制 */
+.chart-container {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 120px;
+    max-height: 170px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 图表图片宽度撑满容器，高度按比例自动 */
+.chart-container img,
+.chart-container canvas,
+.chart-container svg {
+    width: 100%;
+    height: auto;
+    max-height: 170px;
+    display: block;
+}
+
+/* ============================================
+   7a. 自由高度图表容器 — 产业链全景图等全宽模块专用
+   ⚠️ 用于产业链SVG、Mermaid等需要自适应高度的图表
+   不同于 .chart-container 的 170px 限制
+   ============================================ */
+/* 自由高度图表容器 — 产业链全景图等全宽模块专用 */
+/* ⚠️ 用于产业链SVG、Mermaid等需要自适应高度的图表
+   不同于 .chart-container 的 170px 限制
+   page-break-inside: avoid 确保大图不会被分页截断 */
+.chart-container-free {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    position: relative;
+    text-align: center;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.chart-container-free img,
+.chart-container-free canvas,
+.chart-container-free svg {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    display: block;
+}
+
+/* 图例 - 紧凑设计 */
+.chart-legend {
+    display: flex;
+    gap: 12px;
+    font-size: 7pt;
+    color: #666666;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.legend-color {
+    width: 10px;
+    height: 2px;
+}
+
+/* ============================================
+   8. 核心数据Box - 高度由内容自适应
+   ============================================ */
+
+.core-data-box {
+    flex: 1;
+    padding: 4px 6px;
+    background: #FAFAFA;
+    border-left: 3px solid #1E90FF;
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: auto;
+    overflow: hidden;
+    page-break-inside: avoid !important;
+}
+
+.core-data-box .box-title {
+    font-size: 9pt;
+    font-weight: bold;
+    margin-bottom: 3px;
+    color: #333333;
+    flex-shrink: 0;
+}
+
+/* 核心交易数据表格 */
+.core-data-table {
+    flex: 1;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+}
+
+.core-data-table td {
+    padding: 2px 4px;  /* 从3px 6px减少 */
+    border-bottom: 0.5px solid #EEEEEE;
+}
+
+.core-data-table td:first-child,
+.core-data-table td:nth-child(3) {
+    color: #666666;
+    width: 25%;
+}
+
+.core-data-table td:nth-child(2),
+.core-data-table td:nth-child(4) {
+    color: #333333;
+    font-weight: 500;
+    text-align: right;
+    font-family: "SF Mono", "Consolas", monospace;
+    width: 25%;
+}
+
+.core-data-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* ============================================
+   9. 表格样式 - 紧凑
+   ============================================ */
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+    margin: 4px 0;  /* 从6px减少 */
+}
+
+/* 表头样式 */
+.report-table thead tr {
+    background: #E8E8E8;
+}
+
+.report-table th {
+    padding: 4px 5px;  /* 从5px 6px减少 */
+    font-weight: bold;
+    color: #333333;
+    border-top: 1px solid #999999;
+    border-bottom: 1px solid #999999;
+    text-align: center;
+    /* Uniform-width digits in headers so numeric column titles
+       (e.g. "2023E / 2024E / 2025E") line up cleanly. */
+    font-variant-numeric: tabular-nums;
+}
+
+/* 数据单元格 */
+.report-table td {
+    padding: 3px 5px;  /* 从4px 6px减少 */
+    border-bottom: 0.5px solid #DDDDDD;
+    vertical-align: middle;
+    /* Every numeric glyph in a data cell occupies the same advance width,
+       so right-aligned financials stack without the "5" vs "1" jitter
+       seen in top-tier sell-side tables. */
+    font-variant-numeric: tabular-nums;
+}
+
+/* 行样式 */
+.report-table tbody tr:nth-child(even) {
+    background: #FAFAFA;
+}
+
+.report-table tbody tr:last-child td {
+    border-bottom: 1px solid #999999;
+}
+
+/* 对齐方式 */
+.report-table .col-text { text-align: left; }
+.report-table .col-number {
+    text-align: right;
+    /* Prefer tabular-nums on the body font over monospace so numbers align
+       without changing typography. Monospace kept as fallback only. */
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+}
+.report-table .col-center { text-align: center; }
+
+/* 列宽控制 — 防止某列被过度挤压 */
+.report-table {
+    table-layout: auto;
+}
+
+.report-table th,
+.report-table td {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: 40px;  /* 任何列最小40px */
+}
+
+/* 文字列：允许换行但不要太窄 */
+.report-table .col-text {
+    min-width: 80px;
+    white-space: normal;
+}
+
+/* 数字列：不换行，保持紧凑 */
+.report-table .col-number {
+    white-space: nowrap;
+    min-width: 50px;
+}
+
+/* 宽文字列（如"影响分析"、"判断"）：给更多空间 */
+.report-table .col-wide {
+    min-width: 120px;
+    white-space: normal;
+}
+
+/* 窄标签列（如"编号"、"时间"）*/
+.report-table .col-narrow {
+    min-width: 50px;
+    max-width: 80px;
+    white-space: nowrap;
+}
+
+/* 特殊行 */
+.report-table .row-total {
+    font-weight: bold;
+    background: #F5F5F5;
+}
+
+.report-table .row-highlight {
+    background: #E3F2FD;
+}
+
+/* 数据状态 - A股 */
+.report-table .positive-a { color: #CC0000; }
+.report-table .negative-a { color: #2E7D32; }
+
+/* 数据状态 - 港股/美股 */
+.report-table .positive-hk { color: #2E7D32; }
+.report-table .negative-hk { color: #D32F2F; }
+
+/* ============================================
+   10. 公司概览样式
+   ============================================ */
+
+.company-snapshot-box {
+    flex: 1;
+    padding: 6px 8px;
+    background: #FAFAFA;
+    border-left: 3px solid #6366F1;
+    page-break-inside: avoid !important;
+}
+
+.snapshot-section-title {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #333333;
+    margin-top: 6px;
+    margin-bottom: 3px;
+}
+
+.snapshot-sub {
+    font-size: 8pt;
+    color: #666666;
+    margin-top: 2px;
+    margin-left: 12px;
+    line-height: 1.4;
+}
+
+.snapshot-content {
+    font-size: 9pt;
+    line-height: 1.5;  /* 从1.6减少 */
+}
+
+.snapshot-content .bullet {
+    margin-bottom: 6px;  /* 从8px减少 */
+    padding-left: 10px;  /* 从12px减少 */
+    position: relative;
+}
+
+.snapshot-content .bullet::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #6366F1;
+    font-weight: bold;
+}
+
+.snapshot-content .sub-bullet {
+    margin-top: 3px;  /* 从4px减少 */
+    margin-left: 12px;  /* 从16px减少 */
+    font-size: 8pt;
+    color: #666666;
+}
+
+.snapshot-content .bullet-title {
+    font-weight: bold;
+    color: #333333;
+}
+
+.snapshot-content .highlight {
+    color: #003366;
+    font-weight: 500;
+}
+
+/* ============================================
+   11. Mermaid图表样式
+   ============================================ */
+
+.mermaid-container {
+    width: 100%;
+    margin: 6px 0;
+    height: auto;
+    overflow: visible;
+    page-break-inside: avoid;
+}
+
+/* Mermaid 图表强制撑满容器 — 解决 SVG 默认不填充的问题 */
+.mermaid {
+    text-align: center;
+    display: block;
+}
+
+.mermaid svg {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100%;
+}
+
+/* ============================================
+   12. 风险提示样式
+   ============================================ */
+
+.risk-box {
+    background: #FFF8E1;
+    border-left: 3px solid #F57C00;
+    padding: 6px 8px;  /* 从8px减少 */
+    margin-top: 6px;  /* 从8px减少 */
+}
+
+.risk-title {
+    font-weight: bold;
+    color: #E65100;
+    margin-bottom: 4px;
+}
+
+/* ============================================
+   12a. 情景分析 + 风险提示模块 — 6:4 宽度分配
+   ============================================ */
+
+.scenario-box {
+    flex: 1.2;
+    min-width: 0;
+}
+
+.risk-box {
+    flex: 0.8;
+    min-width: 0;
+}
+
+/* ============================================
+   13. 免责声明样式
+   ============================================ */
+
+.disclaimer {
+    /* Regulatory note: investment disclaimers should be legible, not buried.
+       SEC/CFA guidance and most exchange rulebooks treat sub-8pt risk
+       language as "hidden." 8pt + #333 keeps the content visible while
+       preserving the tear-sheet's dense layout. */
+    font-size: 8pt;
+    color: #333333;
+    border-top: 1px solid #E0E0E0;
+    padding-top: 8px;  /* 从10px减少 */
+    margin-top: 12px;  /* 从15px减少 */
+    line-height: 1.45;
+}
+
+/* ============================================
+   14. 投资论点综合分析表样式
+   背景色限制：白/蓝/灰三种。
+   默认黑色字体，仅在关键数据点使用内联span着色。
+   ============================================ */
+
+.debate-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+    margin: 4px 0;
+}
+
+.debate-table th {
+    background: #003366;
+    color: #fff;
+    padding: 4px 5px;
+    font-weight: bold;
+    text-align: center;
+    border: 1px solid #003366;
+}
+
+.debate-table td {
+    padding: 3px 5px;
+    border: 1px solid #DDDDDD;
+    vertical-align: top;
+    background: #fff;
+    color: #333;  /* default black text for all cells */
+}
+
+/* Alternating rows: very light gray */
+.debate-table tbody tr:nth-child(even) td {
+    background: #FAFAFA;
+}
+
+/* Dimension column: light gray background */
+.debate-table .dim-col {
+    background: #F5F5F5 !important;
+    font-weight: bold;
+    color: #333;
+}
+
+/* Content columns: default black text, no full-column color */
+.debate-table .bull-col,
+.debate-table .bear-col,
+.debate-table .assumption-col,
+.debate-table .inflection-col,
+.debate-table .judgment-col,
+.debate-table .judge-col,
+.debate-table .neutral-col {
+    color: #333;
+}
+
+/* Inline emphasis spans for key data points only */
+.bull-text { color: #1B5E20; font-weight: 600; }  /* deep green for key bullish data */
+.bear-text { color: #B71C1C; font-weight: 600; }  /* deep red for key bearish data */
+.warn-text { color: #E65100; font-weight: 600; }  /* orange for warnings */
+.status-safe { color: #1B5E20; font-size: 6.5pt; }
+.status-warn { color: #E65100; font-size: 6.5pt; }
+.status-risk { color: #B71C1C; font-size: 6.5pt; }
+
+/* 时间维度标签 */
+.time-tag {
+    font-size: 6.5pt;
+    padding: 1px 4px;
+    border-radius: 2px;
+    background: #E3F2FD;
+    color: #1565C0;
+    margin-right: 3px;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+/* ============================================
+   15. 英文版字体体系 — 衬线标题 + 无衬线正文
+   参考：衬线字体用于标题（Georgia），无衬线用于正文（Helvetica Neue/Arial）
+   ============================================ */
+
+/* 英文报告容器 — 覆盖中文默认字体 */
+.report-container-en {
+    font-family: "Helvetica Neue", Arial, "Segoe UI", sans-serif;
+    font-size: 9pt;
+    line-height: 1.35;
+    color: #333333;
+}
+
+/* 英文标题 — 衬线字体 */
+.report-container-en .report-header h1,
+.report-container-en .main-title {
+    font-family: Georgia, "Times New Roman", "Palatino Linotype", serif;
+    font-size: 18pt;
+    font-weight: bold;
+    letter-spacing: -0.3px;
+}
+
+.report-container-en .sub-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 10pt;
+    font-style: italic;
+    opacity: 0.9;
+}
+
+/* 英文章节标题 — 衬线 + 斜体 */
+.report-container-en .section-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 13pt;
+    font-style: italic;
+    font-weight: bold;
+    color: #003366;
+}
+
+/* 英文子标题 — 无衬线 + 粗体 */
+.report-container-en .subsection-title {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 9.5pt;
+    font-weight: bold;
+    font-style: normal;
+    color: #1E3A5F;
+}
+
+/* 英文 Exhibit 标题 — 无衬线，紧凑 */
+.report-container-en .exhibit-label {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.5pt;
+    font-weight: bold;
+    color: #333333;
+    margin-bottom: 3px;
+}
+
+.report-container-en .exhibit-label .exhibit-number {
+    font-weight: bold;
+}
+
+.report-container-en .exhibit-label .exhibit-desc {
+    font-weight: normal;
+}
+
+/* 英文表格文字 — 更小字号 */
+.report-container-en .report-table {
+    font-size: 7.5pt;
+}
+
+.report-container-en .report-table th {
+    font-size: 7.5pt;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* 英文页眉/页脚 */
+.report-container-en .header-meta {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* 英文类别标签 — 全大写小字 (如 "CHINA CONSUMER DURABLES") */
+.report-container-en .category-label {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.75);
+    margin-bottom: 4px;
+}
+
+/* 英文核心数据表 — 数字等宽 */
+.report-container-en .core-data-table td:nth-child(2),
+.report-container-en .core-data-table td:nth-child(4) {
+    font-family: "SF Mono", "Consolas", "Courier New", monospace;
+    font-size: 8pt;
+}
+
+/* ============================================
+   16. Exhibit 编号系统（中英文通用）
+   参考英文版："Exhibit X:"；中文版："图表 X:"
+   ============================================ */
+
+.exhibit-label {
+    font-size: 8.5pt;
+    font-weight: bold;
+    color: #333333;
+    margin: 6px 0 3px 0;
+}
+
+.exhibit-number {
+    font-weight: bold;
+    color: #003366;
+}
+
+.exhibit-desc {
+    font-weight: normal;
+    color: #555555;
+}
+
+/* 中文版 Exhibit: "图表 X:" */
+.report-container:not(.report-container-en) .exhibit-number::before {
+    content: none; /* 中文直接写 "图表 1:" */
+}
+
+/* ============================================
+   17. 极简表格变体 — 仅顶线+底线，无垂直线
+   仅顶线+底线，无垂直线，无行边框
+   ============================================ */
+
+.report-table-minimal {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+    margin: 4px 0;
+    table-layout: auto;
+    border: none;
+}
+
+.report-table-minimal thead tr {
+    background: none;
+    border-top: 2px solid #333333;
+    border-bottom: 1px solid #333333;
+}
+
+.report-table-minimal th {
+    padding: 4px 5px;
+    font-weight: bold;
+    color: #333333;
+    text-align: center;
+    border: none;
+    border-top: 2px solid #333333;
+    border-bottom: 1px solid #333333;
+}
+
+.report-table-minimal td {
+    padding: 3px 5px;
+    border: none;
+    border-bottom: none;
+    vertical-align: middle;
+}
+
+/* 交替行背景 — 极浅灰 */
+.report-table-minimal tbody tr:nth-child(even) {
+    background: #F8F8F8;
+}
+
+/* 表格底部收尾线 */
+.report-table-minimal tbody tr:last-child td {
+    border-bottom: 1.5px solid #333333;
+}
+
+/* 对齐继承 */
+.report-table-minimal .col-text { text-align: left; }
+.report-table-minimal .col-number { text-align: right; font-family: monospace; }
+.report-table-minimal .col-center { text-align: center; }
+
+/* ============================================
+   18. 变化值高亮（背景色块风格）
+   用背景色块标识变化方向，而非仅文字颜色
+   ============================================ */
+
+/* 正向变化 — 浅绿背景 */
+.change-positive {
+    background: #E8F5E9;
+    color: #2E7D32;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+/* 负向变化 — 浅红背景 */
+.change-negative {
+    background: #FFEBEE;
+    color: #D32F2F;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+/* 中性/不变 — 浅灰背景 */
+.change-neutral {
+    background: #F5F5F5;
+    color: #757575;
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+
+/* ============================================
+   19. 评级/投资结论卡片（紧凑色块 + 核心数据速览）
+   紧凑色块 + 核心数据速览
+   ============================================ */
+
+.verdict-card {
+    display: flex;
+    gap: 0;
+    margin: 6px 0;
+    border: 1px solid #DDDDDD;
+    border-radius: 3px;
+    overflow: hidden;
+    page-break-inside: avoid !important;
+}
+
+/* 左侧：结论标签（看多/看空/中性）*/
+.verdict-label {
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    padding: 8px 6px;
+    font-size: 10pt;
+    font-weight: bold;
+    color: white;
+    text-align: center;
+    letter-spacing: 2px;
+    min-width: 30px;
+}
+
+.verdict-label-bullish { background: #2E7D32; }
+.verdict-label-bearish { background: #D32F2F; }
+.verdict-label-neutral { background: #F57C00; }
+
+/* 右侧：核心数据速览 */
+.verdict-data {
+    flex: 1;
+    padding: 6px 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    font-size: 8pt;
+}
+
+.verdict-data .vd-item {
+    display: flex;
+    justify-content: space-between;
+}
+
+.verdict-data .vd-label {
+    color: #666666;
+}
+
+.verdict-data .vd-value {
+    font-weight: bold;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #333333;
+}
+
+/* ============================================
+   20. 投资亮点标记（► 箭头风格）
+   ============================================ */
+
+.key-point {
+    position: relative;
+    padding-left: 14px;
+    margin-bottom: 5px;
+    font-size: 9pt;
+    line-height: 1.4;
+}
+
+.key-point::before {
+    content: "►";
+    position: absolute;
+    left: 0;
+    color: #003366;
+    font-size: 7pt;
+    top: 1px;
+}
+
+.key-point-title {
+    font-weight: bold;
+    color: #333333;
+}
+
+/* 方块标记变体（■ 方块风格）*/
+.key-point-square::before {
+    content: "■";
+    font-size: 6pt;
+}
+
+/* ============================================
+   21. 数据来源标注（两份报告共有规范）
+   ============================================ */
+
+.data-source {
+    font-size: 7pt;
+    color: #999999;
+    font-style: italic;
+    margin-top: 2px;
+    margin-bottom: 4px;
+}
+
+/* 英文版 "Source:" 格式 */
+.report-container-en .data-source::before {
+    content: "Source: ";
+    font-style: italic;
+}
+
+/* 中文版 "数据来源：" 格式 */
+.report-container:not(.report-container-en) .data-source::before {
+    content: "数据来源：";
+    font-style: normal;
+}
+
+/* ============================================
+   22. 关键假设验证状态色（用于拐点信号列内嵌标注）
+   ============================================ */
+
+.status-safe {
+    color: #2E7D32;
+    font-weight: 500;
+}
+
+.status-warn {
+    color: #F57C00;
+    font-weight: 500;
+}
+
+.status-risk {
+    color: #D32F2F;
+    font-weight: 500;
+}
+
+/* ============================================
+   23. 打印优化
+   ============================================ */
+
+@media print {
+    /* .report-container padding 已在基础样式中设为 0；
+       物理页边距由 @page 规则统一控制，此处无需 override */
+}
+
+/* ============================================
+   24. Header Typography
+   ============================================ */
+
+/* 公司名称 + Ticker + Tags：统一使用无衬线体 */
+.header-name,
+.header-code,
+.header-tags .tag {
+    font-family: "Helvetica Neue", Helvetica, Arial, "Noto Sans SC", sans-serif;
+}
+
+
+/* ============================================
+   25. Industry Chain Flex Layout
+   产业链全景图 — HTML/CSS flex 布局样式
+   用于 ≤4 列价值链（≥5 列使用 Mermaid）
+   ============================================ */
+
+.chain-wrapper {
+    border: 1px solid #E0E0E0;
+    border-radius: 4px;
+    padding: 8px 10px 6px;
+    background: #FAFAFA;
+    height: auto !important;
+    max-height: none;
+    overflow: visible;
+    page-break-inside: avoid !important;
+}
+
+.chain-row {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-bottom: 5px;
+}
+
+.chain-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.chain-col-header {
+    font-size: 7.5pt;
+    font-weight: bold;
+    padding: 4px 0 3px;
+    text-align: center;
+    border-bottom: 2px solid;
+}
+
+.chain-box {
+    border: 1.5px solid #CFD8DC;
+    border-radius: 5px;
+    padding: 6px 8px;
+    background: #fff;
+    text-align: center;
+}
+
+.chain-box .cb-title {
+    font-size: 7.5pt;
+    font-weight: bold;
+    color: #333;
+    line-height: 1.3;
+}
+
+.chain-box .cb-sub {
+    font-size: 6.5pt;
+    color: #888;
+    line-height: 1.3;
+    margin-top: 1px;
+}
+
+/* 目标公司节点高亮 */
+.chain-box.target-node {
+    border-left: 3.5px solid #003366;
+    border-color: #003366;
+    background: #F5F8FC;
+}
+
+.chain-box.target-node .cb-title {
+    color: #003366;
+}
+
+/* 箭头连接器 */
+.chain-connector {
+    flex: 0 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chain-connector .arrow-line {
+    display: flex;
+    align-items: center;
+}
+
+.chain-connector .arrow-line::before {
+    content: '';
+    display: block;
+    width: 12px;
+    height: 1.5px;
+    background: #90A4AE;
+}
+
+.chain-connector .arrow-line::after {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 5px solid #90A4AE;
+    border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+}

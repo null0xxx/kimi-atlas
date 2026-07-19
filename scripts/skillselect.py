@@ -1,11 +1,11 @@
 """Advisory skill selector — ranks the committed skill registry for a task intent.
 
 Reads ``references/skill-registry.json`` (built by ``scripts/skillregistry.py``
-from the bundled ``Skills/`` zips) and scores every skill against a free-text task
-intent, so an agent can be handed the *right skill at the right time*. The ranking
-is **advisory only** (V6): it is a string/token heuristic, emits no verdicts and
-no defects, and can never gate a run — the atlas flow treats it as a hint injected
-into the coder/critic packets.
+from the extracted ``skills/`` tree, manifest-anchored) and scores every skill
+against a free-text task intent, so an agent can be handed the *right skill at
+the right time*. The ranking is **advisory only** (V6): it is a string/token
+heuristic, emits no verdicts and no defects, and can never gate a run — the
+atlas flow treats it as a hint injected into the coder/critic packets.
 
 Scoring (E2) is weighted and explainable: a token matched in the skill **name**
 outweighs one matched in its **trigger signals** (E1, see ``extract_triggers``
@@ -128,11 +128,13 @@ def select(
         top_n: maximum number of results; ``<= 0`` returns ``[]``.
 
     Returns:
-        At most ``top_n`` dicts ``{name, category, score, matched_tokens, why}``:
+        At most ``top_n`` dicts ``{name, category, path, score, matched_tokens,
+        why}`` — ``path`` is the entry's on-disk package dir
+        (``skills/<name>/``, ``""`` when the registry predates the tree build):
         pinned skills first in declared order, then the remaining candidates by
         descending score with a deterministic name tie-break. Only candidates
         with a positive score (or a pin) are returned, so an empty intent yields
-        ``[]``. Duplicate archives (same category+name) are de-duplicated;
+        ``[]``. Duplicate packages (same category+name) are de-duplicated;
         same-name skills in different categories are distinct candidates that
         rank independently (pin/exclude/boost match on the bare name and apply
         to every entry carrying it).
@@ -152,7 +154,7 @@ def select(
     skills = registry.get("skills") if isinstance(registry, dict) else None
     entries = skills if isinstance(skills, list) else []
 
-    # De-duplicate by (category, name): identically-named duplicate archives
+    # De-duplicate by (category, name): identically-named duplicate packages
     # classify identically; the first (sorted) occurrence wins.
     seen: set[tuple[str, str]] = set()
     candidates: list[dict] = []
@@ -186,6 +188,7 @@ def select(
         return {
             "name": result["entry"].get("name", ""),
             "category": result["entry"].get("category", ""),
+            "path": result["entry"].get("path", ""),
             "score": round(result["score"], 4),
             "matched_tokens": result["matched_tokens"],
             "why": why,

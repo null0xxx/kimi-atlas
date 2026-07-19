@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "skill_count": 117,
+  "version": 2,
+  "skill_count": 115,
   "skills": [
     {
       "name": "adhd-assistant",
@@ -14,7 +14,7 @@
         "mentions ADHD challenges like time blindness",
         "difficulty starting tasks"
       ],
-      "zip": "adhd-assistant.zip"
+      "path": "skills/adhd-assistant/"
     },
     {
       "name": "anki-card-maker",
@@ -28,7 +28,7 @@
         "request memory cards",
         "review cards from their study content"
       ],
-      "zip": "anki-card-maker.zip"
+      "path": "skills/anki-card-maker/"
     },
     {
       "name": "cite-style-converter",
@@ -41,7 +41,7 @@
         "mention specific citation styles",
         "talk about their bibliography"
       ],
-      "zip": "cite-style-converter.zip"
+      "path": "skills/cite-style-converter/"
     },
     {
       "name": "cv-tailor",
@@ -56,7 +56,7 @@
         "ATS",
         "want to tailor their resume for a specific role"
       ],
-      "zip": "cv-tailor.zip"
+      "path": "skills/cv-tailor/"
     },
     {
       "name": "dev-guide-generator",
@@ -70,7 +70,7 @@
         "quickstart",
         "how-to guide"
       ],
-      "zip": "dev-guide-generator.zip"
+      "path": "skills/dev-guide-generator/"
     },
     {
       "name": "mock-interview-drill",
@@ -81,7 +81,7 @@
         "preparing for behavioral/technical/case questions",
         "wanting to simulate follow-up questions and get feedback"
       ],
-      "zip": "mock-interview-drill.zip"
+      "path": "skills/mock-interview-drill/"
     },
     {
       "name": "scholarly-writing-refiner",
@@ -95,7 +95,7 @@
         "SCI polishing",
         "journal submission editing"
       ],
-      "zip": "scholarly-writing-refiner.zip"
+      "path": "skills/scholarly-writing-refiner/"
     },
     {
       "name": "translation-craft",
@@ -107,14 +107,14 @@
         "specific domain needs like academic paper",
         "contract translation"
       ],
-      "zip": "translation-craft.zip"
+      "path": "skills/translation-craft/"
     },
     {
       "name": "astro-observation-report",
       "category": "Creative",
       "description": "Skill for writing gravitational-wave observational results papers for compact binary coalescence events (BNS, BBH, NSBH) detected by LIGO, Virgo, or KAGRA. Covers paper architecture, first-page layout, parameter estimation figures, uncertainty notation, credible region plots, statistical conventions, and running headers in Physical Review X two-column journal style.",
       "triggers": [],
-      "zip": "astro-observation-report.zip"
+      "path": "skills/astro-observation-report/"
     },
     {
       "name": "chart-image",
@@ -128,7 +128,7 @@
         "alert",
         "dashboard"
       ],
-      "zip": "chart-image.zip"
+      "path": "skills/chart-image/"
     },
     {
       "name": "code-to-diagram",
@@ -140,7 +140,7 @@
         "draw a flowchart",
         "create a module diagram from source code"
       ],
-      "zip": "code-to-diagram.zip"
+      "path": "skills/code-to-diagram/"
     },
     {
       "name": "cross-platform-adapter",
@@ -152,7 +152,7 @@
         "adapt",
         "convert existing content for different platforms"
       ],
-      "zip": "cross-platform-adapter.zip"
+      "path": "skills/cross-platform-adapter/"
     },
     {
       "name": "edge-tts",
@@ -167,21 +167,21 @@
         "speed",
         "format"
       ],
-      "zip": "edge-tts.zip"
+      "path": "skills/edge-tts/"
     },
     {
       "name": "geo-magazine-slides",
       "category": "Creative",
       "description": "Create stunning geographic magazine-style presentation decks (PPTX) with editorial-quality layouts, large hero imagery, data-driven charts, and luxury aesthetic. Use for location collections, luxury real estate showcases, travel destination decks, curated map-based presentations, or architecture portfolios with magazine-style grid overviews and section dividers.",
       "triggers": [],
-      "zip": "geo-magazine-slides.zip"
+      "path": "skills/geo-magazine-slides/"
     },
     {
       "name": "journalistic-portrait",
       "category": "Creative",
       "description": "Create magazine-style HTML pages replicating the visual design of Southern People Weekly. Use for feature article layouts, cover pages with red border frames, table-of-contents pages with portrait photography, and dual-column inner pages with editorial section headers, mimicking the typography and color scheme of Chinese weekly magazines.",
       "triggers": [],
-      "zip": "journalistic-portrait.zip"
+      "path": "skills/journalistic-portrait/"
     },
     {
       "name": "keynote-composer",
@@ -194,14 +194,14 @@
         "\\\"help me write a speech\\",
         "\\\"give a talk at the gala\\"
       ],
-      "zip": "keynote-composer.zip"
+      "path": "skills/keynote-composer/"
     },
     {
       "name": "photo-magazine",
       "category": "Creative",
       "description": "Create premium landscape documents with magazine-quality editorial design. Produces visually rich reports featuring bold typography, full-bleed photography, data visualization cards, and narrative layouts. Use for corporate, research, or creative reports needing editorial aesthetics, multi-column layouts, big-number dashboards, and section-based navigation that blend narrative storytelling with data.",
       "triggers": [],
-      "zip": "photo-magazine.zip"
+      "path": "skills/photo-magazine/"
     },
     {
       "name": "podcast-episode-writer",
@@ -216,14 +216,14 @@
         "CTA",
         "episode planning"
       ],
-      "zip": "podcast-episode-writer.zip"
+      "path": "skills/podcast-episode-writer/"
     },
     {
       "name": "retro-tech-illustration",
       "category": "Creative",
       "description": "Create retro tech art style visual content including images, illustrations, and design documents. Covers Synthwave, Vaporwave, Cyberpunk, retro comics, and retro-futuristic aesthetics. Use for neon-grid landscapes, pixel art, vaporwave scenes, CRT and halftone effects, color palettes, and typography systems for nostalgic 80s/90s tech-noir projects.",
       "triggers": [],
-      "zip": "retro-tech-illustration.zip"
+      "path": "skills/retro-tech-illustration/"
     },
     {
       "name": "sun-path",
@@ -235,7 +235,7 @@
         "annual sun hours",
         "diagrams for a specific location and time"
       ],
-      "zip": "sun-path.zip"
+      "path": "skills/sun-path/"
     },
     {
       "name": "timeline-builder",
@@ -248,7 +248,7 @@
         "release log",
         "asks to visualize a chronological sequence of data"
       ],
-      "zip": "timeline-builder.zip"
+      "path": "skills/timeline-builder/"
     },
     {
       "name": "video-quality-diff",
@@ -261,7 +261,7 @@
         "before/after compression",
         "request quality assessment of compressed videos"
       ],
-      "zip": "video-quality-diff.zip"
+      "path": "skills/video-quality-diff/"
     },
     {
       "name": "x-thread-crafter",
@@ -275,7 +275,7 @@
         "\\\" \\\"break this into tweets",
         "repurpose content for Twitter/X"
       ],
-      "zip": "x-thread-crafter.zip"
+      "path": "skills/x-thread-crafter/"
     },
     {
       "name": "api-shape-explorer",
@@ -287,7 +287,7 @@
         "compare module shapes",
         "mentions \"design it twice"
       ],
-      "zip": "api-shape-explorer.zip"
+      "path": "skills/api-shape-explorer/"
     },
     {
       "name": "auto-hypothesis-test",
@@ -302,7 +302,7 @@
         "ANOVA",
         "chi-square"
       ],
-      "zip": "auto-hypothesis-test.zip"
+      "path": "skills/auto-hypothesis-test/"
     },
     {
       "name": "browse",
@@ -313,7 +313,7 @@
         "scrape data",
         "automate clicks on any page"
       ],
-      "zip": "browse.zip"
+      "path": "skills/browse/"
     },
     {
       "name": "code-mentor",
@@ -327,7 +327,7 @@
         "prepare for interviews",
         "build a project"
       ],
-      "zip": "code-mentor.zip"
+      "path": "skills/code-mentor/"
     },
     {
       "name": "code-vuln-audit",
@@ -344,7 +344,7 @@
         "hardcoded passwords",
         "code security checks"
       ],
-      "zip": "code-vuln-audit.zip"
+      "path": "skills/code-vuln-audit/"
     },
     {
       "name": "conventional-commit-gen",
@@ -359,7 +359,7 @@
         "scope detection",
         "help me write a commit message"
       ],
-      "zip": "conventional-commit-gen.zip"
+      "path": "skills/conventional-commit-gen/"
     },
     {
       "name": "correlation-auditor",
@@ -373,7 +373,7 @@
         "confounding factors",
         "spurious correlations"
       ],
-      "zip": "correlation-auditor.zip"
+      "path": "skills/correlation-auditor/"
     },
     {
       "name": "cross-examine",
@@ -384,7 +384,7 @@
         "get grilled on their design",
         "mentions \"grill me"
       ],
-      "zip": "cross-examine.zip"
+      "path": "skills/cross-examine/"
     },
     {
       "name": "data-viz-renderer",
@@ -396,7 +396,7 @@
         "charts",
         "dashboards"
       ],
-      "zip": "data-viz-renderer.zip"
+      "path": "skills/data-viz-renderer/"
     },
     {
       "name": "database-scout",
@@ -413,7 +413,7 @@
         "ER diagram",
         "SQL query"
       ],
-      "zip": "database-scout.zip"
+      "path": "skills/database-scout/"
     },
     {
       "name": "dataset-quality-audit",
@@ -428,7 +428,7 @@
         "profile data",
         "clean data"
       ],
-      "zip": "dataset-quality-audit.zip"
+      "path": "skills/dataset-quality-audit/"
     },
     {
       "name": "deep-module-refactor",
@@ -440,7 +440,7 @@
         "consolidate tightly-coupled modules",
         "make a codebase more AI-navigable"
       ],
-      "zip": "deep-module-refactor.zip"
+      "path": "skills/deep-module-refactor/"
     },
     {
       "name": "domain-glossary",
@@ -454,7 +454,7 @@
         "mentions \"domain model",
         "DDD"
       ],
-      "zip": "domain-glossary.zip"
+      "path": "skills/domain-glossary/"
     },
     {
       "name": "gitlab-cli-skills",
@@ -470,7 +470,7 @@
         "authentication setup",
         "any GitLab terminal operations"
       ],
-      "zip": "gitlab-cli-skills.zip"
+      "path": "skills/gitlab-cli-skills/"
     },
     {
       "name": "http-load-profiler",
@@ -484,7 +484,7 @@
         "throughput saturation",
         "capacity planning"
       ],
-      "zip": "http-load-profiler.zip"
+      "path": "skills/http-load-profiler/"
     },
     {
       "name": "kubectl",
@@ -498,14 +498,14 @@
         "cluster diagnostics",
         "any kubectl operation"
       ],
-      "zip": "kubectl.zip"
+      "path": "skills/kubectl/"
     },
     {
       "name": "localization-toolkit",
       "category": "Engineering",
       "description": "This skill should be used when setting up, auditing, or enforcing internationalization/localization in UI codebases (React/TS, i18next or similar, JSON locales), including installing/configuring the i18n framework, replacing hard-coded strings, ensuring en-US/zh-CN coverage, mapping error codes to localized messages, and validating key parity, pluralization, and formatting.",
       "triggers": [],
-      "zip": "localization-toolkit.zip"
+      "path": "skills/localization-toolkit/"
     },
     {
       "name": "log-error-digest",
@@ -517,7 +517,7 @@
         "debug issues",
         "get distribution stats"
       ],
-      "zip": "log-error-digest.zip"
+      "path": "skills/log-error-digest/"
     },
     {
       "name": "pipeline-blueprint",
@@ -532,7 +532,7 @@
         "pipeline templates",
         "deployment automation"
       ],
-      "zip": "pipeline-blueprint.zip"
+      "path": "skills/pipeline-blueprint/"
     },
     {
       "name": "r2-upload",
@@ -546,7 +546,7 @@
         "temporary links",
         "file uploads with expiration"
       ],
-      "zip": "r2-upload.zip"
+      "path": "skills/r2-upload/"
     },
     {
       "name": "regression-modeler",
@@ -563,7 +563,7 @@
         "p-value",
         "R-squared"
       ],
-      "zip": "regression-modeler.zip"
+      "path": "skills/regression-modeler/"
     },
     {
       "name": "repo-audit",
@@ -577,7 +577,7 @@
         "security audits of commit history",
         "optimizing code review assignments"
       ],
-      "zip": "repo-audit.zip"
+      "path": "skills/repo-audit/"
     },
     {
       "name": "route-to-openapi",
@@ -591,14 +591,14 @@
         "generating docs from code",
         "extracting endpoints"
       ],
-      "zip": "route-to-openapi.zip"
+      "path": "skills/route-to-openapi/"
     },
     {
       "name": "secure-code-review",
       "category": "Engineering",
       "description": "Systematically reviews code for SQL injection, XSS, SSRF, broken access control, cryptographic failures, and other common OWASP Top 10 vulnerabilities, providing vulnerable code examples and ready-to-use remediation guidance. Trigger this skill when users ask for a security review, vulnerability scan, or penetration testing assistance, or mention keywords like OWASP, SQL injection, XSS, code audit, or security checklist.",
       "triggers": [],
-      "zip": "secure-code-review.zip"
+      "path": "skills/secure-code-review/"
     },
     {
       "name": "sql-insight",
@@ -613,14 +613,14 @@
         "query tuning",
         "full table scan"
       ],
-      "zip": "sql-insight.zip"
+      "path": "skills/sql-insight/"
     },
     {
       "name": "terraform-deploy-pitfalls",
       "category": "Engineering",
       "description": "Operational traps for Terraform provisioners, multi-environment isolation, and zero-to-deployment reliability. Covers provisioner timing races, SSH connection conflicts, DNS record duplication, volume permissions, database bootstrap gaps, snapshot cross-contamination, Cloudflare credential format errors, hardcoded domains in Caddyfiles/compose, and init-data-only-on-first-boot pitfalls. Activate when writing null_resource provisioners, creating multi-environment Terraform setups, debugging containers that are Restarting/unhealthy after terraform apply, setting up fresh instances with cloud-init, or any IaC code that SSHs into remote hosts. Also activate when the user mentions terraform plan/apply errors, provisioner failures, infrastructure drift, TLS certificate errors, or Caddy/gateway configuration.",
       "triggers": [],
-      "zip": "terraform-deploy-pitfalls.zip"
+      "path": "skills/terraform-deploy-pitfalls/"
     },
     {
       "name": "test-driven-dev",
@@ -633,7 +633,7 @@
         "wants integration tests",
         "asks for test-first development"
       ],
-      "zip": "test-driven-dev.zip"
+      "path": "skills/test-driven-dev/"
     },
     {
       "name": "test-suite-architect",
@@ -647,7 +647,7 @@
         "calculating quality metrics",
         "generating progress reports"
       ],
-      "zip": "test-suite-architect.zip"
+      "path": "skills/test-suite-architect/"
     },
     {
       "name": "academic-paper-reviewer",
@@ -658,7 +658,7 @@
         "\\\" \\\"simulate peer review",
         "\\\"give my paper a peer review"
       ],
-      "zip": "academic-paper-reviewer.zip"
+      "path": "skills/academic-paper-reviewer/"
     },
     {
       "name": "ad-creative",
@@ -680,14 +680,14 @@
         "I need more ad variations.' Use this whenever someone needs to produce ad copy at scale",
         "iterate on existing ads"
       ],
-      "zip": "ad-creative.zip"
+      "path": "skills/ad-creative/"
     },
     {
       "name": "content-research-writer",
       "category": "Featured",
       "description": "Assists in writing high-quality content by conducting research, adding citations, improving hooks, iterating on outlines, and providing real-time feedback on each section. Transforms your writing process from solo effort to collaborative partnership.",
       "triggers": [],
-      "zip": "content-research-writer.zip"
+      "path": "skills/content-research-writer/"
     },
     {
       "name": "copywriting",
@@ -710,7 +710,7 @@
         "help me describe my product.\" Use this whenever someone is working on website text that needs to persuade",
         "convert"
       ],
-      "zip": "copywriting.zip"
+      "path": "skills/copywriting/"
     },
     {
       "name": "design-system-builder",
@@ -721,14 +721,14 @@
         "generate design systems",
         "build MVP UIs matching reference aesthetics"
       ],
-      "zip": "design-system-builder.zip"
+      "path": "skills/design-system-builder/"
     },
     {
       "name": "docx",
       "category": "Featured",
       "description": "Create and edit Word documents (.docx) — C# + OpenXML SDK for creation, WIR engine for editing/comments/tracked changes. Use for any .docx task including document creation, editing, comments, revisions, footnotes, TOC, and Markdown-to-Word conversion.",
       "triggers": [],
-      "zip": "docx.zip"
+      "path": "skills/docx/"
     },
     {
       "name": "equity-research",
@@ -749,14 +749,14 @@
         "0700.HK",
         "AAPL)"
       ],
-      "zip": "equity-research.zip"
+      "path": "skills/equity-research/"
     },
     {
       "name": "fast-browser-use",
       "category": "Featured",
       "description": "Fastest browser automation with anti-bot bypass and DOM extraction. Navigate pages, capture screenshots, manage sessions, and harvest data from infinite scroll via Chrome DevTools Protocol. Runs 10x faster than Puppeteer. Trigger for any web scraping, automated browsing, data extraction, or screenshot task.",
       "triggers": [],
-      "zip": "fast-browser-use.zip"
+      "path": "skills/fast-browser-use/"
     },
     {
       "name": "humanizer",
@@ -766,7 +766,7 @@
         "editing",
         "reviewing text to make it sound more natural and human-written"
       ],
-      "zip": "humanizer.zip"
+      "path": "skills/humanizer/"
     },
     {
       "name": "kimi-find-skills",
@@ -777,7 +777,7 @@
         "search for a skill",
         "needs a skill to solve a specific problem"
       ],
-      "zip": "kimi-find-skills.zip"
+      "path": "skills/kimi-find-skills/"
     },
     {
       "name": "market-research-brief",
@@ -790,20 +790,7 @@
         "consumer behavior studies",
         "strategic documents in a top-tier consulting firm visual style"
       ],
-      "zip": "market-research-brief (1).zip"
-    },
-    {
-      "name": "market-research-brief",
-      "category": "Featured",
-      "description": "Generate professional consulting-style market insight reports with data-driven analysis, executive summaries, and strategic recommendations. Triggers when users request market or industry analysis, competitive landscape reports, consumer behavior studies, or strategic documents in a top-tier consulting firm visual style.",
-      "triggers": [
-        "market",
-        "industry analysis",
-        "competitive landscape reports",
-        "consumer behavior studies",
-        "strategic documents in a top-tier consulting firm visual style"
-      ],
-      "zip": "market-research-brief.zip"
+      "path": "skills/market-research-brief/"
     },
     {
       "name": "playwright-scraper-skill",
@@ -817,7 +804,7 @@
         "Cloudflare",
         "known blocking (like Discuss.com.hk)"
       ],
-      "zip": "playwright-scraper-skill.zip"
+      "path": "skills/playwright-scraper-skill/"
     },
     {
       "name": "pricing-strategy",
@@ -829,21 +816,21 @@
         "planning a price increase",
         "improving a pricing page"
       ],
-      "zip": "pricing-strategy.zip"
+      "path": "skills/pricing-strategy/"
     },
     {
       "name": "sci-paper",
       "category": "Featured",
       "description": "Structured guidance for composing, formatting, and presenting scientific research papers for top-tier venues (CVPR, ICCV, NeurIPS, ICML, ACL, ICLR, etc.). Covers the full workflow: section-by-section drafting, figure and table design, LaTeX typography, narrative logic, and submission-ready polishing. Use to write, revise, or format a manuscript into camera-ready or preprint PDF.",
       "triggers": [],
-      "zip": "sci-paper.zip"
+      "path": "skills/sci-paper/"
     },
     {
       "name": "scientific-problem-selection",
       "category": "Featured",
       "description": "This skill should be used when scientists need help with research problem selection, project ideation, troubleshooting stuck projects, or strategic scientific decisions. Use this skill when users ask to pitch a new research idea, work through a project problem, evaluate project risks, plan research strategy, navigate decision trees, or get help choosing what scientific problem to work on. Typical requests include \"I have an idea for a project\", \"I'm stuck on my research\", \"help me evaluate this project\", \"what should I work on\", or \"I need strategic advice about my research\".",
       "triggers": [],
-      "zip": "scientific-problem-selection.zip"
+      "path": "skills/scientific-problem-selection/"
     },
     {
       "name": "seo-audit",
@@ -868,21 +855,21 @@
         "indexing issues.\" Use this even if the user just says something vague like \"my SEO is bad",
         "help with SEO\" — start with an audit"
       ],
-      "zip": "seo-audit.zip"
+      "path": "skills/seo-audit/"
     },
     {
       "name": "theme-factory",
       "category": "Featured",
       "description": "Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to any artifact that has been creating, or can generate a new theme on-the-fly.",
       "triggers": [],
-      "zip": "theme-factory.zip"
+      "path": "skills/theme-factory/"
     },
     {
       "name": "xlsx",
       "category": "Featured",
       "description": "Specialized utility for advanced manipulation, analysis, and creation of spreadsheet files, including (but not limited to) XLSX, XLSM, CSV formats. Core functionalities include formula deployment, complex formatting (including automatic currency formatting for financial tasks), data visualization, mandatory post-processing recalculation, and finance-focused Excel modeling workflows such as three-statement models, DCF valuation, and public comps analysis.",
       "triggers": [],
-      "zip": "xlsx.zip"
+      "path": "skills/xlsx/"
     },
     {
       "name": "commodities-outlook",
@@ -897,7 +884,7 @@
         "research note",
         "price drivers"
       ],
-      "zip": "commodities-outlook.zip"
+      "path": "skills/commodities-outlook/"
     },
     {
       "name": "discounted-cashflow-model",
@@ -911,7 +898,7 @@
         "terminal value",
         "sensitivity analysis"
       ],
-      "zip": "discounted-cashflow-model.zip"
+      "path": "skills/discounted-cashflow-model/"
     },
     {
       "name": "earnings-review-note",
@@ -923,14 +910,14 @@
         "ask for a beat/miss analysis",
         "mention summarizing an earnings call for any public company"
       ],
-      "zip": "earnings-review-note.zip"
+      "path": "skills/earnings-review-note/"
     },
     {
       "name": "equity-research-report",
       "category": "Finance",
       "description": "Create institutional-grade investment research reports with sell-side styling, dense information layout, and comprehensive section structure. Use for equity, fixed-income, strategy, sector, derivatives, ETF, or quantitative research. Mimics Goldman Sachs, Morgan Stanley, or JPMorgan style with cover pages, exhibit-numbered charts, glossary, and disclosures. Supports PDF, DOCX, and PPTX output.",
       "triggers": [],
-      "zip": "equity-research-report.zip"
+      "path": "skills/equity-research-report/"
     },
     {
       "name": "financial-ratio-toolkit",
@@ -942,7 +929,7 @@
         "\\\"analyze these financials\\",
         "\\\"calculate solvency ratios"
       ],
-      "zip": "financial-ratio-toolkit.zip"
+      "path": "skills/financial-ratio-toolkit/"
     },
     {
       "name": "financial-statement-analyzer",
@@ -954,7 +941,7 @@
         "detect red flags",
         "assess earnings quality"
       ],
-      "zip": "financial-statement-analyzer.zip"
+      "path": "skills/financial-statement-analyzer/"
     },
     {
       "name": "fund-risk-compare",
@@ -969,7 +956,7 @@
         "correlation analysis",
         "max drawdown"
       ],
-      "zip": "fund-risk-compare.zip"
+      "path": "skills/fund-risk-compare/"
     },
     {
       "name": "investor-letter-writer",
@@ -983,7 +970,7 @@
         "startup",
         "theme and document the thesis"
       ],
-      "zip": "investor-letter-writer.zip"
+      "path": "skills/investor-letter-writer/"
     },
     {
       "name": "investor-pitch-planner",
@@ -996,7 +983,7 @@
         "ask for help writing a deck",
         "preparing to raise funds"
       ],
-      "zip": "investor-pitch-planner.zip"
+      "path": "skills/investor-pitch-planner/"
     },
     {
       "name": "iso-27001-evidence-collection",
@@ -1009,7 +996,7 @@
         "evidence gaps",
         "compliance frameworks"
       ],
-      "zip": "iso-27001-evidence-collection.zip"
+      "path": "skills/iso-27001-evidence-collection/"
     },
     {
       "name": "legal-risk-assessment",
@@ -1022,7 +1009,7 @@
         "determining whether a matter needs senior counsel",
         "outside legal review"
       ],
-      "zip": "legal-risk-assessment.zip"
+      "path": "skills/legal-risk-assessment/"
     },
     {
       "name": "pitch-deck-creator",
@@ -1034,7 +1021,7 @@
         "company overviews with market analysis",
         "any fundraising presentation"
       ],
-      "zip": "pitch-deck-creator.zip"
+      "path": "skills/pitch-deck-creator/"
     },
     {
       "name": "regulatory-audit-generator",
@@ -1047,7 +1034,7 @@
         "\\\" \\\"privacy impact assessment (PIA/DPIA)",
         "asking if a feature is compliant"
       ],
-      "zip": "regulatory-audit-generator.zip"
+      "path": "skills/regulatory-audit-generator/"
     },
     {
       "name": "saas-metrics-coach",
@@ -1064,7 +1051,7 @@
         "NRR",
         "asks how their SaaS business is doing"
       ],
-      "zip": "saas-metrics-coach.zip"
+      "path": "skills/saas-metrics-coach/"
     },
     {
       "name": "stock-research-report",
@@ -1077,7 +1064,7 @@
         "equity research",
         "securities research"
       ],
-      "zip": "stock-research-report.zip"
+      "path": "skills/stock-research-report/"
     },
     {
       "name": "stock-signal-analyzer",
@@ -1092,7 +1079,7 @@
         "Bollinger Band breakouts",
         "RSI overbought/oversold levels"
       ],
-      "zip": "stock-signal-analyzer.zip"
+      "path": "skills/stock-signal-analyzer/"
     },
     {
       "name": "tos-clause-scanner",
@@ -1107,7 +1094,7 @@
         "mentions specific concerns like auto-renewal",
         "data authorization"
       ],
-      "zip": "tos-clause-scanner.zip"
+      "path": "skills/tos-clause-scanner/"
     },
     {
       "name": "value-investing-scorecard",
@@ -1121,7 +1108,7 @@
         "analyze the fundamentals of XX",
         "evaluate this using Buffett's method"
       ],
-      "zip": "value-investing-scorecard.zip"
+      "path": "skills/value-investing-scorecard/"
     },
     {
       "name": "vc-industry-research",
@@ -1134,7 +1121,7 @@
         "generate any PE/VC-style research document in Chinese",
         "English"
       ],
-      "zip": "vc-industry-research.zip"
+      "path": "skills/vc-industry-research/"
     },
     {
       "name": "brand-name-forge",
@@ -1148,7 +1135,7 @@
         "brainstorming",
         "naming help"
       ],
-      "zip": "brand-name-forge.zip"
+      "path": "skills/brand-name-forge/"
     },
     {
       "name": "campaign-plan",
@@ -1162,7 +1149,7 @@
         "translating a marketing goal into a structured",
         "executable plan"
       ],
-      "zip": "campaign-plan.zip"
+      "path": "skills/campaign-plan/"
     },
     {
       "name": "churn-prevention",
@@ -1175,7 +1162,7 @@
         "setting up dunning emails",
         "reducing failed-payment churn"
       ],
-      "zip": "churn-prevention.zip"
+      "path": "skills/churn-prevention/"
     },
     {
       "name": "competitor-analysis",
@@ -1188,7 +1175,7 @@
         "\\\" \\\"what are my competitors doing",
         "\\\"why do they rank higher"
       ],
-      "zip": "competitor-analysis.zip"
+      "path": "skills/competitor-analysis/"
     },
     {
       "name": "copy-editing",
@@ -1208,7 +1195,7 @@
         "too wordy",
         "sharpen the messaging.' Use this when the user already has copy and wants it improved rather than rewritten from scratch"
       ],
-      "zip": "copy-editing.zip"
+      "path": "skills/copy-editing/"
     },
     {
       "name": "ecom-listing-copywriter",
@@ -1223,14 +1210,14 @@
         "platform-specific listings like Taobao titles",
         "Amazon A+ content"
       ],
-      "zip": "ecom-listing-copywriter.zip"
+      "path": "skills/ecom-listing-copywriter/"
     },
     {
       "name": "email-newsletter-builder",
       "category": "Marketing",
       "description": "Generate professional HTML email newsletters compatible with Gmail and Outlook. Creates table-based layouts with inline CSS for reliable rendering. Use it when asked to \\\"build a newsletter,\\\" \\\"create an email template,\\\" or draft a marketing, internal, or digest email.",
       "triggers": [],
-      "zip": "email-newsletter-builder.zip"
+      "path": "skills/email-newsletter-builder/"
     },
     {
       "name": "html-mailer-builder",
@@ -1246,7 +1233,7 @@
         "newsletters",
         "transactional email templates"
       ],
-      "zip": "html-mailer-builder.zip"
+      "path": "skills/html-mailer-builder/"
     },
     {
       "name": "landing-page-scaffold",
@@ -1262,7 +1249,7 @@
         "pricing",
         "CTA"
       ],
-      "zip": "landing-page-scaffold.zip"
+      "path": "skills/landing-page-scaffold/"
     },
     {
       "name": "seo-content-writer",
@@ -1274,7 +1261,7 @@
         "draft a how-to guide",
         "write a 2000-word article about [topic]"
       ],
-      "zip": "seo-content-writer.zip"
+      "path": "skills/seo-content-writer/"
     },
     {
       "name": "support-response-writer",
@@ -1285,7 +1272,7 @@
         "\\\" \\\"the customer is furious",
         "\\\"how to word a return response"
       ],
-      "zip": "support-response-writer.zip"
+      "path": "skills/support-response-writer/"
     },
     {
       "name": "audience-adaptive-comms",
@@ -1300,7 +1287,7 @@
         "CEO",
         "tech lead"
       ],
-      "zip": "audience-adaptive-comms.zip"
+      "path": "skills/audience-adaptive-comms/"
     },
     {
       "name": "email-to-calendar",
@@ -1311,7 +1298,7 @@
         "mentions an event in an email",
         "wants to add something from an email to their calendar"
       ],
-      "zip": "email-to-calendar.zip"
+      "path": "skills/email-to-calendar/"
     },
     {
       "name": "gantt-planner",
@@ -1326,7 +1313,7 @@
         "milestones",
         "task scheduling"
       ],
-      "zip": "gantt-planner.zip"
+      "path": "skills/gantt-planner/"
     },
     {
       "name": "imap-smtp-email",
@@ -1339,7 +1326,7 @@
         "send an email",
         "mentions IMAP/SMTP email handling"
       ],
-      "zip": "imap-smtp-email.zip"
+      "path": "skills/imap-smtp-email/"
     },
     {
       "name": "incident-review-guide",
@@ -1354,7 +1341,7 @@
         "root cause analysis",
         "5 Whys"
       ],
-      "zip": "incident-review-guide.zip"
+      "path": "skills/incident-review-guide/"
     },
     {
       "name": "okr-strategist",
@@ -1374,27 +1361,7 @@
         "reviewing",
         "breaking down an OKR"
       ],
-      "zip": "okr-strategist (1).zip"
-    },
-    {
-      "name": "okr-strategist",
-      "category": "Productivity",
-      "description": "OKR drafting, breakdown, and retrospective coach that helps users craft high-quality objectives and key results, decompose goals into actionable layers, and conduct periodic reviews. Use when the user mentions OKR, goal management, key results, drafting, breakdown, retrospective, review, alignment, quarterly goals, or asks for help writing, reviewing, or breaking down an OKR.",
-      "triggers": [
-        "OKR",
-        "goal management",
-        "key results",
-        "drafting",
-        "breakdown",
-        "retrospective",
-        "review",
-        "alignment",
-        "quarterly goals",
-        "asks for help writing",
-        "reviewing",
-        "breaking down an OKR"
-      ],
-      "zip": "okr-strategist.zip"
+      "path": "skills/okr-strategist/"
     },
     {
       "name": "process-doc",
@@ -1407,7 +1374,7 @@
         "audit",
         "capturing the exceptions and edge cases of how work actually gets done"
       ],
-      "zip": "process-doc.zip"
+      "path": "skills/process-doc/"
     },
     {
       "name": "product-spec-writer",
@@ -1422,7 +1389,7 @@
         "feature breakdowns",
         "acceptance criteria"
       ],
-      "zip": "product-spec-writer.zip"
+      "path": "skills/product-spec-writer/"
     },
     {
       "name": "professional-email-composer",
@@ -1436,7 +1403,7 @@
         "rejection",
         "complaint"
       ],
-      "zip": "professional-email-composer.zip"
+      "path": "skills/professional-email-composer/"
     },
     {
       "name": "project-sizing-guide",
@@ -1451,7 +1418,7 @@
         "sprint planning",
         "quote-based effort breakdowns"
       ],
-      "zip": "project-sizing-guide.zip"
+      "path": "skills/project-sizing-guide/"
     },
     {
       "name": "sprint-plan-builder",
@@ -1465,7 +1432,7 @@
         "dependency analysis",
         "team capacity calculation"
       ],
-      "zip": "sprint-plan-builder.zip"
+      "path": "skills/sprint-plan-builder/"
     },
     {
       "name": "story-map-builder",
@@ -1478,7 +1445,7 @@
         "release planning",
         "asks to organize requirements into a story map"
       ],
-      "zip": "story-map-builder.zip"
+      "path": "skills/story-map-builder/"
     },
     {
       "name": "structured-minutes",
@@ -1493,7 +1460,7 @@
         "recap a discussion",
         "clean up a transcript"
       ],
-      "zip": "structured-minutes.zip"
+      "path": "skills/structured-minutes/"
     },
     {
       "name": "weighted-scorer",
@@ -1506,7 +1473,7 @@
         "vendor selection",
         "build vs"
       ],
-      "zip": "weighted-scorer.zip"
+      "path": "skills/weighted-scorer/"
     },
     {
       "name": "whatsapp-integration",
@@ -1518,7 +1485,7 @@
         "read a chat",
         "perform any other action related to WhatsApp data"
       ],
-      "zip": "whatsapp-integration.zip"
+      "path": "skills/whatsapp-integration/"
     },
     {
       "name": "work-recap-writer",
@@ -1533,7 +1500,7 @@
         "OKR progress",
         "needs to organize scattered records into a formal recap"
       ],
-      "zip": "work-recap-writer.zip"
+      "path": "skills/work-recap-writer/"
     }
   ]
 }

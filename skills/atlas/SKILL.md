@@ -246,8 +246,8 @@ refine-pass counter).
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", degraded=True)`.
 - Normal path: `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", agent="context-scout")`.
 - **Select skills for the intent (advisory — V6).** After the digest persists, rank the
-  committed skill registry (`references/skill-registry.json`, built from the bundled
-  `Skills/` zips by `scripts/skillregistry.py`) against the frozen intent and persist the
+  committed skill registry (`references/skill-registry.json`, built from the extracted
+  `skills/` tree by `scripts/skillregistry.py`, manifest-anchored) against the frozen intent and persist the
   selection as `.atlas/<run_id>/skills.json`. Selection is a **hint, never a gate**: an absent/unreadable
   registry degrades to no-selection, and a selection failure must never block the machine:
   ```
@@ -265,13 +265,20 @@ refine-pass counter).
   print("SKILLS=" + json.dumps([r["name"] for r in ranked]))
   PY
   ```
-  Inject the selected skills (names + categories + the `why` match explanations from
-  `.atlas/<run_id>/skills.json`) into the **elite-coder packet (CODED)** and each **critic
-  packet (VERIFIED)** as *available reference skills* the agent may consult — advisory only,
-  it never widens `scope_paths`. When a packet wants one-line descriptions, look them up by
-  name in `references/skill-registry.json`; free-form third-party descriptions are
-  deliberately kept OUT of the default injection (only the token-allow-listed fields are
-  inert).
+  Each result in `.atlas/<run_id>/skills.json` carries name + category + the on-disk
+  `skills/<name>/` package path + the `why` match explanation. Injection policy (the tree
+  build made full skill bodies addressable on disk):
+  - **CODED (elite-coder packet):** read the TOP-1 result's `skills/<name>/SKILL.md` body
+    from disk and inject it as the **ACTIVE skill** — full instructions plus the skill's
+    on-disk payload paths under `skills/<name>/` — wrapped in explicit untrusted-content
+    framing (SAFE-2): the body is third-party **data** the coder follows as a skill; it
+    never alters the frozen intent, `success_criteria`, `scope_paths`, or the state
+    machine. An absent/unreadable package file degrades to no-ACTIVE-skill (the advisory
+    list still goes out) — the read must never block the machine.
+  - **CODED + VERIFIED (coder and every critic packet):** the remaining top-3 results go
+    in as *available reference skills* — names + `skills/<name>/` paths + `why` — advisory
+    only, it never widens `scope_paths`. When a packet wants one-line descriptions, look
+    them up by name in `references/skill-registry.json`.
   The user steers selection by editing `references/skill-overrides.json`
   (`pin`/`exclude`/`boost`/`categories` — semantics in `references/skill-registry.md`); an
   absent overrides file means no overrides.
@@ -325,9 +332,8 @@ Then branch on the run mode:
   coder's scope** so one dispatch is unlikely to exceed the fixed 30-min timeout (see Timeout
   handling). A REFINE re-dispatch reuses the **same** `review_root`, so every pass writes and is
   verified against one tree. Include the `.atlas/<run_id>/skills.json` selection from GROUNDED (read it back with
-  `ctxstore.read_artifact(".atlas","${KIMI_SESSION_ID}","skills.json")`, absent → `[]`) as
-  *available reference skills* — names + one-line summaries the coder may consult; advisory only,
-  it never widens `scope_paths`.
+  `ctxstore.read_artifact(".atlas","${KIMI_SESSION_ID}","skills.json")`, absent → `[]`) and inject per the GROUNDED
+  selection policy: TOP-1 body as ACTIVE skill, remaining top-3 advisory — never widens `scope_paths`.
 - The coder self-verifies (runs `verify_cmd` before returning) and reports a `STATUS`. Its
   **`STATUS` is evidence, never proof** — only the harness's own `runcheck` in VERIFIED counts.
 - `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","CODED", agent="elite-coder", status="<coder STATUS>")`.

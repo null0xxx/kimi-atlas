@@ -1,0 +1,17 @@
+Moonshot AI Skill License
+
+Copyright (c) 2026 Moonshot AI. All rights reserved.
+
+These materials, including all source code, prompts, documentation,
+templates, and binary assets contained in this Skill, are the
+proprietary property of Moonshot AI and are provided for use within
+Moonshot AI's services.
+
+These materials may not be reproduced, modified, or redistributed
+in whole or in part. Reverse engineering, decompiling, or attempting
+to derive source code from any compiled component is prohibited.
+All proprietary notices must remain intact.
+
+Viewing, accessing, or executing these materials does not transfer
+any ownership or intellectual property rights to you. Moonshot AI
+reserves all rights not stated here.

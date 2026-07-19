@@ -174,6 +174,34 @@ class TestMainSynthetic(unittest.TestCase):
         code, output = self._run()
         self.assertEqual(code, 0, output)
 
+    def test_skill_package_payload_ignored(self):
+        # A vendored skill package (skills/<name>/ with a SKILL.md) is
+        # third-party data: the walk does not descend into it, so payload
+        # markdown is never flagged as an orphaned doc.
+        (self.root / "skills" / "demo" / "references").mkdir(parents=True)
+        (self.root / "skills" / "demo" / "SKILL.md").write_text("x\n", encoding="utf-8")
+        (self.root / "skills" / "demo" / "CAPABILITY.md").write_text("x\n", encoding="utf-8")
+        (self.root / "skills" / "demo" / "references" / "style_contract.md").write_text(
+            "x\n", encoding="utf-8"
+        )
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
+    def test_orphan_next_to_skill_package_still_drifts(self):
+        # The exemption is scoped to packages: an orphan .md one directory up
+        # (skills/ itself holds no SKILL.md) is still drift.
+        (self.root / "skills" / "demo").mkdir(parents=True)
+        (self.root / "skills" / "demo" / "SKILL.md").write_text("x\n", encoding="utf-8")
+        (self.root / "skills" / "stray.md").write_text("x\n", encoding="utf-8")
+        code, output = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("skills/stray.md", output)
+
+    def test_is_tracked_doc_stays_pure_on_payload_path(self):
+        # Per-path logic is unchanged BY DESIGN: the exemption lives in the walk
+        # only, so a direct predicate call still treats payload .md as a doc.
+        self.assertTrue(inventory_drift.is_tracked_doc("skills/demo/CAPABILITY.md"))
+
 
 class TestMainRealRepo(unittest.TestCase):
     """The gate MUST be green against the actual P1 repo tree (DS-9)."""

@@ -1,0 +1,2 @@
+from ._core import fix_element_order_in_tree, fix_settings, fix_body_order, fix_table_width_conservative, wrap_border_elements, check_table_grid_consistency, check_image_aspect_ratio, check_comments_integrity, check_section_margins, check_namespace_declarations, check_id_uniqueness, fix_relationship_paths, fix_content_types
+'docx_lib — Shared library for docx validation and fixing.'

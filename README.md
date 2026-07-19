@@ -120,13 +120,17 @@ kimi -p "/skill:atlas-weave <larger multi-file change> verify_cmd: <cmd> success
 skills/atlas/               the single-change root orchestrator (state machine)
 skills/atlas-weave/         the multi-agent meta-machine (decompose → integrate → aggregate)
 skills/atlas-resume/        graph-aware, compaction-surviving resume
+skills/<name>/              115 vendored official skill packages (extracted byte-identical, manifest-anchored)
 agents/*.md                 role files (documentation-only frontmatter; body prepended by the SKILL)
 scripts/*.py                the PURE decision cores + the deterministic I/O "hands" (importable, unit-tested)
-scripts/skillregistry.py    builds references/skill-registry.json from the bundled Skills/ zips (audit-gated)
+scripts/skillextract.py     extracted the Skills/ zips into skills/<name>/ + wrote the sha256 manifest (audit-gated)
+scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree (audit-gated)
 scripts/skillselect.py      ranks the registry for a task intent (advisory; pin/exclude/boost overrides)
-tests/                      656 unit tests + the red-team negative-gate fixtures
+scripts/skillpkgs.py        shared skill-package-aware markdown walk for the naming + inventory-drift gates
+tests/                      713 unit tests + the red-team negative-gate fixtures
 references/*.md             the design corpus — architecture, atlas-weave spec, rubric, runtime, live validation
-references/skill-registry.json   compact registry of all 117 bundled skills (zips stay source of truth)
+references/skills-manifest.json  sha256 manifest anchoring the extracted skills/ tree (117 zips → 115 packages)
+references/skill-registry.json   compact registry of all 115 vendored skills (the skills/ tree is source of truth)
 references/skill-overrides.json  manual selector overrides (pin / exclude / boost / categories)
 docs/superpowers/plans/     the test-first build plans, one per phase (P6–P12)
 probe/                      residual-runtime-unknown probes
@@ -142,7 +146,7 @@ The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + 
 ## Quality gate
 
 ```bash
-make ci    # strict naming + 656 unit tests + inventory-drift + shell-syntax
+make ci    # strict naming + 713 unit tests + inventory-drift + shell-syntax
 ```
 
 Every phase was built test-first and adversarially reviewed; `make ci` is the mechanical floor the project holds itself to.

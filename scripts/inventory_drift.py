@@ -16,6 +16,12 @@ references (``missing_from_index``). The source docs (``references/*.md`` +
 *outside* that source set (a new top-level doc or a new directory), not on a new
 sibling dropped into ``references/``.
 
+Skill-package exemption: a directory containing a ``SKILL.md`` is a vendored
+skill package (``skills/<name>/``) whose payload markdown is third-party data,
+not tracked documentation — :func:`scan_tree` does not descend into it. The
+exemption lives in the shared walk (``scripts/skillpkgs.py``) ONLY;
+:func:`is_tracked_doc` stays pure per-path.
+
 :func:`diff_inventory` is pure; only :func:`main` touches the filesystem.
 """
 from __future__ import annotations
@@ -25,6 +31,17 @@ import pathlib
 import posixpath
 import re
 import sys
+
+# When run directly as ``python3 scripts/inventory_drift.py`` the interpreter
+# puts ``scripts/`` (not the repo root) on ``sys.path[0]``, so
+# ``from scripts import ...`` would fail. Put the plugin root on the path so
+# the package imports resolve both when run directly and when imported as
+# ``scripts.inventory_drift`` (a no-op then).
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts import skillpkgs  # noqa: E402  (path shim precedes this import)
 
 # Directories whose contents are created by a later phase; excluded from the scan
 # and dropped from the index so the gate is green at P1 (DS-9).
@@ -140,12 +157,18 @@ def build_index(root: pathlib.Path) -> set[str]:
 
 
 def scan_tree(root: pathlib.Path) -> set[str]:
-    """Return every tracked doc file on disk, relative to ``root`` (POSIX)."""
+    """Return every tracked doc file on disk, relative to ``root`` (POSIX).
+
+    The walk is the shared skill-package-aware one
+    (:func:`skillpkgs.walk_markdown`): a directory that contains a ``SKILL.md``
+    is a vendored skill package, so its payload markdown is never mistaken for
+    an undocumented doc (the ``SKILL.md`` basename itself was already excluded
+    via :data:`EXCLUDED_BASENAMES` — the net effect of the exemption is
+    payload ``.md`` only). This gate layers the :func:`is_tracked_doc` filter
+    on top.
+    """
     actual: set[str] = set()
-    for path in root.rglob("*.md"):
-        rel = path.relative_to(root).as_posix()
-        if any(seg in _SKIP_SEGMENTS for seg in rel.split("/")):
-            continue
+    for rel in skillpkgs.walk_markdown(root, _SKIP_SEGMENTS):
         if is_tracked_doc(rel):
             actual.add(rel)
     return actual
@@ -173,18 +196,17 @@ def main(argv: list[str] | None = None) -> int:
     missing_from_index = drift["missing_from_index"]
 
     for path in missing_from_disk:
-        print(f"DRIFT: referenced by docs but missing from disk: {path}", file=sys.stderr)
+        sys.stderr.write(f"DRIFT: referenced by docs but missing from disk: {path}\n")
     for path in missing_from_index:
-        print(f"DRIFT: on disk but referenced by no doc: {path}", file=sys.stderr)
+        sys.stderr.write(f"DRIFT: on disk but referenced by no doc: {path}\n")
 
     if missing_from_disk or missing_from_index:
-        print(
-            f"\n{len(missing_from_disk) + len(missing_from_index)} inventory drift(s) found.",
-            file=sys.stderr,
+        sys.stderr.write(
+            f"\n{len(missing_from_disk) + len(missing_from_index)} inventory drift(s) found.\n",
         )
         return 1
 
-    print(f"Inventory in sync: {len(actual)} tracked doc(s), no drift.")
+    sys.stdout.write(f"Inventory in sync: {len(actual)} tracked doc(s), no drift.\n")
     return 0
 
 

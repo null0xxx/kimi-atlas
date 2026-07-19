@@ -1,34 +1,39 @@
-"""Skill-registry builder — classifies the bundled ``Skills/`` zips into one registry.
+"""Skill-registry builder — distils the extracted ``skills/`` tree into one registry.
 
-The 117 skill archives under ``Skills/<Category>/`` are the source of truth; this
-module distils each one into a compact, machine-readable entry of
-``references/skill-registry.json`` so tooling (``scripts/skillselect.py``) can rank
-skills for a task intent without opening zips at selection time. Every archive is
-read **in memory** via ``zipfile`` — nothing is ever extracted into the tracked
-tree — and each zip-internal ``SKILL.md`` is third-party **UNTRUSTED DATA**
-(SAFE-2): it is parsed for classification, never interpreted as instructions.
+The 115 extracted skill packages under ``skills/<name>/`` — built by
+``scripts/skillextract.py`` from the bundled ``Skills/`` zips and anchored by
+the committed sha256 manifest ``references/skills-manifest.json`` — are the
+source of truth; this module distils each one into a compact, machine-readable
+entry of ``references/skill-registry.json`` so tooling
+(``scripts/skillselect.py``) can rank skills for a task intent without walking
+payload files at selection time. Each package's ``SKILL.md`` is third-party
+**UNTRUSTED DATA** (SAFE-2): it is parsed for classification, never interpreted
+as instructions.
 
 Parsing is stdlib-only. The frontmatter reader handles the simple ``key: value``
-YAML-subset the zips actually carry (top-level keys such as ``name`` /
+YAML-subset the skills actually carry (top-level keys such as ``name`` /
 ``description`` / ``license``; nested blocks like ``metadata:`` are ignored), and
 trigger extraction (E1) lifts the explicit intent signals out of description
 phrasings like "Triggered when users ask for X, Y …" / "Use when the user
 mentions …" into a ``triggers`` list. Trigger text is a heuristic signal and stays
 advisory (V6) — it never gates anything.
 
-The build is deterministic: entries are sorted by ``(category, name, zip)`` with a
-stable key order and no timestamps, so a rebuild over an unchanged tree is a no-op
-diff. The CLI prints an audit (E4) — per-category counts, parse failures, and a
-``registry-count == zip-count`` check — and exits non-zero if any zip failed to
-parse or the counts disagree. The registry is validated against the canonical
-``skill-registry``/``skill-entry`` schemas (``scripts/validate.py``) before it is
-written, and the file is written ONLY when the registry is schema-valid AND the
-audit is clean — a partial or failed registry is never committed to disk.
+The build is deterministic and manifest-anchored: a package's ``category`` comes
+from the committed skills manifest (a skill dir the manifest does not record is
+an audit FAILURE, never silently categorized), entries are sorted by
+``(category, name)`` with a stable key order and no timestamps, so a rebuild over
+an unchanged tree is a no-op diff. The CLI prints an audit (E4) — per-category
+counts, failures, and a ``registry-count == manifest-skill-count`` check — and
+exits non-zero if any package failed to parse or the counts disagree. The
+registry is validated against the canonical ``skill-registry``/``skill-entry``
+schemas (``scripts/validate.py``) before it is written, and the file is written
+ONLY when the registry is schema-valid AND the audit is clean — a partial or
+failed registry is never committed to disk.
 
 :func:`parse_frontmatter`, :func:`extract_triggers`, :func:`build_registry`,
-:func:`validate_registry` and :func:`audit` are pure; :func:`classify_zip`,
-:func:`iter_zip_paths` and :func:`build_entries` are filesystem READERS;
-:func:`main` is the only WRITER.
+:func:`validate_registry` and :func:`audit` are pure; :func:`classify_dir`,
+:func:`iter_skill_dirs`, :func:`load_manifest` and :func:`build_entries` are
+filesystem READERS; :func:`main` is the only WRITER.
 """
 from __future__ import annotations
 
@@ -37,7 +42,6 @@ import json
 import pathlib
 import re
 import sys
-import zipfile
 
 # When run directly as ``python3 scripts/skillregistry.py`` the interpreter puts
 # ``scripts/`` (not the repo root) on ``sys.path[0]``, so ``from scripts import ...``
@@ -49,12 +53,21 @@ if str(_ROOT) not in sys.path:
 
 from scripts import validate  # noqa: E402  (path shim must precede this import)
 
-# The registry and the Skills tree live at <plugin-root>/references and
-# <plugin-root>/Skills (same resolution idiom as scripts/validate.py).
-_DEFAULT_SKILLS_ROOT = _ROOT / "Skills"
+# The extracted skills tree lives at <plugin-root>/skills, the manifest and the
+# registry at <plugin-root>/references (same resolution idiom as
+# scripts/validate.py).
+_DEFAULT_SKILLS_ROOT = _ROOT / "skills"
+_DEFAULT_MANIFEST = _ROOT / "references" / "skills-manifest.json"
 _DEFAULT_OUT = _ROOT / "references" / "skill-registry.json"
 
-REGISTRY_VERSION = 1
+REGISTRY_VERSION = 2
+
+# First-party orchestrator skills living under skills/ next to the vendored
+# packages: plugin machinery (state machine / weave / resume), NOT official
+# vendored skills — never registered, and absent from the skills manifest by
+# design. A NEW first-party dir added here must be named in this set or the
+# audit fails it as missing-from-manifest (the intended tripwire).
+FIRST_PARTY_DIRS: frozenset[str] = frozenset({"atlas", "atlas-weave", "atlas-resume"})
 
 # A SKILL.md opens with a YAML frontmatter block between two `---` fences.
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n", re.DOTALL)
@@ -137,61 +150,92 @@ def extract_triggers(description: str) -> list[str]:
     return signals
 
 
-def classify_zip(zip_path: pathlib.Path, category: str) -> dict:
-    """Classify one skill archive into its registry entry.
+def classify_dir(skill_dir: pathlib.Path, category: str) -> dict:
+    """Classify one extracted skill package into its registry entry.
 
-    Reads the zip fully in memory (never extracted) and parses its top-level
-    SKILL.md. Raises ``ValueError`` on an unreadable archive, a missing
-    SKILL.md, or a SKILL.md without a frontmatter fence.
+    Reads ``<skill_dir>/SKILL.md`` from disk and parses its frontmatter; the
+    entry's ``path`` is the repo-relative package dir ``skills/<dir-name>/``.
+    Raises ``ValueError`` on an unreadable SKILL.md or one without a
+    frontmatter fence.
     """
     try:
-        with zipfile.ZipFile(zip_path) as archive:
-            names = archive.namelist()
-            if "SKILL.md" not in names:
-                raise ValueError("archive has no top-level SKILL.md")
-            raw = archive.read("SKILL.md")
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"not a readable zip archive: {exc}") from exc
+        raw = (skill_dir / "SKILL.md").read_bytes()
+    except OSError as exc:
+        raise ValueError(f"SKILL.md is unreadable: {exc}") from exc
     fields = parse_frontmatter(raw.decode("utf-8", errors="replace"))
-    name = fields.get("name", "").strip() or zip_path.stem
+    name = fields.get("name", "").strip() or skill_dir.name
     description = fields.get("description", "")
     return {  # stable key order — keep in sync with the `skill-entry` schema
         "name": name,
         "category": category,
         "description": description,
         "triggers": extract_triggers(description),
-        "zip": zip_path.name,
+        "path": f"skills/{skill_dir.name}/",
     }
 
 
-def iter_zip_paths(skills_root: pathlib.Path) -> list[pathlib.Path]:
-    """Return every ``<category>/<skill>.zip`` path, sorted by (category, name)."""
+def iter_skill_dirs(skills_root: pathlib.Path) -> list[pathlib.Path]:
+    """Return every extracted package dir (``skills/<name>/`` holding a SKILL.md).
+
+    The first-party orchestrator dirs (:data:`FIRST_PARTY_DIRS`) are excluded —
+    they are plugin machinery, not vendored official skills. Sorted by dir name
+    for a deterministic scan.
+    """
     return sorted(
-        skills_root.glob("*/*.zip"),
-        key=lambda p: (p.parent.name, p.name),
+        (
+            d
+            for d in skills_root.iterdir()
+            if d.is_dir() and (d / "SKILL.md").is_file() and d.name not in FIRST_PARTY_DIRS
+        ),
+        key=lambda d: d.name,
     )
 
 
+def load_manifest(manifest_path: pathlib.Path) -> dict:
+    """Load the committed skills manifest; raises ``OSError``/``JSONDecodeError``."""
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
 def build_entries(
-    skills_root: pathlib.Path, zip_paths: list[pathlib.Path] | None = None
+    skills_root: pathlib.Path,
+    skill_dirs: list[pathlib.Path] | None = None,
+    manifest: dict | None = None,
 ) -> tuple[list[dict], list[tuple[str, str]]]:
-    """Classify every zip under ``skills_root``.
+    """Classify every extracted package dir under ``skills_root``.
 
     Returns ``(entries, failures)`` where ``failures`` is a list of
-    ``(zip_path, reason)`` for archives that could not be classified. Entries are
-    sorted by ``(category, name, zip)`` for a deterministic registry. Pass
-    ``zip_paths`` (the :func:`iter_zip_paths` scan) to reuse an existing glob;
-    ``None`` globs the tree here.
+    ``(dir_path, reason)``: a package whose SKILL.md could not be parsed, or a
+    package dir the manifest does not record (a dir the manifest does not
+    anchor is an audit failure, never silently categorized). A package's
+    ``category`` comes from the manifest; its ``path`` is
+    ``skills/<name>/``. Entries are sorted by ``(category, name)`` for a
+    deterministic registry. Pass ``skill_dirs`` (the :func:`iter_skill_dirs`
+    scan) to reuse an existing listing; ``None`` lists the tree here. Pass
+    ``manifest`` (the :func:`load_manifest` read) to reuse a loaded manifest;
+    ``None`` loads the committed one.
     """
+    if manifest is None:
+        manifest = load_manifest(_DEFAULT_MANIFEST)
+    categories = {
+        entry.get("name", ""): entry.get("category", "")
+        for entry in manifest.get("skills", [])
+        if isinstance(entry, dict)
+    }
     entries: list[dict] = []
     failures: list[tuple[str, str]] = []
-    paths = zip_paths if zip_paths is not None else iter_zip_paths(skills_root)
-    for zip_path in paths:
+    dirs = skill_dirs if skill_dirs is not None else iter_skill_dirs(skills_root)
+    for skill_dir in dirs:
+        category = categories.get(skill_dir.name)
+        if category is None:
+            failures.append(
+                (skill_dir.as_posix(), "skill dir missing from the skills manifest")
+            )
+            continue
         try:
-            entries.append(classify_zip(zip_path, zip_path.parent.name))
+            entries.append(classify_dir(skill_dir, category))
         except ValueError as exc:
-            failures.append((zip_path.as_posix(), str(exc)))
-    entries.sort(key=lambda e: (e["category"], e["name"], e["zip"]))
+            failures.append((skill_dir.as_posix(), str(exc)))
+    entries.sort(key=lambda e: (e["category"], e["name"]))
     return entries, failures
 
 
@@ -218,37 +262,46 @@ def validate_registry(registry: dict) -> list[str]:
 
 
 def audit(
-    entries: list[dict], zip_count: int, failures: list[tuple[str, str]]
+    entries: list[dict], manifest_skill_count: int, failures: list[tuple[str, str]]
 ) -> tuple[list[str], bool]:
     """Build the E4 audit lines and own the single pass/fail verdict.
 
-    Returns ``(lines, ok)``: per-category counts, one line per parse failure,
-    the count-equality check, and the trailing ``AUDIT ok`` / ``AUDIT MISMATCH``
+    Returns ``(lines, ok)``: per-category counts, one line per failure, the
+    count-equality check, and the trailing ``AUDIT ok`` / ``AUDIT MISMATCH``
     line — ``ok`` is the verdict that line carries (no failures AND
-    ``registry-count == zip-count``), so callers never re-derive the predicate.
+    ``registry-count == manifest-skill-count``), so callers never re-derive the
+    predicate.
     """
     by_category: dict[str, int] = {}
     for entry in entries:
         by_category[entry["category"]] = by_category.get(entry["category"], 0) + 1
     lines = [f"AUDIT category={cat} skills={by_category[cat]}" for cat in sorted(by_category)]
     for path, reason in failures:
-        lines.append(f"AUDIT parse-failure zip={path} reason={reason}")
-    lines.append(f"AUDIT zips={zip_count} registry={len(entries)}")
-    ok = not failures and zip_count == len(entries)
+        lines.append(f"AUDIT failure dir={path} reason={reason}")
+    lines.append(f"AUDIT manifest={manifest_skill_count} registry={len(entries)}")
+    ok = not failures and manifest_skill_count == len(entries)
     lines.append("AUDIT ok" if ok else "AUDIT MISMATCH")
     return lines, ok
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: rebuild ``references/skill-registry.json`` from ``Skills/`` (E4 audit)."""
+    """CLI: rebuild ``references/skill-registry.json`` from ``skills/`` (E4 audit)."""
     parser = argparse.ArgumentParser(
-        description="Build references/skill-registry.json from the bundled Skills/ zips."
+        description="Build references/skill-registry.json from the extracted skills/ tree."
     )
     parser.add_argument(
         "--skills-root",
         type=pathlib.Path,
         default=_DEFAULT_SKILLS_ROOT,
-        help="Directory holding <category>/*.zip (default: <plugin-root>/Skills).",
+        help="Directory holding the extracted skills/<name>/ packages "
+        "(default: <plugin-root>/skills).",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=pathlib.Path,
+        default=_DEFAULT_MANIFEST,
+        help="Skills manifest path (default: <plugin-root>/references/"
+        "skills-manifest.json).",
     )
     parser.add_argument(
         "--out",
@@ -262,9 +315,14 @@ def main(argv: list[str] | None = None) -> int:
     if not skills_root.is_dir():
         sys.stderr.write(f"skillregistry: skills root not found: {skills_root}\n")
         return 1
+    try:
+        manifest = load_manifest(args.manifest)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"skillregistry: cannot load skills manifest: {exc}\n")
+        return 1
 
-    zip_paths = iter_zip_paths(skills_root)
-    entries, failures = build_entries(skills_root, zip_paths)
+    skill_dirs = iter_skill_dirs(skills_root)
+    entries, failures = build_entries(skills_root, skill_dirs, manifest)
     registry = build_registry(entries)
     schema_errors = validate_registry(registry)
     for err in schema_errors:
@@ -272,7 +330,11 @@ def main(argv: list[str] | None = None) -> int:
     if schema_errors:
         return 1  # never write a registry that violates the schema
 
-    lines, ok = audit(entries, len(zip_paths), failures)
+    manifest_skills = manifest.get("skills")
+    manifest_skill_count = manifest.get(
+        "skill_count", len(manifest_skills) if isinstance(manifest_skills, list) else 0
+    )
+    lines, ok = audit(entries, manifest_skill_count, failures)
     for line in lines:
         sys.stdout.write(line + "\n")
     if not ok:

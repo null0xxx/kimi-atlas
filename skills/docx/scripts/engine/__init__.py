@@ -1,0 +1,2 @@
+from ._core import WIRSession, TextEdit, OldStringNotFoundError, EditWarning, open_docx, read_wir, modify_wir, save_docx, DocxPackage, DocxPackageError, CommentsManager, StyleManager, NumberingManager, embed_image, EmbedResult, cm_to_emu, inch_to_emu, latex_to_omml, LatexCompileError, validate_docx, validate_docx_full, validate_wir_window
+'DOCX WIR engine — read/modify DOCX via WIR windows.'

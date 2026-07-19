@@ -1,32 +1,40 @@
 # Skill registry & selection — right skill at the right time
 
-The 117 skill archives under `Skills/<Category>/*.zip` are the **source of truth**. Two
-scripts make them addressable at runtime: `scripts/skillregistry.py` distils every zip into
+The extracted `skills/` tree — 115 vendored official skill packages under `skills/<name>/`,
+anchored by the committed sha256 manifest [`references/skills-manifest.json`](skills-manifest.json) —
+is the **source of truth**. The 117 archives under `Skills/<Category>/*.zip` were the one-time
+import source: `scripts/skillextract.py` unpacked them byte-identically (modes normalized:
+`0o755` for `*.sh`, `0o644` otherwise) and wrote the manifest; it plays no role at runtime.
+Two scripts make the tree addressable: `scripts/skillregistry.py` distils every package into
 the compact, committed registry [`references/skill-registry.json`](skill-registry.json), and
 `scripts/skillselect.py` ranks that registry against a task intent. The ranking is **advisory
 only** (V6) — a token heuristic that emits no verdicts and no defects and can never gate a
 run; the atlas flow injects it into the coder/critic packets as a hint.
 
+**Coalesce policy.** The zips were grouped by frontmatter `name`; a same-name group had to be
+**byte-identical** (same member names, same bytes) to extract at all. Two duplicate pairs
+coalesced (`market-research-brief`, `okr-strategist`), so 117 zips became 115 unique packages
+(a same-name group that ever differs in bytes is an audit FAILURE, never a silent pick).
+
 ## Registry schema
 
-`scripts/skillregistry.py` reads each archive fully in memory (zips are **never extracted** into the
-tracked tree) and hand-parses the top-level `key: value` frontmatter of its `SKILL.md` —
-stdlib-only, treating the content as untrusted data (SAFE-2). The document validates against
-the `skill-registry` / `skill-entry` schemas in [`references/schemas.json`](schemas.json):
+`scripts/skillregistry.py` reads each package's `SKILL.md` from disk and hand-parses the
+top-level `key: value` frontmatter — stdlib-only, treating the content as untrusted data
+(SAFE-2). A package's `category` comes from the committed manifest (a skill dir the manifest
+does not record is an audit failure). The document validates against the `skill-registry` /
+`skill-entry` schemas in [`references/schemas.json`](schemas.json):
 
 ```
-{ "version": 1, "skill_count": 117, "skills": [ <entry>, … ] }
+{ "version": 2, "skill_count": 115, "skills": [ <entry>, … ] }
 
-entry = { name, category,          # category = the zip's parent directory
+entry = { name, category,          # category = the package's manifest category
           description,             # frontmatter description ("" when absent)
           triggers,                # E1: explicit intent signals (see below)
-          zip }                    # archive filename (disambiguates duplicates)
+          path }                   # on-disk package dir, "skills/<name>/"
 ```
 
-Entries are sorted by `(category, name, zip)` with a stable key order and no timestamps, so
-rebuilding over an unchanged tree is a no-op diff. Two duplicate archive pairs exist
-(`market-research-brief`, `okr-strategist`); both are registered (the count check is
-`registry == zips == 117`) and the selector de-duplicates them at match time.
+Entries are sorted by `(category, name)` with a stable key order and no timestamps, so
+rebuilding over an unchanged tree is a no-op diff.
 
 **Trigger extraction (E1).** Descriptions phrase their intent signals as "Triggered when
 users ask for X, Y …", "Trigger on requests to …", "Use when the user mentions …". The
@@ -49,11 +57,11 @@ highest-weighted field:
 | category prior    | +1.0   | the intent literally names the category        |
 
 Ties break deterministically by skill name. Each result is
-`{name, category, score, matched_tokens, why}` — `matched_tokens` lists exactly which intent
-tokens fired and `why` names the fields they fired in (e.g.
-`"matched name[pdf] + triggers[convert]"`), so any ranking can be explained. Only candidates
-with a positive score (or a pin) are returned; an empty intent returns `[]`, and duplicate
-`category+name` archives collapse to one candidate.
+`{name, category, path, score, matched_tokens, why}` — `path` is the on-disk package dir
+(`skills/<name>/`), `matched_tokens` lists exactly which intent tokens fired and `why` names
+the fields they fired in (e.g. `"matched name[pdf] + triggers[convert]"`), so any ranking can
+be explained. Only candidates with a positive score (or a pin) are returned; an empty intent
+returns `[]`, and duplicate `category+name` packages collapse to one candidate.
 
 ## Manual overrides
 
@@ -70,11 +78,14 @@ overrides — and malformed fields are ignored (selection must never break a run
 ## Rebuild
 
 ```bash
-make skill-registry        # or: python3 scripts/skillregistry.py
+make skill-registry                        # or: python3 scripts/skillregistry.py
+python3 scripts/skillextract.py --verify   # prove the tree still matches the manifest
 ```
 
-The builder prints an audit (E4) — per-category counts, any parse failures, and the
-`registry-count == zip-count` check — and exits non-zero on a mismatch or a failed zip; the
-file is written ONLY when the registry is schema-valid AND the audit is clean, so a partial
-or failed registry is never committed. `tests/test_skillregistry.py` re-validates the
-committed registry against the schemas in CI (E3).
+The registry builder prints an audit (E4) — per-category counts, any failures, and the
+`registry-count == manifest-skill-count` check — and exits non-zero on a mismatch or a failed
+package; the file is written ONLY when the registry is schema-valid AND the audit is clean, so
+a partial or failed registry is never committed. `tests/test_skillregistry.py` re-validates
+the committed registry against the schemas in CI (E3), and
+`tests/test_skillextract.py::TestCommittedManifest` re-hashes the whole extracted tree against
+the manifest — zip-free, so it runs anywhere the repo is checked out.

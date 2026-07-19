@@ -92,7 +92,7 @@
       "category": "str",
       "description": "str",
       "triggers": "list",
-      "zip": "str"
+      "path": "str"
     }
   },
   "skill-overrides": {
@@ -101,6 +101,22 @@
       "exclude": "list",
       "boost": "dict",
       "categories": "list"
+    }
+  },
+  "skills-manifest": {
+    "required": {
+      "version": "int",
+      "skill_count": "int",
+      "file_count": "int",
+      "skills": "list"
+    }
+  },
+  "skills-manifest-entry": {
+    "required": {
+      "name": "str",
+      "category": "str",
+      "dir": "str",
+      "files": "list"
     }
   }
 }

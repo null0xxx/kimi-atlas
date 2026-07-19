@@ -238,6 +238,58 @@ class TestMainEndToEnd(unittest.TestCase):
         self.assertEqual(code, 0, stdout)
 
 
+class TestSkillPackageExemption(unittest.TestCase):
+    """Walk-level exemption: payload ``.md`` inside a skill package is never scanned."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _touch(self, rel_path):
+        path = self.root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    def _run(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = checker.main(["--root", str(self.root)])
+        return code, out.getvalue(), err.getvalue()
+
+    def _make_package(self):
+        # A vendored package: manifest file + violating payload markdown at two
+        # depths — ALL of it third-party data the walk must not descend into.
+        self._touch("skills/demo/SKILL.md")
+        self._touch("skills/demo/CAPABILITY.md")
+        self._touch("skills/demo/references/style_contract.md")
+
+    def test_payload_md_inside_skill_package_passes(self):
+        self._make_package()
+        self._touch("analysis/explore-topic.md")
+        code, stdout, stderr = self._run()
+        self.assertEqual(code, 0, stdout + stderr)
+        self.assertIn("conform", stdout)
+
+    def test_violating_md_outside_skill_package_still_fails(self):
+        # The exemption is scoped to packages: a bad name one directory up fails.
+        self._make_package()
+        self._touch("analysis/Bad-Name.md")
+        code, _, stderr = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("analysis/Bad-Name.md", stderr)
+        self.assertNotIn("CAPABILITY", stderr)
+        self.assertNotIn("style_contract", stderr)
+
+    def test_check_file_stays_pure_on_payload_path(self):
+        # Per-file logic is unchanged BY DESIGN: the exemption lives in the walk
+        # only, so a direct per-path check still applies every rule.
+        errors, _ = checker.check_file(self.root, "skills/demo/CAPABILITY.md")
+        self.assertTrue(any("lowercase" in e for e in errors))
+
+
 class TestMainRealRepo(unittest.TestCase):
     """`make check-strict` over the real P1 tree must be green (DS-9)."""
 

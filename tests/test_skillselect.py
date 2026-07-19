@@ -21,12 +21,12 @@ def _entry(name, category, description, triggers=None):
         "category": category,
         "description": description,
         "triggers": triggers or [],
-        "zip": name + ".zip",
+        "path": f"skills/{name}/",
     }
 
 
 def _registry(*entries):
-    return {"version": 1, "skill_count": len(entries), "skills": list(entries)}
+    return {"version": 2, "skill_count": len(entries), "skills": list(entries)}
 
 
 REGISTRY = _registry(
@@ -132,6 +132,20 @@ class TestExplainability(unittest.TestCase):
         # "merge" fires in the triggers, "files" in the description — both reported.
         self.assertEqual(top["matched_tokens"], ["files", "merge"])
         self.assertEqual(top["why"], "matched triggers[merge] + description[files]")
+
+    def test_result_carries_on_disk_package_path(self):
+        results = skillselect.select("pdf", REGISTRY, top_n=1)
+        self.assertEqual(results[0]["path"], "skills/pdf-toolkit/")
+
+    def test_missing_path_entry_defaults_to_empty(self):
+        # A registry predating the tree build has no `path` — selection must
+        # still run and report "".
+        legacy = {"version": 1, "skill_count": 1, "skills": [
+            {"name": "pdf-toolkit", "category": "Productivity",
+             "description": "Merge and split PDF files.", "triggers": ["merge pdf"]},
+        ]}
+        results = skillselect.select("pdf", legacy, top_n=1)
+        self.assertEqual(results[0]["path"], "")
 
 
 class TestOverrides(unittest.TestCase):
@@ -264,8 +278,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(ranked), 1)
         self.assertEqual(ranked[0]["name"], "pdf-toolkit")
         self.assertEqual(
-            sorted(ranked[0]), ["category", "matched_tokens", "name", "score", "why"]
+            sorted(ranked[0]), ["category", "matched_tokens", "name", "path", "score", "why"]
         )
+        self.assertEqual(ranked[0]["path"], "skills/pdf-toolkit/")
 
     def test_cli_honors_overrides_file(self):
         with tempfile.TemporaryDirectory() as tmp:

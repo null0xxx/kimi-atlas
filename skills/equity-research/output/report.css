@@ -1,0 +1,1896 @@
+/* ============================================
+   Equity Research Report Visual System
+   深度研报视觉系统
+
+   File: output/report.css
+   Usage: Embed full CSS content in HTML <style> tag (inlined, not linked)
+
+   Design philosophy:
+   - Traditional research report layout (NOT compact tear-sheet)
+   - Full-width paragraphs as primary content flow
+   - Generous whitespace and readable line-height
+   - Single-column default, dual-column only for specific data modules
+   - Professional serif headings, clean sans-serif body
+   - Optimized for ≥25 page deep-dive reading experience
+   ============================================ */
+
+/* ============================================
+   1. Page Setup — Standard Research Report Margins
+   ============================================ */
+
+@page {
+    size: A4;
+    margin: 18mm 20mm 18mm 20mm;
+
+    @top-left {
+        content: element(running-header-left);
+        vertical-align: bottom;
+    }
+    @top-right {
+        content: element(running-header-right);
+        vertical-align: bottom;
+    }
+    @bottom-left {
+        content: element(running-footer-left);
+        vertical-align: top;
+    }
+    @bottom-right {
+        content: element(running-footer-right);
+        vertical-align: top;
+    }
+}
+
+@page :first {
+    margin-top: 18mm;
+    @top-left { content: none; }
+    @top-right { content: none; }
+    @bottom-left { content: none; }
+    @bottom-right { content: none; }
+}
+
+/* --- P1: Running Header / Footer Elements --- */
+
+.running-header-left {
+    position: running(running-header-left);
+    font-size: 7.5pt;
+    color: #888;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    border-bottom: 0.5px solid #CCC;
+    padding-bottom: 3px;
+}
+
+.running-header-right {
+    position: running(running-header-right);
+    font-size: 7.5pt;
+    color: #888;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    text-align: right;
+    border-bottom: 0.5px solid #CCC;
+    padding-bottom: 3px;
+}
+
+.running-footer-left {
+    position: running(running-footer-left);
+    font-size: 7pt;
+    color: #AAA;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    border-top: 0.5px solid #DDD;
+    padding-top: 3px;
+}
+
+.running-footer-right {
+    position: running(running-footer-right);
+    font-size: 7pt;
+    color: #AAA;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    text-align: right;
+    border-top: 0.5px solid #DDD;
+    padding-top: 3px;
+}
+
+/* Page counter in footer (WeasyPrint uses CSS counters) */
+.page-number::after {
+    content: counter(page);
+}
+
+.page-total::after {
+    content: counter(pages);
+}
+
+/* ============================================
+   1b. Kimi Research Brand Bar — Cover Page Only
+   ============================================ */
+
+.kimi-brand-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #003366 0%, #1E3A5F 100%);
+    color: #fff;
+    padding: 8px 20px;
+    margin: 0 0 12px 0;
+    border-radius: 2px;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+.kimi-brand-bar .kimi-logo {
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.kimi-brand-bar .kimi-tagline {
+    font-size: 7.5pt;
+    opacity: 0.8;
+    font-style: italic;
+}
+
+/* ============================================
+   2. Base Typography — Readable Body Text
+   ============================================ */
+
+.report-container {
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #2C2C2C;
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 18mm 20mm;
+}
+
+/* English variant */
+.report-container.report-container-en {
+    font-family: "Helvetica Neue", Arial, "Segoe UI", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.65;
+}
+
+p, .body-text {
+    margin: 0 0 10px 0;
+    text-align: justify;
+    orphans: 3;
+    widows: 3;
+}
+
+/* ============================================
+   3. Report Header — Clean, Professional
+   ============================================ */
+
+.header-unified {
+    background: #fff;
+    border-bottom: 3px solid #003366;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+}
+
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #003366 0%, #1E3A5F 100%);
+    color: #fff;
+    padding: 14px 20px;
+    margin: 0 0 16px 0;
+    border-radius: 2px;
+}
+
+.header-company {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.header-name {
+    font-size: 18pt;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+.header-code {
+    font-size: 10pt;
+    opacity: 0.85;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+.header-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.header-tags .tag {
+    background: rgba(255,255,255,0.15);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 8.5pt;
+    white-space: nowrap;
+}
+
+.header-tags .tag.highlight {
+    background: rgba(255,255,255,0.35);
+    font-weight: bold;
+}
+
+.header-main-title {
+    font-size: 16pt;
+    font-weight: bold;
+    color: #003366;
+    padding: 0 4px;
+    line-height: 1.35;
+}
+
+.header-title-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 4px 8px 4px;
+}
+
+.header-sub-title {
+    font-size: 11pt;
+    color: #555;
+    font-style: italic;
+    line-height: 1.4;
+    flex: 1;
+}
+
+.header-byline {
+    font-size: 8.5pt;
+    font-style: italic;
+    color: #888;
+    white-space: nowrap;
+}
+
+.header-summary {
+    background: #F5F7FA;
+    padding: 12px 16px;
+    font-size: 10pt;
+    line-height: 1.6;
+    color: #333;
+    border-top: 1px solid #E8ECF0;
+    border-radius: 0 0 4px 4px;
+}
+
+.summary-label {
+    font-weight: bold;
+    color: #003366;
+    margin-right: 6px;
+}
+
+/* ============================================
+   3b. Cover Page — Left-Right Split Layout (P2)
+   ============================================ */
+
+.cover-split {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    border-bottom: 3px solid #003366;
+    padding-bottom: 16px;
+    page-break-after: avoid;
+}
+
+.cover-main {
+    flex: 3;
+    padding-right: 20px;
+    border-right: 1.5px solid #D0D8E0;
+}
+
+.cover-main .cover-rating-line {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.cover-rating-badge {
+    display: inline-block;
+    background: #003366;
+    color: #fff;
+    font-size: 10pt;
+    font-weight: bold;
+    padding: 3px 14px;
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.cover-target-price {
+    font-size: 11pt;
+    font-weight: bold;
+    color: #003366;
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+.cover-viewpoint {
+    font-size: 10pt;
+    line-height: 1.65;
+    color: #333;
+    margin-top: 10px;
+}
+
+.cover-sidebar {
+    flex: 2;
+    padding-left: 20px;
+}
+
+.cover-sidebar .sidebar-title {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #003366;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #D0D8E0;
+    padding-bottom: 4px;
+}
+
+.key-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+}
+
+.key-data-table td {
+    padding: 3px 0;
+    vertical-align: top;
+}
+
+.key-data-table td:first-child {
+    color: #888;
+    width: 48%;
+    white-space: nowrap;
+}
+
+.key-data-table td:last-child {
+    color: #2C2C2C;
+    font-weight: 600;
+    text-align: right;
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+.key-data-table tr.kd-divider td {
+    border-top: 0.5px solid #E0E0E0;
+    padding-top: 5px;
+    margin-top: 2px;
+}
+
+/* Financial snapshot mini table inside sidebar */
+.sidebar-forecast {
+    margin-top: 10px;
+}
+
+.sidebar-forecast .forecast-title {
+    font-size: 8pt;
+    font-weight: bold;
+    color: #003366;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.sidebar-forecast table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+}
+
+.sidebar-forecast th {
+    font-weight: bold;
+    color: #666;
+    padding: 2px 4px;
+    border-bottom: 1px solid #CCC;
+    text-align: right;
+    font-size: 7pt;
+    text-transform: uppercase;
+}
+
+.sidebar-forecast th:first-child {
+    text-align: left;
+}
+
+.sidebar-forecast td {
+    padding: 2px 4px;
+    text-align: right;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #333;
+}
+
+.sidebar-forecast td:first-child {
+    text-align: left;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    color: #666;
+}
+
+/* ============================================
+   3c. Executive Summary — Below Cover Split
+   ============================================ */
+
+.exec-summary {
+    background: #F5F7FA;
+    border: 1px solid #D0D8E0;
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin-top: 16px;
+    margin-bottom: 0;
+    page-break-inside: avoid;
+    page-break-after: always;
+}
+
+.exec-summary-title {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #003366;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #C0C8D4;
+}
+
+.exec-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+}
+
+.exec-summary-item {
+    font-size: 8.5pt;
+    line-height: 1.55;
+    color: #333;
+    padding: 6px 0;
+}
+
+.exec-summary-item .es-label {
+    font-weight: bold;
+    color: #003366;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.exec-summary-item .es-content {
+    display: block;
+}
+
+/* ============================================
+   4. Section Headings — Hierarchical Structure
+   ============================================ */
+
+.section-title {
+    font-size: 14pt;
+    font-weight: bold;
+    color: #003366;
+    border-bottom: 2.5px solid #003366;
+    padding-bottom: 6px;
+    margin: 28px 0 14px 0;
+    page-break-after: avoid;
+}
+
+.subsection-title {
+    font-size: 11.5pt;
+    font-weight: bold;
+    color: #1E3A5F;
+    margin: 18px 0 8px 0;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #D0D8E0;
+    page-break-after: avoid;
+}
+
+h3 {
+    font-size: 10.5pt;
+    font-weight: bold;
+    color: #333;
+    margin: 14px 0 6px 0;
+    page-break-after: avoid;
+}
+
+/* English headings — serif */
+.report-container-en .section-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15pt;
+    font-style: italic;
+}
+
+.report-container-en .subsection-title {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5pt;
+    font-style: normal;
+}
+
+/* ============================================
+   5. Content Layout — Full-Width Primary
+   ============================================ */
+
+/* Module wrapper — Equity Report: every module starts on a new page */
+/* Cover (P1: .cover-split + .exec-summary) and Data Summary (P2: .data-summary-page)
+   are NOT .module-row, so they are NOT affected by this rule. */
+.module-row {
+    margin-bottom: 8px;
+    page-break-before: always;
+    page-break-inside: auto;
+}
+
+/* TOC also starts on a new page (it's not a .module-row, needs its own rule) */
+.toc,
+.figure-index {
+    page-break-before: always;
+}
+
+/* Full-width content block (default for equity report) */
+.content-block {
+    margin-bottom: 16px;
+}
+
+/* Two-column only when explicitly needed (data comparisons, side-by-side) */
+.two-column {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+}
+
+.two-column > .column {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 60-40 split for scenario + risk */
+.two-column.split-60-40 > .column:first-child { flex: 1.5; }
+.two-column.split-60-40 > .column:last-child { flex: 1; }
+
+/* ============================================
+   6. Box Styles — Subtle, Not Dominating
+   ============================================ */
+
+.box {
+    padding: 12px 16px;
+    border-left: 3px solid;
+    background: #FAFBFC;
+    margin-bottom: 12px;
+    border-radius: 0 4px 4px 0;
+}
+
+.box-title {
+    font-size: 10.5pt;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #2C2C2C;
+}
+
+.box-primary { border-color: #003366; background: #F5F8FC; }
+.box-secondary { border-color: #4A6B8A; background: #F8F9FA; }
+.box-accent { border-color: #1E90FF; background: #F0F7FF; }
+.box-success { border-color: #2E7D32; background: #F1F8E9; }
+.box-warning { border-color: #F57C00; background: #FFF8E1; }
+.box-danger { border-color: #D32F2F; background: #FFEBEE; }
+
+/* Callout box for key insights */
+.callout {
+    background: #F0F4F8;
+    border-left: 4px solid #003366;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10pt;
+    line-height: 1.6;
+    border-radius: 0 4px 4px 0;
+}
+
+.callout-title {
+    font-weight: bold;
+    color: #003366;
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+}
+
+/* ============================================
+   7. Tables — Professional Research Style
+   ============================================ */
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin: 10px 0;
+    page-break-inside: avoid;
+}
+
+.report-table thead tr {
+    background: #E8ECF0;
+}
+
+.report-table th {
+    padding: 7px 8px;
+    font-weight: bold;
+    color: #2C2C2C;
+    border-top: 2px solid #666;
+    border-bottom: 1px solid #999;
+    text-align: center;
+    font-size: 8.5pt;
+    /* Uniform digit widths so numeric column titles line up cleanly. */
+    font-variant-numeric: tabular-nums;
+}
+
+.report-table td {
+    padding: 5px 8px;
+    border-bottom: 0.5px solid #DDD;
+    vertical-align: middle;
+    /* Tabular (fixed-pitch) digits are the sell-side table standard —
+       every "5" and every "1" occupies the same advance so the right
+       edge of a financial column stays flush. */
+    font-variant-numeric: tabular-nums;
+}
+
+.report-table tbody tr:nth-child(even) {
+    background: #FAFBFC;
+}
+
+.report-table tbody tr:last-child td {
+    border-bottom: 1.5px solid #666;
+}
+
+/* Alignment classes */
+.report-table .col-text { text-align: left; }
+.report-table .col-number {
+    text-align: right;
+    /* Prefer the body font with tabular-nums over monospace — keeps the
+       typographic rhythm consistent with the rest of the report while still
+       locking the digit widths. SF Mono / Consolas retained as fallback only. */
+    font-variant-numeric: tabular-nums;
+    font-family: inherit, "SF Mono", Consolas, monospace;
+}
+.report-table .col-center { text-align: center; }
+.report-table .col-wide { min-width: 140px; }
+.report-table .col-narrow { min-width: 60px; max-width: 90px; }
+
+.report-table .row-total {
+    font-weight: bold;
+    background: #F0F2F5;
+}
+
+.report-table .row-highlight {
+    background: #E3F2FD;
+}
+
+/* Minimal table variant (top/bottom lines only) */
+.report-table-minimal {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin: 10px 0;
+}
+
+.report-table-minimal thead tr {
+    border-top: 2px solid #333;
+    border-bottom: 1px solid #333;
+    background: none;
+}
+
+.report-table-minimal th {
+    padding: 6px 8px;
+    font-weight: bold;
+    color: #333;
+    text-align: center;
+    border: none;
+    border-top: 2px solid #333;
+    border-bottom: 1px solid #333;
+}
+
+.report-table-minimal td {
+    padding: 5px 8px;
+    border: none;
+}
+
+.report-table-minimal tbody tr:nth-child(even) {
+    background: #F8F9FA;
+}
+
+.report-table-minimal tbody tr:last-child td {
+    border-bottom: 1.5px solid #333;
+}
+
+/* Column width */
+.report-table th,
+.report-table td,
+.report-table-minimal th,
+.report-table-minimal td {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: 45px;
+}
+
+.report-table .col-text,
+.report-table-minimal .col-text {
+    min-width: 90px;
+    white-space: normal;
+}
+
+.report-table .col-number,
+.report-table-minimal .col-number {
+    white-space: nowrap;
+    min-width: 55px;
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+/* A-share color convention (red up, green down) */
+.report-table .positive-a { color: #CC0000; }
+.report-table .negative-a { color: #2E7D32; }
+
+/* HK/US color convention (green up, red down) */
+.report-table .positive-hk { color: #2E7D32; }
+.report-table .negative-hk { color: #D32F2F; }
+
+/* ============================================
+   8. Investment Thesis Table (投资论点综合分析表)
+   ============================================ */
+
+.debate-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+    margin: 12px 0;
+    page-break-inside: avoid;
+}
+
+.debate-table th {
+    background: #003366;
+    color: #fff;
+    padding: 6px 8px;
+    font-weight: bold;
+    text-align: center;
+    border: 1px solid #003366;
+}
+
+.debate-table td {
+    padding: 5px 8px;
+    border: 1px solid #DDD;
+    vertical-align: top;
+    background: #fff;
+    color: #333;
+    line-height: 1.5;
+}
+
+.debate-table tbody tr:nth-child(even) td {
+    background: #FAFBFC;
+}
+
+.debate-table .dim-col {
+    background: #F0F2F5 !important;
+    font-weight: bold;
+    color: #333;
+    min-width: 80px;
+}
+
+/* Inline emphasis spans */
+.bull-text { color: #1B5E20; font-weight: 600; }
+.bear-text { color: #B71C1C; font-weight: 600; }
+.warn-text { color: #E65100; font-weight: 600; }
+
+/* ============================================
+   9. Stock Chart Section
+   ============================================ */
+
+.stock-chart-section {
+    margin: 16px 0;
+    page-break-inside: avoid;
+}
+
+.chart-container {
+    width: 100%;
+    margin: 8px 0;
+    text-align: center;
+    page-break-inside: avoid;
+}
+
+.chart-container img,
+.chart-container svg {
+    width: 100%;
+    height: auto;
+    max-height: 280px;
+    display: block;
+    margin: 0 auto;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 8pt;
+    color: #666;
+    margin-top: 4px;
+    justify-content: center;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.legend-color {
+    width: 14px;
+    height: 2px;
+}
+
+/* Core trading data as inline table (not box) */
+.core-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin: 8px 0;
+}
+
+.core-data-table td {
+    padding: 4px 8px;
+    border-bottom: 0.5px solid #EEE;
+}
+
+.core-data-table td:first-child,
+.core-data-table td:nth-child(3) {
+    color: #666;
+    width: 25%;
+}
+
+.core-data-table td:nth-child(2),
+.core-data-table td:nth-child(4) {
+    color: #2C2C2C;
+    font-weight: 500;
+    text-align: right;
+    font-family: "SF Mono", Consolas, monospace;
+    width: 25%;
+}
+
+/* ============================================
+   10. Mermaid / Supply Chain Diagram
+   ============================================ */
+
+.mermaid-container {
+    width: 100%;
+    margin: 12px 0;
+    page-break-inside: avoid;
+}
+
+/* Free-height chart container — for diagrams that need unrestricted height */
+.chart-container-free {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    position: relative;
+    text-align: center;
+}
+
+.chart-container-free img,
+.chart-container-free canvas,
+.chart-container-free svg {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    display: block;
+}
+
+.mermaid {
+    text-align: center;
+    display: block;
+}
+
+.mermaid svg {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100%;
+}
+
+/* HTML/CSS flex fallback for supply chain */
+.chain-wrapper {
+    border: 1px solid #E0E0E0;
+    border-radius: 4px;
+    padding: 12px 14px;
+    background: #FAFBFC;
+    page-break-inside: avoid;
+}
+
+.chain-row {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-bottom: 6px;
+}
+
+.chain-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.chain-col-header {
+    font-size: 8.5pt;
+    font-weight: bold;
+    padding: 5px 0;
+    text-align: center;
+    border-bottom: 2px solid;
+}
+
+.chain-box {
+    border: 1.5px solid #CFD8DC;
+    border-radius: 5px;
+    padding: 8px 10px;
+    background: #fff;
+    text-align: center;
+}
+
+.chain-box .cb-title {
+    font-size: 8.5pt;
+    font-weight: bold;
+    color: #333;
+}
+
+.chain-box .cb-sub {
+    font-size: 7.5pt;
+    color: #888;
+    margin-top: 2px;
+}
+
+.chain-box.target-node {
+    border-left: 3.5px solid #003366;
+    border-color: #003366;
+    background: #F5F8FC;
+}
+
+.chain-connector {
+    flex: 0 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chain-connector .arrow-line {
+    display: flex;
+    align-items: center;
+}
+
+.chain-connector .arrow-line::before {
+    content: '';
+    display: block;
+    width: 14px;
+    height: 1.5px;
+    background: #90A4AE;
+}
+
+.chain-connector .arrow-line::after {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 5px solid #90A4AE;
+    border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+}
+
+/* ============================================
+   11. Scenario Analysis + Risk Section
+   ============================================ */
+
+.scenario-box {
+    padding: 12px 16px;
+    background: #FAFBFC;
+    border-left: 3px solid #003366;
+    margin-bottom: 12px;
+    border-radius: 0 4px 4px 0;
+}
+
+.scenario-title {
+    font-weight: bold;
+    color: #003366;
+    margin-bottom: 8px;
+    font-size: 10.5pt;
+}
+
+.risk-box {
+    background: #FFF8E1;
+    border-left: 3px solid #F57C00;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-radius: 0 4px 4px 0;
+}
+
+.risk-title {
+    font-weight: bold;
+    color: #E65100;
+    margin-bottom: 8px;
+    font-size: 10.5pt;
+}
+
+/* ============================================
+   12. Valuation Section — Level 2 Specific
+   ============================================ */
+
+/* Sensitivity matrix */
+.sensitivity-matrix {
+    margin: 12px 0;
+}
+
+.sensitivity-matrix .report-table td.base-case {
+    font-weight: bold;
+    background: #E3F2FD;
+}
+
+/* Valuation band summary */
+.valuation-band-summary {
+    margin: 12px 0;
+}
+
+/* Cross-method synthesis box */
+.valuation-synthesis {
+    background: #F0F4F8;
+    border-left: 4px solid #003366;
+    padding: 14px 18px;
+    margin: 16px 0;
+    border-radius: 0 4px 4px 0;
+}
+
+.valuation-synthesis .synthesis-title {
+    font-weight: bold;
+    color: #003366;
+    font-size: 11pt;
+    margin-bottom: 8px;
+}
+
+.valuation-range {
+    display: flex;
+    gap: 20px;
+    margin: 10px 0;
+    font-size: 10pt;
+}
+
+.valuation-range .range-item {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+}
+
+.valuation-range .range-label {
+    color: #666;
+    font-size: 9pt;
+}
+
+.valuation-range .range-value {
+    font-weight: bold;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #003366;
+    font-size: 11pt;
+}
+
+/* ============================================
+   13. Bullet Points — Clean, Not Cramped
+   ============================================ */
+
+.bullet-item {
+    position: relative;
+    padding-left: 14px;
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+.bullet-item::before {
+    content: "■";
+    position: absolute;
+    left: 0;
+    color: #003366;
+    font-size: 6pt;
+    top: 3px;
+}
+
+.key-point {
+    position: relative;
+    padding-left: 16px;
+    margin-bottom: 8px;
+    font-size: 10.5pt;
+    line-height: 1.6;
+}
+
+.key-point::before {
+    content: "►";
+    position: absolute;
+    left: 0;
+    color: #003366;
+    font-size: 8pt;
+    top: 2px;
+}
+
+.key-point-title {
+    font-weight: bold;
+    color: #2C2C2C;
+}
+
+/* ============================================
+   14. Exhibit Numbering
+   ============================================ */
+
+.exhibit-label {
+    font-size: 9.5pt;
+    font-weight: bold;
+    color: #333;
+    margin: 12px 0 6px 0;
+    page-break-after: avoid;
+}
+
+.exhibit-number {
+    font-weight: bold;
+    color: #003366;
+}
+
+.exhibit-desc {
+    font-weight: normal;
+    color: #777;
+    font-style: italic;
+}
+
+.exhibit-label + * {
+    page-break-before: avoid;
+}
+
+/* English exhibit */
+.report-container-en .exhibit-label {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 9.5pt;
+}
+
+/* ============================================
+   15. Data Source Attribution
+   ============================================ */
+
+.data-source {
+    font-size: 7.5pt;
+    color: #999;
+    font-style: italic;
+    margin-top: 4px;
+    margin-bottom: 8px;
+}
+
+.report-container-en .data-source::before {
+    content: "Source: ";
+    font-style: italic;
+}
+
+.report-container:not(.report-container-en) .data-source::before {
+    content: "数据来源：";
+    font-style: normal;
+}
+
+/* ============================================
+   16. Change Value Highlighting
+   ============================================ */
+
+.change-positive {
+    background: #E8F5E9;
+    color: #2E7D32;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+.change-negative {
+    background: #FFEBEE;
+    color: #D32F2F;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+.change-neutral {
+    background: #F5F5F5;
+    color: #757575;
+    padding: 1px 5px;
+    border-radius: 2px;
+}
+
+/* Status indicators */
+.status-safe { color: #2E7D32; font-weight: 500; }
+.status-warn { color: #F57C00; font-weight: 500; }
+.status-risk { color: #D32F2F; font-weight: 500; }
+
+/* Time tag */
+.time-tag {
+    font-size: 7.5pt;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #E3F2FD;
+    color: #1565C0;
+    margin-right: 4px;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+/* ============================================
+   16b. References & Data Sources
+   ============================================ */
+
+.references-list {
+    margin-bottom: 16px;
+}
+
+.ref-item {
+    font-size: 8pt;
+    line-height: 1.6;
+    color: #444;
+    padding: 2px 0 2px 24px;
+    text-indent: -24px;
+    margin-bottom: 2px;
+}
+
+.ref-item a {
+    color: #003366;
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.ref-item a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   17. Disclaimer
+   ============================================ */
+
+.disclaimer {
+    /* Regulatory note: investment disclaimers should be legible, not buried.
+       SEC/CFA guidance and most exchange rulebooks treat sub-8pt risk
+       language as "hidden." 8pt + #333 keeps the content visible without
+       crowding the final report pages. */
+    font-size: 8pt;
+    color: #333333;
+    border-top: 1px solid #CCC;
+    padding-top: 12px;
+    margin-top: 24px;
+    line-height: 1.5;
+}
+
+/* ============================================
+   18. Page Break Control
+   ============================================ */
+
+.module-newpage {
+    page-break-before: always;
+    break-before: always;
+}
+
+/* Tables and charts avoid internal breaks */
+.report-table, .debate-table,
+.report-table tr, .debate-table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.chart-container, .mermaid, .chain-wrapper, figure, .figure, .chart {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+/* Headings stay with following content (covers h1-h6 plus all custom title classes) */
+.section-title, .subsection-title, h1, h2, h3, h4, h5, h6,
+.box-title, .exhibit-label {
+    page-break-after: avoid;
+    break-after: avoid;
+    orphans: 3;
+    widows: 3;
+}
+
+/* List items get the same orphan/widow protection as paragraphs (paragraphs
+   already covered above by the p selector). Prevents a single bullet from
+   getting stranded at the top of a new page. */
+li {
+    orphans: 3;
+    widows: 3;
+}
+
+.section-title + *,
+.subsection-title + *,
+.exhibit-label + * {
+    page-break-before: avoid;
+    break-before: avoid;
+}
+
+/* ============================================
+   19. English Typography System
+   ============================================ */
+
+.report-container-en .header-name {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18pt;
+}
+
+.report-container-en .header-main-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 17pt;
+}
+
+.report-container-en .header-sub-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 11pt;
+}
+
+.report-container-en .report-table {
+    font-size: 8.5pt;
+}
+
+.report-container-en .report-table th {
+    font-size: 8pt;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.report-container-en .header-meta {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.report-container-en .category-label {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.75);
+}
+
+.report-container-en .core-data-table td:nth-child(2),
+.report-container-en .core-data-table td:nth-child(4) {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 9pt;
+}
+
+/* ============================================
+   20. Print Optimization
+   ============================================ */
+
+@media print {
+    .report-container {
+        padding: 0;
+    }
+}
+
+/* ============================================
+   21. Table of Contents (Optional for longer reports)
+   ============================================ */
+
+.toc {
+    margin: 20px 0 30px 0;
+    padding: 16px 20px;
+    background: #F8F9FA;
+    border-radius: 4px;
+}
+
+.toc-title {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #003366;
+    margin-bottom: 12px;
+    border-bottom: 1.5px solid #003366;
+    padding-bottom: 6px;
+}
+
+.toc-item {
+    font-size: 10pt;
+    line-height: 1.8;
+    color: #333;
+}
+
+.toc-item.toc-level-1 {
+    font-weight: bold;
+}
+
+.toc-item.toc-level-2 {
+    padding-left: 16px;
+    font-weight: normal;
+    color: #555;
+}
+
+/* ============================================
+   22. Footnotes
+   ============================================ */
+
+.footnote {
+    font-size: 7.5pt;
+    color: #888;
+    line-height: 1.4;
+    margin-top: 2px;
+}
+
+.footnote-ref {
+    font-size: 7pt;
+    vertical-align: super;
+    color: #003366;
+    font-weight: bold;
+}
+
+/* ============================================
+   23. Parenthetical Negative Numbers (P3)
+   ============================================ */
+
+/* Use class .neg-paren on <td> or <span> that contain negative values */
+/* Convention: display (1,234.5) instead of -1,234.5 */
+.neg-paren {
+    color: #D32F2F;
+}
+
+/* ============================================
+   24. Bold-Keyword Paragraph Style (P6)
+   ============================================ */
+
+/* First key phrase bolded + colon, then normal text */
+.kw-paragraph .kw-lead {
+    font-weight: bold;
+    color: #2C2C2C;
+}
+
+/* ============================================
+   25. Figure / Exhibit Index (P5)
+   ============================================ */
+
+.figure-index {
+    margin: 16px 0 24px 0;
+    padding: 12px 20px;
+    background: #F8F9FA;
+    border-radius: 4px;
+    page-break-after: always;
+}
+
+.figure-index-title {
+    font-size: 11pt;
+    font-weight: bold;
+    color: #003366;
+    margin-bottom: 10px;
+    border-bottom: 1.5px solid #003366;
+    padding-bottom: 5px;
+}
+
+.figure-index-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 9pt;
+    line-height: 2;
+    color: #333;
+}
+
+.figure-index-item .fi-number {
+    font-weight: bold;
+    color: #003366;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.figure-index-item .fi-desc {
+    flex: 1;
+    border-bottom: 1px dotted #CCC;
+    margin: 0 6px;
+}
+
+.figure-index-item .fi-page {
+    flex-shrink: 0;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #666;
+}
+
+/* ============================================
+   26. TOC Dot Leaders (enhanced)
+   ============================================ */
+
+.toc-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.toc-item .toc-label {
+    flex-shrink: 0;
+}
+
+.toc-item .toc-dots {
+    flex: 1;
+    border-bottom: 1px dotted #BBB;
+    margin: 0 8px;
+    min-width: 20px;
+}
+
+.toc-item .toc-page {
+    flex-shrink: 0;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 9pt;
+    color: #666;
+}
+
+/* ============================================
+   27. Cover — Price Target Bar (v2)
+   ============================================
+   A compact horizontal bar showing Current Price → 12m Target
+   with percentage upside/downside. Sits under the rating line
+   on the cover page, replacing a simple "Target: $X" label.
+   ============================================ */
+
+.price-target-bar {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 10px 0 14px 0;
+    border: 1px solid #D0D8E0;
+    border-radius: 3px;
+    overflow: hidden;
+    font-size: 9pt;
+    background: #fff;
+}
+
+.price-target-bar .ptb-cell {
+    flex: 1;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.price-target-bar .ptb-cell + .ptb-cell {
+    border-left: 1px solid #E6EAF0;
+}
+
+.price-target-bar .ptb-label {
+    font-size: 7.5pt;
+    color: #6A7480;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 2px;
+}
+
+.price-target-bar .ptb-value {
+    font-size: 11pt;
+    font-weight: bold;
+    color: #1A3A6C;
+    font-family: "SF Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.price-target-bar .ptb-upside-positive {
+    color: #1B5E20;
+}
+
+.price-target-bar .ptb-upside-negative {
+    color: #B71C1C;
+}
+
+.price-target-bar .ptb-upside-neutral {
+    color: #6A7480;
+}
+
+/* ============================================
+   28. Cover — Key Data Grid (v2)
+   ============================================
+   A compact 2-column data grid replacing the vertical
+   key-data-table. Packs more data into the same space
+   while keeping the dense institutional look.
+   ============================================ */
+
+.key-data-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+    row-gap: 3px;
+    margin: 6px 0 10px 0;
+    font-size: 8.5pt;
+    line-height: 1.35;
+}
+
+.key-data-grid .kd-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 2px 0;
+    border-bottom: 1px dotted #E0E4EA;
+}
+
+.key-data-grid .kd-row .kd-label {
+    color: #5A6570;
+    font-size: 8pt;
+}
+
+.key-data-grid .kd-row .kd-value {
+    color: #1A1A1A;
+    font-weight: 500;
+    font-family: "SF Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.key-data-grid .kd-group-header {
+    grid-column: 1 / -1;
+    font-size: 7.5pt;
+    font-weight: bold;
+    color: #1A3A6C;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid #1A3A6C;
+}
+
+/* ============================================
+   29. Performance Mini-Table (3m/6m/12m)
+   ============================================
+   A tiny table that accompanies the Price Performance
+   chart on Page 2.
+   ============================================ */
+
+.perf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+    margin: 4px 0 8px 0;
+}
+
+.perf-table th {
+    background: #F0F3F7;
+    color: #1A3A6C;
+    padding: 3px 5px;
+    text-align: center;
+    border-bottom: 1px solid #C0C8D4;
+    font-weight: bold;
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.perf-table td {
+    padding: 3px 5px;
+    text-align: center;
+    border-bottom: 0.5px solid #EAEEF3;
+    font-family: "SF Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.perf-table td:first-child {
+    text-align: left;
+    font-family: inherit;
+    color: #5A6570;
+}
+
+/* ============================================
+   30. Page 2 — Data Summary Page (v2)
+   ============================================
+   Mandatory dense financial-data page directly after the
+   cover / executive summary. Two columns: left = ratios,
+   growth, price performance; right = IS / BS / CF.
+   Uses .module-newpage on the wrapper to force a fresh page.
+   ============================================ */
+
+.data-summary-page {
+    page-break-before: always;
+    break-before: always;
+    page-break-after: always;
+    break-after: always;
+}
+
+.data-summary-page .ds-title {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #1A3A6C;
+    border-bottom: 1.5px solid #1A3A6C;
+    padding-bottom: 4px;
+    margin: 0 0 8px 0;
+}
+
+.data-summary-page .ds-subtitle {
+    font-size: 7.5pt;
+    color: #6A7480;
+    margin-bottom: 8px;
+    font-style: italic;
+}
+
+.data-summary-page .ds-grid {
+    display: grid;
+    grid-template-columns: 45% 55%;
+    column-gap: 12px;
+    align-items: flex-start;
+}
+
+.data-summary-page .ds-left,
+.data-summary-page .ds-right {
+    min-width: 0;
+}
+
+.data-summary-page .ds-block {
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+}
+
+.data-summary-page .ds-block-title {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #1A3A6C;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 1px solid #1A3A6C;
+    padding-bottom: 2px;
+    margin: 0 0 4px 0;
+}
+
+/* Dense table used on Page 2 only — smaller than .report-table
+   and with very tight padding for maximum information density */
+.ds-table-dense {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+}
+
+.ds-table-dense th {
+    background: #F0F3F7;
+    color: #1A3A6C;
+    padding: 3px 4px;
+    text-align: right;
+    font-weight: bold;
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid #C0C8D4;
+    border-top: 1.5px solid #1A3A6C;
+    white-space: nowrap;
+}
+
+.ds-table-dense th:first-child {
+    text-align: left;
+}
+
+.ds-table-dense td {
+    padding: 2px 4px;
+    text-align: right;
+    border-bottom: 0.4px solid #EAEEF3;
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+.ds-table-dense td:first-child {
+    text-align: left;
+    font-family: inherit;
+    color: #2A2F35;
+}
+
+.ds-table-dense .ds-row-header td {
+    font-weight: bold;
+    background: #F7F9FC;
+    color: #1A3A6C;
+    text-transform: uppercase;
+    font-size: 6.5pt;
+    letter-spacing: 0.4px;
+    padding-top: 4px;
+}
+
+.ds-table-dense .ds-row-total td {
+    font-weight: bold;
+    border-top: 1px solid #C0C8D4;
+    border-bottom: 1.5px solid #1A3A6C;
+    background: #FAFBFC;
+}
+
+.ds-table-dense .ds-col-forecast {
+    background: #FCFBF5;
+}
+
+.ds-table-dense .neg-paren {
+    color: #B71C1C;
+}
+
+.ds-table-dense .ds-forecast-header {
+    color: #8A7B3A;
+    font-style: italic;
+}
+
+/* ============================================
+   31. Glossary Section (v2)
+   ============================================
+   A 2-column glossary used as a force-include module.
+   Definitions are short (one line). Terms are auto-filtered
+   by sector (oil/petrochem → PX, PTA; tech → HBM, ASP, etc.).
+   ============================================ */
+
+.glossary-section {
+    margin: 16px 0 20px 0;
+    page-break-inside: avoid;
+}
+
+.glossary-title {
+    font-size: 11pt;
+    font-weight: bold;
+    color: #1A3A6C;
+    border-bottom: 1.5px solid #1A3A6C;
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+}
+
+.glossary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 20px;
+    row-gap: 4px;
+    font-size: 8.5pt;
+    line-height: 1.5;
+}
+
+.glossary-item {
+    padding: 3px 0;
+    border-bottom: 1px dotted #E0E4EA;
+}
+
+.glossary-term {
+    font-weight: bold;
+    color: #1A3A6C;
+    margin-right: 6px;
+}
+
+.glossary-term::after {
+    content: " — ";
+    color: #9AA1AC;
+    font-weight: normal;
+}
+
+.glossary-def {
+    color: #333;
+}
+
+/* ============================================
+   32. Typography Tightening (v2)
+   ============================================
+   Slight density pass on numeric cells — use tabular-nums
+   globally so numbers line up in columns, and nudge a few
+   heading sizes down by ~0.5pt.
+   ============================================ */
+
+.report-table td,
+.report-table th,
+.report-table-minimal td,
+.report-table-minimal th,
+.core-data-table td,
+.debate-table td,
+.debate-table th,
+.sensitivity-matrix td {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Slightly tighter section title for v2 density */
+.report-container .section-title {
+    font-size: 13pt;
+    padding-bottom: 5px;
+    margin: 24px 0 12px 0;
+}
+
+.report-container .subsection-title {
+    font-size: 11pt;
+    margin: 14px 0 7px 0;
+}
+
+/* ============================================
+   33. Exhibit Number Strip (accent variant)
+   ============================================
+   An optional pill-style accent for "Exhibit N:" — used
+   when a chart sits in a dense region and needs sharper
+   visual anchoring.
+   ============================================ */
+
+.exhibit-pill {
+    display: inline-block;
+    background: #1A3A6C;
+    color: #fff;
+    font-weight: bold;
+    font-size: 7.5pt;
+    padding: 1px 6px;
+    border-radius: 2px;
+    margin-right: 6px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
