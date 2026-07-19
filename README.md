@@ -34,7 +34,20 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 
 ## Quick start
 
-Installs into your local Kimi Code plugins directory and registers itself in `installed.json`, so Kimi loads it natively — no `--skills-dir` needed.
+**The one-liner (Kimi Code CLI)** — install straight from GitHub, no clone needed:
+
+```
+/plugins install https://github.com/null0xxx/kimi-atlas
+```
+
+This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
+
+```
+/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.0.0
+/plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
+```
+
+**From source** — for hacking on the plugin itself:
 
 ```bash
 git clone https://github.com/null0xxx/kimi-atlas.git
@@ -43,7 +56,7 @@ cd kimi-atlas
 KIMI_CODE_HOME=/path/to/.kimi-code ./scripts/install.sh   # if Kimi lives elsewhere
 ```
 
-The installer deploys the committed `HEAD` (a consistent snapshot), backs up and atomically rewrites `installed.json`, and preserves every other plugin. Re-run it after each update; remove with `--uninstall`. Then start a new Kimi session (or `/plugins reload`) and smoke-test:
+The source installer deploys the committed `HEAD` (a consistent snapshot), backs up and atomically rewrites `installed.json`, and preserves every other plugin. Re-run it after each update; remove with `--uninstall`. Either way, smoke-test:
 
 ```bash
 kimi -p "/skill:atlas ping"        --output-format text    # single-change core

@@ -1,6 +1,6 @@
 {
   "name": "kimi-atlas",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Turns a rough coding request into elite, verified, human-gated implemented code. A root orchestrator drives a deterministic state machine over the built-in coder/explore/plan subagents, gated by a 6-lens verification harness and a deterministic quality backbone.",
   "keywords": [
     "orchestrator",
