@@ -119,7 +119,9 @@ Loop until `scheduler.is_terminated(dag)` is true:
    run at `run_id = ${SESSION}/tasks/<node_id>` over the node's `scope_paths` in its own worktree.
    (On a high-risk funded node, `bestofn.fanout_n` may fund N draft coders; rerank with `bestofn.select`
    and collapse N→1 **before** that node's VERIFIED — the merge machinery is never touched intra-node.)
-   A build wave never overlaps a coder wave (the `free -m` guard blocks it).
+   A build wave never overlaps a coder wave (the `free -m` guard blocks it). Per-node skill selection
+   needs no weave-level machinery: each inner atlas run already ranks the registry at its own GROUNDED
+   stage (`.atlas/<run_id>/skills.json`); a node-level call may reuse `scripts/skillselect.py` with the node's intent.
 5. **Collect thin receipts.** The node's inner atlas run ends by presenting its OUTPUT — it emits no
    `job_id`/`lease`/`status`. **YOU (the orchestrator) synthesize the receipt** for `apply_receipt`:
    attach the RUNNING job's stamped `lease` (the fence token you wrote in step 3, `f"{job_id}#{attempts}"`)

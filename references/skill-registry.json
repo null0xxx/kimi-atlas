@@ -1,0 +1,1539 @@
+{
+  "version": 1,
+  "skill_count": 117,
+  "skills": [
+    {
+      "name": "adhd-assistant",
+      "category": "Academic",
+      "description": "ADHD-friendly life management assistant for daily planning, task breakdown, time management, and maintaining routines. Triggered when the user asks for help organizing, planning their day, beating procrastination, feeling overwhelmed, or mentions ADHD challenges like time blindness or difficulty starting tasks.",
+      "triggers": [
+        "organizing",
+        "planning their day",
+        "beating procrastination",
+        "feeling overwhelmed",
+        "mentions ADHD challenges like time blindness",
+        "difficulty starting tasks"
+      ],
+      "zip": "adhd-assistant.zip"
+    },
+    {
+      "name": "anki-card-maker",
+      "category": "Academic",
+      "description": "Extract key knowledge from study materials (text, Markdown, notes) and generate front-question + back-answer flashcards, producing an Anki-compatible CSV file ready for import. Trigger when users mention flashcards, Anki, spaced repetition, need to convert notes into Q&A pairs, or request memory cards or review cards from their study content.",
+      "triggers": [
+        "flashcards",
+        "Anki",
+        "spaced repetition",
+        "need to convert notes into Q&A pairs",
+        "request memory cards",
+        "review cards from their study content"
+      ],
+      "zip": "anki-card-maker.zip"
+    },
+    {
+      "name": "cite-style-converter",
+      "category": "Academic",
+      "description": "Convert academic citations between APA, MLA, IEEE, and Harvard styles with batch processing and format validation. Trigger when users ask to convert, check, or fix their references, mention specific citation styles, or talk about their bibliography.",
+      "triggers": [
+        "convert",
+        "check",
+        "fix their references",
+        "mention specific citation styles",
+        "talk about their bibliography"
+      ],
+      "zip": "cite-style-converter.zip"
+    },
+    {
+      "name": "cv-tailor",
+      "category": "Academic",
+      "description": "Optimize resumes by matching keywords to the job description, rewriting experience with the quantified STAR method, and checking ATS compatibility. Triggered when users ask for resume help, review, or polishing, mention JD matching, STAR method, ATS, or want to tailor their resume for a specific role.",
+      "triggers": [
+        "resume help",
+        "review",
+        "polishing",
+        "mention JD matching",
+        "STAR method",
+        "ATS",
+        "want to tailor their resume for a specific role"
+      ],
+      "zip": "cv-tailor.zip"
+    },
+    {
+      "name": "dev-guide-generator",
+      "category": "Academic",
+      "description": "Generates complete technical tutorials from prerequisites and environment setup to core steps, troubleshooting, and a final cheatsheet. Trigger on requests to write a tutorial, create a setup guide, organize steps for beginners, or keywords like step-by-step, quickstart, or how-to guide.",
+      "triggers": [
+        "write a tutorial",
+        "create a setup guide",
+        "organize steps for beginners",
+        "step-by-step",
+        "quickstart",
+        "how-to guide"
+      ],
+      "zip": "dev-guide-generator.zip"
+    },
+    {
+      "name": "mock-interview-drill",
+      "category": "Academic",
+      "description": "Conduct realistic mock interviews with follow-up question drills across Behavioral, Technical, and Case scenarios, providing structured STAR framework diagnostics and polished sample answers to improve performance. Triggers when users mention practicing for interviews, preparing for behavioral/technical/case questions, or wanting to simulate follow-up questions and get feedback.",
+      "triggers": [
+        "practicing for interviews",
+        "preparing for behavioral/technical/case questions",
+        "wanting to simulate follow-up questions and get feedback"
+      ],
+      "zip": "mock-interview-drill.zip"
+    },
+    {
+      "name": "scholarly-writing-refiner",
+      "category": "Academic",
+      "description": "Polishes academic English paragraph by paragraph, reviewing grammar, word choice, voice, coherence, and sentence structure. Outputs revision suggestions alongside polished text. Triggered by phrases like 'polish this paragraph,' 'check the grammar,' 'rewrite in academic English,' or keywords like manuscript editing, SCI polishing, and journal submission editing.",
+      "triggers": [
+        "polish this paragraph",
+        "check the grammar",
+        "rewrite in academic English",
+        "manuscript editing",
+        "SCI polishing",
+        "journal submission editing"
+      ],
+      "zip": "scholarly-writing-refiner.zip"
+    },
+    {
+      "name": "translation-craft",
+      "category": "Academic",
+      "description": "Delivers professional Chinese-English translation across academic, business, technical, and legal domains, adhering to the Faithfulness-Expressiveness-Elegance framework with rigorous quality checks. Triggered by translation requests such as 'translate this', 'Chinese to English', or specific domain needs like academic paper or contract translation.",
+      "triggers": [
+        "translation requests such as 'translate this",
+        "Chinese to English",
+        "specific domain needs like academic paper",
+        "contract translation"
+      ],
+      "zip": "translation-craft.zip"
+    },
+    {
+      "name": "astro-observation-report",
+      "category": "Creative",
+      "description": "Skill for writing gravitational-wave observational results papers for compact binary coalescence events (BNS, BBH, NSBH) detected by LIGO, Virgo, or KAGRA. Covers paper architecture, first-page layout, parameter estimation figures, uncertainty notation, credible region plots, statistical conventions, and running headers in Physical Review X two-column journal style.",
+      "triggers": [],
+      "zip": "astro-observation-report.zip"
+    },
+    {
+      "name": "chart-image",
+      "category": "Creative",
+      "description": "Generate publication-quality PNG chart images from data, supporting line, bar, area, candlestick, pie, and heatmap charts. Triggers when the user asks to visualize data, create a graph, plot a time series, or generate a chart for a report, alert, or dashboard. Runs as a lightweight, headless Node.js process without a browser.",
+      "triggers": [
+        "visualize data",
+        "create a graph",
+        "plot a time series",
+        "generate a chart for a report",
+        "alert",
+        "dashboard"
+      ],
+      "zip": "chart-image.zip"
+    },
+    {
+      "name": "code-to-diagram",
+      "category": "Creative",
+      "description": "Analyze codebases and automatically generate architecture diagrams, flowcharts, and org charts. Uses AST parsing to map import dependencies for Python, JS/TS, Go, and Java, outputting Mermaid or SVG files. Triggered when users ask to visualize code architecture, understand dependencies, draw a flowchart, or create a module diagram from source code.",
+      "triggers": [
+        "visualize code architecture",
+        "understand dependencies",
+        "draw a flowchart",
+        "create a module diagram from source code"
+      ],
+      "zip": "code-to-diagram.zip"
+    },
+    {
+      "name": "cross-platform-adapter",
+      "category": "Creative",
+      "description": "Adapts and repurposes content (blog posts, articles, reports, newsletters) for LinkedIn, Twitter/X, WeChat Official Accounts, Zhihu, and Slack — adjusting tone, length, formatting, and language to match each platform's norms, including English-Chinese cross-language adaptation. Use when a user wants to repurpose, cross-post, adapt, or convert existing content for different platforms.",
+      "triggers": [
+        "a user wants to repurpose",
+        "cross-post",
+        "adapt",
+        "convert existing content for different platforms"
+      ],
+      "zip": "cross-platform-adapter.zip"
+    },
+    {
+      "name": "edge-tts",
+      "category": "Creative",
+      "description": "Convert text to high-quality spoken audio using Microsoft Edge's neural TTS, supporting multiple voices, languages, speed, and pitch adjustments, plus subtitle generation. Use when a user requests voice output, mentions TTS, wants content read aloud for multitasking or accessibility, or specifies a particular voice, speed, or format.",
+      "triggers": [
+        "a user requests voice output",
+        "mentions TTS",
+        "wants content read aloud for multitasking",
+        "accessibility",
+        "specifies a particular voice",
+        "speed",
+        "format"
+      ],
+      "zip": "edge-tts.zip"
+    },
+    {
+      "name": "geo-magazine-slides",
+      "category": "Creative",
+      "description": "Create stunning geographic magazine-style presentation decks (PPTX) with editorial-quality layouts, large hero imagery, data-driven charts, and luxury aesthetic. Use for location collections, luxury real estate showcases, travel destination decks, curated map-based presentations, or architecture portfolios with magazine-style grid overviews and section dividers.",
+      "triggers": [],
+      "zip": "geo-magazine-slides.zip"
+    },
+    {
+      "name": "journalistic-portrait",
+      "category": "Creative",
+      "description": "Create magazine-style HTML pages replicating the visual design of Southern People Weekly. Use for feature article layouts, cover pages with red border frames, table-of-contents pages with portrait photography, and dual-column inner pages with editorial section headers, mimicking the typography and color scheme of Chinese weekly magazines.",
+      "triggers": [],
+      "zip": "journalistic-portrait.zip"
+    },
+    {
+      "name": "keynote-composer",
+      "category": "Creative",
+      "description": "Generates professional speech drafts for product launches, galas, TED-style talks, and more using the Rhetorical Triangle framework, with auto-annotated pause/tone/pace cues and delivery time estimates. Trigger when users mention writing a speech, keynote, opening remarks, or phrases like \\\"help me write a speech\\\" or \\\"give a talk at the gala\\\".",
+      "triggers": [
+        "writing a speech",
+        "keynote",
+        "opening remarks",
+        "\\\"help me write a speech\\",
+        "\\\"give a talk at the gala\\"
+      ],
+      "zip": "keynote-composer.zip"
+    },
+    {
+      "name": "photo-magazine",
+      "category": "Creative",
+      "description": "Create premium landscape documents with magazine-quality editorial design. Produces visually rich reports featuring bold typography, full-bleed photography, data visualization cards, and narrative layouts. Use for corporate, research, or creative reports needing editorial aesthetics, multi-column layouts, big-number dashboards, and section-based navigation that blend narrative storytelling with data.",
+      "triggers": [],
+      "zip": "photo-magazine.zip"
+    },
+    {
+      "name": "podcast-episode-writer",
+      "category": "Creative",
+      "description": "Creates complete, structured podcast scripts with timestamps for intros, segmented topics, transitions, prepared questions, and closing CTAs. Triggered by requests like 'help me write a podcast episode', 'plan my script', or keywords such as podcast script, outline, intro, CTA, or episode planning.",
+      "triggers": [
+        "help me write a podcast episode",
+        "plan my script",
+        "podcast script",
+        "outline",
+        "intro",
+        "CTA",
+        "episode planning"
+      ],
+      "zip": "podcast-episode-writer.zip"
+    },
+    {
+      "name": "retro-tech-illustration",
+      "category": "Creative",
+      "description": "Create retro tech art style visual content including images, illustrations, and design documents. Covers Synthwave, Vaporwave, Cyberpunk, retro comics, and retro-futuristic aesthetics. Use for neon-grid landscapes, pixel art, vaporwave scenes, CRT and halftone effects, color palettes, and typography systems for nostalgic 80s/90s tech-noir projects.",
+      "triggers": [],
+      "zip": "retro-tech-illustration.zip"
+    },
+    {
+      "name": "sun-path",
+      "category": "Creative",
+      "description": "Analyzes sunlight and shadows for architectural design, generating sun path diagrams, solar position data, shadow plots, and thermal comfort charts. Triggered by requests about sun position, shadow analysis, annual sun hours, or diagrams for a specific location and time.",
+      "triggers": [
+        "requests about sun position",
+        "shadow analysis",
+        "annual sun hours",
+        "diagrams for a specific location and time"
+      ],
+      "zip": "sun-path.zip"
+    },
+    {
+      "name": "timeline-builder",
+      "category": "Creative",
+      "description": "Generate beautiful interactive timeline HTML pages from JSON data, with vertical, horizontal, or dual-side layouts, collapsible details, and custom colors. Ideal for project milestones, company histories, or resumes. Triggered when a user mentions 'timeline', 'history of events', 'project milestones', 'release log', or asks to visualize a chronological sequence of data.",
+      "triggers": [
+        "a user mentions 'timeline",
+        "history of events",
+        "project milestones",
+        "release log",
+        "asks to visualize a chronological sequence of data"
+      ],
+      "zip": "timeline-builder.zip"
+    },
+    {
+      "name": "video-quality-diff",
+      "category": "Creative",
+      "description": "This skill should be used when comparing two videos to analyze compression results or quality differences. Generates interactive HTML reports with quality metrics (PSNR, SSIM) and frame-by-frame visual comparisons. Triggers when users mention \"compare videos\", \"video quality\", \"compression analysis\", \"before/after compression\", or request quality assessment of compressed videos.",
+      "triggers": [
+        "compare videos",
+        "video quality",
+        "compression analysis",
+        "before/after compression",
+        "request quality assessment of compressed videos"
+      ],
+      "zip": "video-quality-diff.zip"
+    },
+    {
+      "name": "x-thread-crafter",
+      "category": "Creative",
+      "description": "Craft engaging Twitter/X threads from long-form content, with ≤280-character tweets, a compelling hook opener, and a clear CTA closing. Triggered when users provide articles, blog posts, or essays and ask to \\\"make this a thread,\\\" \\\"tweet this,\\\" \\\"break this into tweets,\\\" or repurpose content for Twitter/X.",
+      "triggers": [
+        "users provide articles",
+        "blog posts",
+        "essays and ask to \\\"make this a thread",
+        "\\\" \\\"tweet this",
+        "\\\" \\\"break this into tweets",
+        "repurpose content for Twitter/X"
+      ],
+      "zip": "x-thread-crafter.zip"
+    },
+    {
+      "name": "api-shape-explorer",
+      "category": "Engineering",
+      "description": "Generate multiple radically different interface designs for a module using parallel sub-agents. Use when user wants to design an API, explore interface options, compare module shapes, or mentions \"design it twice\".",
+      "triggers": [
+        "design an API",
+        "explore interface options",
+        "compare module shapes",
+        "mentions \"design it twice"
+      ],
+      "zip": "api-shape-explorer.zip"
+    },
+    {
+      "name": "auto-hypothesis-test",
+      "category": "Engineering",
+      "description": "Automatically selects and runs the right statistical test for your data — t-test, ANOVA, chi-square, Mann-Whitney, or others — and provides plain-language interpretations of the results. Triggered when you ask about group comparisons, significance, p-values, hypothesis testing, or mention specific tests like t-test, ANOVA, or chi-square.",
+      "triggers": [
+        "you ask about group comparisons",
+        "significance",
+        "p-values",
+        "hypothesis testing",
+        "mention specific tests like t-test",
+        "ANOVA",
+        "chi-square"
+      ],
+      "zip": "auto-hypothesis-test.zip"
+    },
+    {
+      "name": "browse",
+      "category": "Engineering",
+      "description": "Automate browser interactions via CLI commands to navigate web pages, extract data, take screenshots, fill forms, and interact with web apps. Supports remote sessions with CAPTCHA solving and anti-bot stealth for scraping protected sites. Trigger when the user asks to browse websites, scrape data, or automate clicks on any page.",
+      "triggers": [
+        "browse websites",
+        "scrape data",
+        "automate clicks on any page"
+      ],
+      "zip": "browse.zip"
+    },
+    {
+      "name": "code-mentor",
+      "category": "Engineering",
+      "description": "Comprehensive AI programming tutor offering interactive lessons, code reviews, debugging help, algorithm practice, and project guidance for Python and JavaScript. Triggers when users ask to learn a language, debug code, review their work, practice algorithms, prepare for interviews, or build a project.",
+      "triggers": [
+        "learn a language",
+        "debug code",
+        "review their work",
+        "practice algorithms",
+        "prepare for interviews",
+        "build a project"
+      ],
+      "zip": "code-mentor.zip"
+    },
+    {
+      "name": "code-vuln-audit",
+      "category": "Engineering",
+      "description": "Scan code for security issues: dependency vulnerabilities (npm/pip audit), secret leaks (regex and entropy analysis), and OWASP anti-patterns like SQL injection, XSS, or command injection. Use when the user mentions security scans, vulnerability detection, secret leaks, API keys, OWASP, npm audit, pip-audit, hardcoded passwords, or code security checks.",
+      "triggers": [
+        "security scans",
+        "vulnerability detection",
+        "secret leaks",
+        "API keys",
+        "OWASP",
+        "npm audit",
+        "pip-audit",
+        "hardcoded passwords",
+        "code security checks"
+      ],
+      "zip": "code-vuln-audit.zip"
+    },
+    {
+      "name": "conventional-commit-gen",
+      "category": "Engineering",
+      "description": "Analyzes git diff to generate commit messages following the Conventional Commits spec, with automatic scope detection and commit type inference. Trigger when users ask to write or generate a commit message, mention Conventional Commits, git commits, standardized commits, scope detection, or phrases like 'help me write a commit message'.",
+      "triggers": [
+        "write",
+        "generate a commit message",
+        "mention Conventional Commits",
+        "git commits",
+        "standardized commits",
+        "scope detection",
+        "help me write a commit message"
+      ],
+      "zip": "conventional-commit-gen.zip"
+    },
+    {
+      "name": "correlation-auditor",
+      "category": "Engineering",
+      "description": "Analyzes correlation matrices (Pearson/Spearman), computes partial correlations to control for confounding variables, and flags potential spurious correlations in your data. Triggered when users ask about relationships between variables, need correlation matrices, or mention Pearson/Spearman coefficients, partial correlation, confounding factors, or spurious correlations.",
+      "triggers": [
+        "users ask about relationships between variables",
+        "need correlation matrices",
+        "mention Pearson/Spearman coefficients",
+        "partial correlation",
+        "confounding factors",
+        "spurious correlations"
+      ],
+      "zip": "correlation-auditor.zip"
+    },
+    {
+      "name": "cross-examine",
+      "category": "Engineering",
+      "description": "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions \"grill me\".",
+      "triggers": [
+        "stress-test a plan",
+        "get grilled on their design",
+        "mentions \"grill me"
+      ],
+      "zip": "cross-examine.zip"
+    },
+    {
+      "name": "data-viz-renderer",
+      "category": "Engineering",
+      "description": "Generate self-contained HTML/SVG infographics from JSON data, including stat cards, bar charts, flow diagrams, and mixed dashboards. Offers 8 color palettes and built-in icons with no external dependencies. Triggered when users request data visualization, infographics, charts, or dashboards.",
+      "triggers": [
+        "data visualization",
+        "infographics",
+        "charts",
+        "dashboards"
+      ],
+      "zip": "data-viz-renderer.zip"
+    },
+    {
+      "name": "database-scout",
+      "category": "Engineering",
+      "description": "Explore SQLite and PostgreSQL databases: list tables, inspect schemas (columns/types/constraints), preview data, generate Mermaid ER diagrams, and run safe read-only queries. Triggered by requests to explore a database, view table structures, describe tables, generate diagrams, or query data, and by keywords like database exploration, schema, ER diagram, or SQL query.",
+      "triggers": [
+        "explore a database",
+        "view table structures",
+        "describe tables",
+        "generate diagrams",
+        "query data",
+        "database exploration",
+        "schema",
+        "ER diagram",
+        "SQL query"
+      ],
+      "zip": "database-scout.zip"
+    },
+    {
+      "name": "dataset-quality-audit",
+      "category": "Engineering",
+      "description": "Run comprehensive quality checks on tabular data (CSV/Excel/TSV/JSON), detecting missing values, duplicates, outliers, format issues, and type inconsistencies to produce an overall score, grade, and actionable suggestions. Triggered when users ask to check data quality, find missing or duplicate values, detect outliers, validate formats, profile data, or clean data.",
+      "triggers": [
+        "check data quality",
+        "find missing",
+        "duplicate values",
+        "detect outliers",
+        "validate formats",
+        "profile data",
+        "clean data"
+      ],
+      "zip": "dataset-quality-audit.zip"
+    },
+    {
+      "name": "deep-module-refactor",
+      "category": "Engineering",
+      "description": "Explore a codebase to find opportunities for architectural improvement, focusing on making the codebase more testable by deepening shallow modules. Use when user wants to improve architecture, find refactoring opportunities, consolidate tightly-coupled modules, or make a codebase more AI-navigable.",
+      "triggers": [
+        "improve architecture",
+        "find refactoring opportunities",
+        "consolidate tightly-coupled modules",
+        "make a codebase more AI-navigable"
+      ],
+      "zip": "deep-module-refactor.zip"
+    },
+    {
+      "name": "domain-glossary",
+      "category": "Engineering",
+      "description": "Extract a DDD-style ubiquitous language glossary from the current conversation, flagging ambiguities and proposing canonical terms. Saves to UBIQUITOUS_LANGUAGE.md. Use when user wants to define domain terms, build a glossary, harden terminology, create a ubiquitous language, or mentions \"domain model\" or \"DDD\".",
+      "triggers": [
+        "define domain terms",
+        "build a glossary",
+        "harden terminology",
+        "create a ubiquitous language",
+        "mentions \"domain model",
+        "DDD"
+      ],
+      "zip": "domain-glossary.zip"
+    },
+    {
+      "name": "gitlab-cli-skills",
+      "category": "Engineering",
+      "description": "Guide users through GitLab CLI (glab) operations with command references and workflow examples for merge requests, issues, CI/CD pipelines, repositories, authentication, and over 30 other commands. Trigger when users mention GitLab CLI, glab commands, GitLab automation, MR/issue management via CLI, CI/CD pipeline commands, repo operations, authentication setup, or any GitLab terminal operations.",
+      "triggers": [
+        "GitLab CLI",
+        "glab commands",
+        "GitLab automation",
+        "MR/issue management via CLI",
+        "CI/CD pipeline commands",
+        "repo operations",
+        "authentication setup",
+        "any GitLab terminal operations"
+      ],
+      "zip": "gitlab-cli-skills.zip"
+    },
+    {
+      "name": "http-load-profiler",
+      "category": "Engineering",
+      "description": "Run stepped HTTP load tests with ab/wrk, ramping concurrency levels to collect p50/p90/p99 latency, detect performance inflection points, and recommend optimal concurrency. Triggered by requests like 'load test this URL', 'benchmark my API', 'find the max concurrency', or mentions of p99 latency, throughput saturation, or capacity planning.",
+      "triggers": [
+        "load test this URL",
+        "benchmark my API",
+        "find the max concurrency",
+        "p99 latency",
+        "throughput saturation",
+        "capacity planning"
+      ],
+      "zip": "http-load-profiler.zip"
+    },
+    {
+      "name": "kubectl",
+      "category": "Engineering",
+      "description": "Execute kubectl commands to manage Kubernetes clusters — query pods and deployments, deploy applications, debug containers with logs and exec, update configurations, and monitor cluster health. Use when working with Kubernetes, asking for pod status, container logs, deployment updates, cluster diagnostics, or any kubectl operation.",
+      "triggers": [
+        "working with Kubernetes",
+        "asking for pod status",
+        "container logs",
+        "deployment updates",
+        "cluster diagnostics",
+        "any kubectl operation"
+      ],
+      "zip": "kubectl.zip"
+    },
+    {
+      "name": "localization-toolkit",
+      "category": "Engineering",
+      "description": "This skill should be used when setting up, auditing, or enforcing internationalization/localization in UI codebases (React/TS, i18next or similar, JSON locales), including installing/configuring the i18n framework, replacing hard-coded strings, ensuring en-US/zh-CN coverage, mapping error codes to localized messages, and validating key parity, pluralization, and formatting.",
+      "triggers": [],
+      "zip": "localization-toolkit.zip"
+    },
+    {
+      "name": "log-error-digest",
+      "category": "Engineering",
+      "description": "Analyze log files to troubleshoot errors, identify peak error periods, and produce error clustering, frequency statistics, and time distribution reports. Supports JSON, syslog, and Nginx formats with automatic detection. Use when a user uploads a .log file and asks to analyze errors, find patterns, debug issues, or get distribution stats.",
+      "triggers": [
+        "a user uploads a .log file and asks to analyze errors",
+        "find patterns",
+        "debug issues",
+        "get distribution stats"
+      ],
+      "zip": "log-error-digest.zip"
+    },
+    {
+      "name": "pipeline-blueprint",
+      "category": "Engineering",
+      "description": "Provide CI/CD best practices and pipeline templates for GitHub Actions and GitLab CI, recommending configurations based on project type (frontend, backend, fullstack, library, monorepo, mobile). Trigger when users ask about setting up CI/CD, automating builds, improving pipelines, or mention keywords like GitHub Actions, GitLab CI, pipeline templates, or deployment automation.",
+      "triggers": [
+        "users ask about setting up CI/CD",
+        "automating builds",
+        "improving pipelines",
+        "mention keywords like GitHub Actions",
+        "GitLab CI",
+        "pipeline templates",
+        "deployment automation"
+      ],
+      "zip": "pipeline-blueprint.zip"
+    },
+    {
+      "name": "r2-upload",
+      "category": "Engineering",
+      "description": "Upload files to Cloudflare R2, AWS S3, or any S3-compatible storage (like MinIO) and generate secure, time-limited presigned download links with configurable expiration, typically set to 5 minutes. Use when the user needs to upload a file to cloud storage and get a shareable link, or mentions R2, S3, presigned URLs, temporary links, or file uploads with expiration.",
+      "triggers": [
+        "upload a file to cloud storage and get a shareable link",
+        "mentions R2",
+        "S3",
+        "presigned URLs",
+        "temporary links",
+        "file uploads with expiration"
+      ],
+      "zip": "r2-upload.zip"
+    },
+    {
+      "name": "regression-modeler",
+      "category": "Engineering",
+      "description": "Run regression analysis (OLS or logistic) on uploaded CSV/Excel data, generating coefficients, R², p-values, VIF, and plain-language interpretation. Triggered by requests for regression modeling, fitting data, testing significance, checking multicollinearity, or keywords like OLS, logit, coefficient, p-value, or R-squared.",
+      "triggers": [
+        "regression modeling",
+        "fitting data",
+        "testing significance",
+        "checking multicollinearity",
+        "OLS",
+        "logit",
+        "coefficient",
+        "p-value",
+        "R-squared"
+      ],
+      "zip": "regression-modeler.zip"
+    },
+    {
+      "name": "repo-audit",
+      "category": "Engineering",
+      "description": "Deep analysis of Git history: identify frequently changed hotspot files, analyze code ownership by contributor, and scan for leaked secrets. Triggered when users ask about Git analysis, code hotspots, who owns what code, secret scanning, security audits of commit history, or optimizing code review assignments.",
+      "triggers": [
+        "users ask about Git analysis",
+        "code hotspots",
+        "who owns what code",
+        "secret scanning",
+        "security audits of commit history",
+        "optimizing code review assignments"
+      ],
+      "zip": "repo-audit.zip"
+    },
+    {
+      "name": "route-to-openapi",
+      "category": "Engineering",
+      "description": "Generates RESTful API documentation (OpenAPI 3.0 / Swagger spec) by scanning route definitions in code for Flask, FastAPI, Express, Gin, and other frameworks. Trigger when users ask about API documentation, OpenAPI, Swagger, endpoint docs, generating docs from code, or extracting endpoints.",
+      "triggers": [
+        "users ask about API documentation",
+        "OpenAPI",
+        "Swagger",
+        "endpoint docs",
+        "generating docs from code",
+        "extracting endpoints"
+      ],
+      "zip": "route-to-openapi.zip"
+    },
+    {
+      "name": "secure-code-review",
+      "category": "Engineering",
+      "description": "Systematically reviews code for SQL injection, XSS, SSRF, broken access control, cryptographic failures, and other common OWASP Top 10 vulnerabilities, providing vulnerable code examples and ready-to-use remediation guidance. Trigger this skill when users ask for a security review, vulnerability scan, or penetration testing assistance, or mention keywords like OWASP, SQL injection, XSS, code audit, or security checklist.",
+      "triggers": [],
+      "zip": "secure-code-review.zip"
+    },
+    {
+      "name": "sql-insight",
+      "category": "Engineering",
+      "description": "Translate natural language to SQL, optimize query performance, and interpret EXPLAIN plans for SQLite and PostgreSQL. Triggered when users ask to convert questions into SQL, improve slow queries, tune indexes, analyze execution plans, or mention keywords like NL2SQL, query tuning, or full table scan.",
+      "triggers": [
+        "convert questions into SQL",
+        "improve slow queries",
+        "tune indexes",
+        "analyze execution plans",
+        "mention keywords like NL2SQL",
+        "query tuning",
+        "full table scan"
+      ],
+      "zip": "sql-insight.zip"
+    },
+    {
+      "name": "terraform-deploy-pitfalls",
+      "category": "Engineering",
+      "description": "Operational traps for Terraform provisioners, multi-environment isolation, and zero-to-deployment reliability. Covers provisioner timing races, SSH connection conflicts, DNS record duplication, volume permissions, database bootstrap gaps, snapshot cross-contamination, Cloudflare credential format errors, hardcoded domains in Caddyfiles/compose, and init-data-only-on-first-boot pitfalls. Activate when writing null_resource provisioners, creating multi-environment Terraform setups, debugging containers that are Restarting/unhealthy after terraform apply, setting up fresh instances with cloud-init, or any IaC code that SSHs into remote hosts. Also activate when the user mentions terraform plan/apply errors, provisioner failures, infrastructure drift, TLS certificate errors, or Caddy/gateway configuration.",
+      "triggers": [],
+      "zip": "terraform-deploy-pitfalls.zip"
+    },
+    {
+      "name": "test-driven-dev",
+      "category": "Engineering",
+      "description": "Test-driven development with red-green-refactor loop. Use when user wants to build features or fix bugs using TDD, mentions \"red-green-refactor\", wants integration tests, or asks for test-first development.",
+      "triggers": [
+        "build features",
+        "fix bugs using TDD",
+        "mentions \"red-green-refactor",
+        "wants integration tests",
+        "asks for test-first development"
+      ],
+      "zip": "test-driven-dev.zip"
+    },
+    {
+      "name": "test-suite-architect",
+      "category": "Engineering",
+      "description": "This skill should be used when establishing comprehensive QA testing processes for any software project. Use when creating test strategies, writing test cases following Google Testing Standards, executing test plans, tracking bugs with P0-P4 classification, calculating quality metrics, or generating progress reports. Includes autonomous execution capability via master prompts and complete documentation templates for third-party QA team handoffs. Implements OWASP security testing and achieves 90% coverage targets.",
+      "triggers": [
+        "creating test strategies",
+        "writing test cases following Google Testing Standards",
+        "executing test plans",
+        "tracking bugs with P0-P4 classification",
+        "calculating quality metrics",
+        "generating progress reports"
+      ],
+      "zip": "test-suite-architect.zip"
+    },
+    {
+      "name": "academic-paper-reviewer",
+      "category": "Featured",
+      "description": "Simulates academic peer review, evaluating papers across Originality, Methodology, Results, and Writing to provide Major/Minor Revision recommendations with actionable feedback. Triggers when a user asks to \\\"review my paper,\\\" \\\"simulate peer review,\\\" or \\\"give my paper a peer review.",
+      "triggers": [
+        "a user asks to \\\"review my paper",
+        "\\\" \\\"simulate peer review",
+        "\\\"give my paper a peer review"
+      ],
+      "zip": "academic-paper-reviewer.zip"
+    },
+    {
+      "name": "ad-creative",
+      "category": "Featured",
+      "description": "When the user wants to generate, iterate, or scale ad creative — headlines, descriptions, primary text, or full ad variations — for any paid advertising platform. Also use when the user mentions 'ad copy variations,' 'ad creative,' 'generate headlines,' 'RSA headlines,' 'bulk ad copy,' 'ad iterations,' 'creative testing,' 'ad performance optimization,' 'write me some ads,' 'Facebook ad copy,' 'Google ad headlines,' 'LinkedIn ad text,' or 'I need more ad variations.' Use this whenever someone needs to produce ad copy at scale or iterate on existing ads.",
+      "triggers": [
+        "ad copy variations",
+        "ad creative",
+        "generate headlines",
+        "RSA headlines",
+        "bulk ad copy",
+        "ad iterations",
+        "creative testing",
+        "ad performance optimization",
+        "write me some ads",
+        "Facebook ad copy",
+        "Google ad headlines",
+        "LinkedIn ad text",
+        "I need more ad variations.' Use this whenever someone needs to produce ad copy at scale",
+        "iterate on existing ads"
+      ],
+      "zip": "ad-creative.zip"
+    },
+    {
+      "name": "content-research-writer",
+      "category": "Featured",
+      "description": "Assists in writing high-quality content by conducting research, adding citations, improving hooks, iterating on outlines, and providing real-time feedback on each section. Transforms your writing process from solo effort to collaborative partnership.",
+      "triggers": [],
+      "zip": "content-research-writer.zip"
+    },
+    {
+      "name": "copywriting",
+      "category": "Featured",
+      "description": "When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"subheadline,\" \"hero section copy,\" \"above the fold,\" \"this copy is weak,\" \"make this more compelling,\" or \"help me describe my product.\" Use this whenever someone is working on website text that needs to persuade or convert.",
+      "triggers": [
+        "the user says \"write copy for",
+        "improve this copy",
+        "rewrite this page",
+        "marketing copy",
+        "headline help",
+        "CTA copy",
+        "value proposition",
+        "tagline",
+        "subheadline",
+        "hero section copy",
+        "above the fold",
+        "this copy is weak",
+        "make this more compelling",
+        "help me describe my product.\" Use this whenever someone is working on website text that needs to persuade",
+        "convert"
+      ],
+      "zip": "copywriting.zip"
+    },
+    {
+      "name": "design-system-builder",
+      "category": "Featured",
+      "description": "Extract design systems from reference UI images and generate implementation-ready UI design prompts. Use when users provide UI screenshots/mockups and want to create consistent designs, generate design systems, or build MVP UIs matching reference aesthetics.",
+      "triggers": [
+        "users provide UI screenshots/mockups and want to create consistent designs",
+        "generate design systems",
+        "build MVP UIs matching reference aesthetics"
+      ],
+      "zip": "design-system-builder.zip"
+    },
+    {
+      "name": "docx",
+      "category": "Featured",
+      "description": "Create and edit Word documents (.docx) — C# + OpenXML SDK for creation, WIR engine for editing/comments/tracked changes. Use for any .docx task including document creation, editing, comments, revisions, footnotes, TOC, and Markdown-to-Word conversion.",
+      "triggers": [],
+      "zip": "docx.zip"
+    },
+    {
+      "name": "equity-research",
+      "category": "Featured",
+      "description": "Analyze companies and generate investment research for Chinese A-shares, HK stocks, and US stocks. Two output modes:(1) Tear Sheet — concise 3-5 page PDF. (2) Equity Report — in-depth ≥25 page PDF with financial model. Triggered by ANY company analysis request including:'analyze [company]', 'look into [stock]', 'what do you think of [company]', 'tell me about [stock]', 'research [company]', or explicit keywords:'tear sheet', 'one pager', 'deep dive', 'equity report', or any stock code (e.g., 600519.SH, 0700.HK, AAPL). When intent is ambiguous, ask the user whether they want a report or just a quick conversational answer.",
+      "triggers": [
+        "ANY company analysis request including:'analyze [company]",
+        "look into [stock]",
+        "what do you think of [company]",
+        "tell me about [stock]",
+        "research [company]",
+        "explicit keywords:'tear sheet",
+        "one pager",
+        "deep dive",
+        "equity report",
+        "any stock code (e.g",
+        "600519.SH",
+        "0700.HK",
+        "AAPL)"
+      ],
+      "zip": "equity-research.zip"
+    },
+    {
+      "name": "fast-browser-use",
+      "category": "Featured",
+      "description": "Fastest browser automation with anti-bot bypass and DOM extraction. Navigate pages, capture screenshots, manage sessions, and harvest data from infinite scroll via Chrome DevTools Protocol. Runs 10x faster than Puppeteer. Trigger for any web scraping, automated browsing, data extraction, or screenshot task.",
+      "triggers": [],
+      "zip": "fast-browser-use.zip"
+    },
+    {
+      "name": "humanizer",
+      "category": "Featured",
+      "description": "Remove signs of AI-generated writing from text. Use when editing or reviewing text to make it sound more natural and human-written. Based on Wikipedia's comprehensive 'Signs of AI writing' guide. Detects and fixes patterns including: inflated symbolism, promotional language, superficial -ing analyses, vague attributions, em dash overuse, rule of three, AI vocabulary words, negative parallelisms, and excessive conjunctive phrases.",
+      "triggers": [
+        "editing",
+        "reviewing text to make it sound more natural and human-written"
+      ],
+      "zip": "humanizer.zip"
+    },
+    {
+      "name": "kimi-find-skills",
+      "category": "Featured",
+      "description": "Search and discover skills for the agent. Use when the user expresses intent to find a skill, search for a skill, or needs a skill to solve a specific problem. Triggers on phrases like \"find skill\", \"search skill\", \"look for skill\", or when the user describes a problem and asks for a skill recommendation. Also triggers when the user asks about available skills or skill discovery.",
+      "triggers": [
+        "the user expresses intent to find a skill",
+        "search for a skill",
+        "needs a skill to solve a specific problem"
+      ],
+      "zip": "kimi-find-skills.zip"
+    },
+    {
+      "name": "market-research-brief",
+      "category": "Featured",
+      "description": "Generate professional consulting-style market insight reports with data-driven analysis, executive summaries, and strategic recommendations. Triggers when users request market or industry analysis, competitive landscape reports, consumer behavior studies, or strategic documents in a top-tier consulting firm visual style.",
+      "triggers": [
+        "market",
+        "industry analysis",
+        "competitive landscape reports",
+        "consumer behavior studies",
+        "strategic documents in a top-tier consulting firm visual style"
+      ],
+      "zip": "market-research-brief (1).zip"
+    },
+    {
+      "name": "market-research-brief",
+      "category": "Featured",
+      "description": "Generate professional consulting-style market insight reports with data-driven analysis, executive summaries, and strategic recommendations. Triggers when users request market or industry analysis, competitive landscape reports, consumer behavior studies, or strategic documents in a top-tier consulting firm visual style.",
+      "triggers": [
+        "market",
+        "industry analysis",
+        "competitive landscape reports",
+        "consumer behavior studies",
+        "strategic documents in a top-tier consulting firm visual style"
+      ],
+      "zip": "market-research-brief.zip"
+    },
+    {
+      "name": "playwright-scraper-skill",
+      "category": "Featured",
+      "description": "Scrape dynamic and anti-bot protected websites using Playwright, returning page content, titles, and screenshots. Triggers when users ask to fetch, scrape, or extract data from a URL, especially for sites with JavaScript rendering, Cloudflare, or known blocking (like Discuss.com.hk).",
+      "triggers": [
+        "fetch",
+        "scrape",
+        "extract data from a URL",
+        "especially for sites with JavaScript rendering",
+        "Cloudflare",
+        "known blocking (like Discuss.com.hk)"
+      ],
+      "zip": "playwright-scraper-skill.zip"
+    },
+    {
+      "name": "pricing-strategy",
+      "category": "Featured",
+      "description": "Design, optimize, and communicate SaaS pricing — tier structure, value metrics, pricing pages, and price increase strategy. Use when building a pricing model from scratch, redesigning existing pricing, planning a price increase, or improving a pricing page. Trigger keywords: pricing tiers, pricing page, price increase, packaging, value metric, per seat pricing, usage-based pricing, freemium, good-better-best, pricing strategy, monetization, pricing page conversion, Van Westendorp.",
+      "triggers": [
+        "building a pricing model from scratch",
+        "redesigning existing pricing",
+        "planning a price increase",
+        "improving a pricing page"
+      ],
+      "zip": "pricing-strategy.zip"
+    },
+    {
+      "name": "sci-paper",
+      "category": "Featured",
+      "description": "Structured guidance for composing, formatting, and presenting scientific research papers for top-tier venues (CVPR, ICCV, NeurIPS, ICML, ACL, ICLR, etc.). Covers the full workflow: section-by-section drafting, figure and table design, LaTeX typography, narrative logic, and submission-ready polishing. Use to write, revise, or format a manuscript into camera-ready or preprint PDF.",
+      "triggers": [],
+      "zip": "sci-paper.zip"
+    },
+    {
+      "name": "scientific-problem-selection",
+      "category": "Featured",
+      "description": "This skill should be used when scientists need help with research problem selection, project ideation, troubleshooting stuck projects, or strategic scientific decisions. Use this skill when users ask to pitch a new research idea, work through a project problem, evaluate project risks, plan research strategy, navigate decision trees, or get help choosing what scientific problem to work on. Typical requests include \"I have an idea for a project\", \"I'm stuck on my research\", \"help me evaluate this project\", \"what should I work on\", or \"I need strategic advice about my research\".",
+      "triggers": [],
+      "zip": "scientific-problem-selection.zip"
+    },
+    {
+      "name": "seo-audit",
+      "category": "Featured",
+      "description": "When the user wants to audit, review, or diagnose SEO issues on their site. Also use when the user mentions \"SEO audit,\" \"technical SEO,\" \"why am I not ranking,\" \"SEO issues,\" \"on-page SEO,\" \"meta tags review,\" \"SEO health check,\" \"my traffic dropped,\" \"lost rankings,\" \"not showing up in Google,\" \"site isn't ranking,\" \"Google update hit me,\" \"page speed,\" \"core web vitals,\" \"crawl errors,\" or \"indexing issues.\" Use this even if the user just says something vague like \"my SEO is bad\" or \"help with SEO\" — start with an audit.",
+      "triggers": [
+        "SEO audit",
+        "technical SEO",
+        "why am I not ranking",
+        "SEO issues",
+        "on-page SEO",
+        "meta tags review",
+        "SEO health check",
+        "my traffic dropped",
+        "lost rankings",
+        "not showing up in Google",
+        "site isn't ranking",
+        "Google update hit me",
+        "page speed",
+        "core web vitals",
+        "crawl errors",
+        "indexing issues.\" Use this even if the user just says something vague like \"my SEO is bad",
+        "help with SEO\" — start with an audit"
+      ],
+      "zip": "seo-audit.zip"
+    },
+    {
+      "name": "theme-factory",
+      "category": "Featured",
+      "description": "Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to any artifact that has been creating, or can generate a new theme on-the-fly.",
+      "triggers": [],
+      "zip": "theme-factory.zip"
+    },
+    {
+      "name": "xlsx",
+      "category": "Featured",
+      "description": "Specialized utility for advanced manipulation, analysis, and creation of spreadsheet files, including (but not limited to) XLSX, XLSM, CSV formats. Core functionalities include formula deployment, complex formatting (including automatic currency formatting for financial tasks), data visualization, mandatory post-processing recalculation, and finance-focused Excel modeling workflows such as three-statement models, DCF valuation, and public comps analysis.",
+      "triggers": [],
+      "zip": "xlsx.zip"
+    },
+    {
+      "name": "commodities-outlook",
+      "category": "Finance",
+      "description": "Produce institutional-grade commodity outlook reports with supply-demand analysis, price forecasts, and trade recommendations, formatted as PDF, DOCX, or PPTX documents. Triggered when users request commodity market reports, ask for trade ideas on energy, metals, or agricultural commodities, or mention keywords like commodity outlook, research note, or price drivers.",
+      "triggers": [
+        "commodity market reports",
+        "ask for trade ideas on energy",
+        "metals",
+        "agricultural commodities",
+        "mention keywords like commodity outlook",
+        "research note",
+        "price drivers"
+      ],
+      "zip": "commodities-outlook.zip"
+    },
+    {
+      "name": "discounted-cashflow-model",
+      "category": "Finance",
+      "description": "Builds a discounted cash flow (DCF) valuation model, calculating enterprise value, equity value, and per-share price with a growth-rate × discount-rate sensitivity analysis matrix. Triggered by requests like 'do a DCF on [company]', 'run a valuation', 'calculate WACC/discount rate', or mentions of free cash flow, terminal value, or sensitivity analysis.",
+      "triggers": [
+        "do a DCF on [company]",
+        "run a valuation",
+        "calculate WACC/discount rate",
+        "free cash flow",
+        "terminal value",
+        "sensitivity analysis"
+      ],
+      "zip": "discounted-cashflow-model.zip"
+    },
+    {
+      "name": "earnings-review-note",
+      "category": "Finance",
+      "description": "Generate professional sell-side earnings review reports for quarterly or annual results, producing PDF/DOCX/PPTX documents with EPS analysis, guidance review, and variance tables. Triggered when users request an earnings review, need a quarterly wrap, ask for a beat/miss analysis, or mention summarizing an earnings call for any public company.",
+      "triggers": [
+        "an earnings review",
+        "need a quarterly wrap",
+        "ask for a beat/miss analysis",
+        "mention summarizing an earnings call for any public company"
+      ],
+      "zip": "earnings-review-note.zip"
+    },
+    {
+      "name": "equity-research-report",
+      "category": "Finance",
+      "description": "Create institutional-grade investment research reports with sell-side styling, dense information layout, and comprehensive section structure. Use for equity, fixed-income, strategy, sector, derivatives, ETF, or quantitative research. Mimics Goldman Sachs, Morgan Stanley, or JPMorgan style with cover pages, exhibit-numbered charts, glossary, and disclosures. Supports PDF, DOCX, and PPTX output.",
+      "triggers": [],
+      "zip": "equity-research-report.zip"
+    },
+    {
+      "name": "financial-ratio-toolkit",
+      "category": "Finance",
+      "description": "Analyzes company fundamentals by computing 20+ financial ratios (profitability, solvency, liquidity, efficiency, and growth) and DuPont Analysis from user-provided financial statements. Triggered by requests for financial ratio calculation, DuPont/ROE analysis, or phrases like \\\"analyze these financials\\\" or \\\"calculate solvency ratios.",
+      "triggers": [
+        "financial ratio calculation",
+        "DuPont/ROE analysis",
+        "\\\"analyze these financials\\",
+        "\\\"calculate solvency ratios"
+      ],
+      "zip": "financial-ratio-toolkit.zip"
+    },
+    {
+      "name": "financial-statement-analyzer",
+      "category": "Finance",
+      "description": "Analyzes income statement, balance sheet, and cash flow statement data to generate YoY/QoQ trend analysis and flag anomalies like AR surges or cash flow divergence. Trigger when users ask to analyze financials, compare YoY/QoQ, detect red flags, or assess earnings quality.",
+      "triggers": [
+        "analyze financials",
+        "compare YoY/QoQ",
+        "detect red flags",
+        "assess earnings quality"
+      ],
+      "zip": "financial-statement-analyzer.zip"
+    },
+    {
+      "name": "fund-risk-compare",
+      "category": "Finance",
+      "description": "Compare multiple ETFs using NAV CSV data, generating key risk-return metrics like annualized return, max drawdown, Sharpe ratio, and a correlation matrix. Triggered when users ask to compare ETFs or funds, calculate performance metrics, analyze NAV data, or mention terms like Sharpe ratio, correlation analysis, or max drawdown.",
+      "triggers": [
+        "compare ETFs",
+        "funds",
+        "calculate performance metrics",
+        "analyze NAV data",
+        "mention terms like Sharpe ratio",
+        "correlation analysis",
+        "max drawdown"
+      ],
+      "zip": "fund-risk-compare.zip"
+    },
+    {
+      "name": "investor-letter-writer",
+      "category": "Finance",
+      "description": "Draft classic investment memos as DOCX or PDF files, in the style of top VC deal memos or investor letters. Triggered when users ask to write an investment memo, deal memo, or IC memo, or to analyze a company, startup, or theme and document the thesis.",
+      "triggers": [
+        "write an investment memo",
+        "deal memo",
+        "IC memo",
+        "analyze a company",
+        "startup",
+        "theme and document the thesis"
+      ],
+      "zip": "investor-letter-writer.zip"
+    },
+    {
+      "name": "investor-pitch-planner",
+      "category": "Finance",
+      "description": "Generate a structured fundraising pitch deck outline covering Problem, Solution, Market, Business Model, Team, and The Ask, with data visualization suggestions. Trigger when users mention pitch decks, fundraising, investor presentations, or ask for help writing a deck or preparing to raise funds.",
+      "triggers": [
+        "pitch decks",
+        "fundraising",
+        "investor presentations",
+        "ask for help writing a deck",
+        "preparing to raise funds"
+      ],
+      "zip": "investor-pitch-planner.zip"
+    },
+    {
+      "name": "iso-27001-evidence-collection",
+      "category": "Finance",
+      "description": "Collect, organize, and validate evidence for ISO 27001 and SOC 2 audits using API-first commands and major cloud CLI tools. Produces timestamped, auditor-ready evidence packages. Trigger when preparing for an audit, refreshing evidence, or discussing audit readiness, evidence gaps, or compliance frameworks.",
+      "triggers": [
+        "preparing for an audit",
+        "refreshing evidence",
+        "discussing audit readiness",
+        "evidence gaps",
+        "compliance frameworks"
+      ],
+      "zip": "iso-27001-evidence-collection.zip"
+    },
+    {
+      "name": "legal-risk-assessment",
+      "category": "Finance",
+      "description": "Assess and classify legal risks using a severity-by-likelihood framework with escalation criteria. Use when evaluating contract risk, assessing deal exposure, classifying issues by severity, or determining whether a matter needs senior counsel or outside legal review.",
+      "triggers": [
+        "evaluating contract risk",
+        "assessing deal exposure",
+        "classifying issues by severity",
+        "determining whether a matter needs senior counsel",
+        "outside legal review"
+      ],
+      "zip": "legal-risk-assessment.zip"
+    },
+    {
+      "name": "pitch-deck-creator",
+      "category": "Finance",
+      "description": "Creates professional pitch decks and business plans in the style of a Chinese startup funding proposal (融资计划书 / BP). Triggered by requests to create investor decks, financing proposals, company overviews with market analysis, or any fundraising presentation. Supports Chinese and English content, outputs PPTX by default, and follows a polished 18-slide template with clean white backgrounds and navy blue accents.",
+      "triggers": [
+        "create investor decks",
+        "financing proposals",
+        "company overviews with market analysis",
+        "any fundraising presentation"
+      ],
+      "zip": "pitch-deck-creator.zip"
+    },
+    {
+      "name": "regulatory-audit-generator",
+      "category": "Finance",
+      "description": "Builds compliance checklists for business scenarios involving GDPR, PIPL, or advertising/data laws. Outputs a structured checklist with check items, legal basis, risk levels, and actionable recommendations. Triggered by requests like \\\"run a compliance check,\\\" \\\"GDPR/PIPL compliance,\\\" \\\"pre-launch review,\\\" \\\"privacy impact assessment (PIA/DPIA),\\\" or asking if a feature is compliant.",
+      "triggers": [
+        "\\\"run a compliance check",
+        "\\\" \\\"GDPR/PIPL compliance",
+        "\\\" \\\"pre-launch review",
+        "\\\" \\\"privacy impact assessment (PIA/DPIA)",
+        "asking if a feature is compliant"
+      ],
+      "zip": "regulatory-audit-generator.zip"
+    },
+    {
+      "name": "saas-metrics-coach",
+      "category": "Finance",
+      "description": "SaaS financial health advisor. Use when a user shares revenue or customer numbers, or mentions ARR, MRR, churn, LTV, CAC, NRR, or asks how their SaaS business is doing.",
+      "triggers": [
+        "a user shares revenue",
+        "customer numbers",
+        "mentions ARR",
+        "MRR",
+        "churn",
+        "LTV",
+        "CAC",
+        "NRR",
+        "asks how their SaaS business is doing"
+      ],
+      "zip": "saas-metrics-coach.zip"
+    },
+    {
+      "name": "stock-research-report",
+      "category": "Finance",
+      "description": "Generate securities research reports in Guotai Haitong / Haitong International style. Use for Chinese equity research, industry tracking, investment notes, and financial research documents. Triggers on mentions of Guotai Haitong, Haitong International, industry tracking, equity research, or securities research. Supports domestic and international templates.",
+      "triggers": [
+        "Guotai Haitong",
+        "Haitong International",
+        "industry tracking",
+        "equity research",
+        "securities research"
+      ],
+      "zip": "stock-research-report.zip"
+    },
+    {
+      "name": "stock-signal-analyzer",
+      "category": "Finance",
+      "description": "Analyzes OHLCV data to compute 15+ technical indicators (including MA, MACD, RSI, Bollinger Bands, KDJ) and generates a bullish/bearish signal summary with an overall assessment. Triggered when users request technical analysis, ask to calculate indicators like MACD or RSI, mention candlestick analysis, or discuss signals from moving average crossovers, Bollinger Band breakouts, or RSI overbought/oversold levels.",
+      "triggers": [
+        "technical analysis",
+        "ask to calculate indicators like MACD",
+        "RSI",
+        "mention candlestick analysis",
+        "discuss signals from moving average crossovers",
+        "Bollinger Band breakouts",
+        "RSI overbought/oversold levels"
+      ],
+      "zip": "stock-signal-analyzer.zip"
+    },
+    {
+      "name": "tos-clause-scanner",
+      "category": "Finance",
+      "description": "Audit Terms of Service, user agreements, and privacy policies for consumer risks, producing a structured report that flags unfair clauses, data traps, and liability issues. Trigger when a user asks to review, audit, or analyze a ToS, privacy policy, or user agreement, or mentions specific concerns like auto-renewal or data authorization.",
+      "triggers": [
+        "a user asks to review",
+        "audit",
+        "analyze a ToS",
+        "privacy policy",
+        "user agreement",
+        "mentions specific concerns like auto-renewal",
+        "data authorization"
+      ],
+      "zip": "tos-clause-scanner.zip"
+    },
+    {
+      "name": "value-investing-scorecard",
+      "category": "Finance",
+      "description": "Buffett/Graham value investing scorecard — evaluates a company across 20 criteria in four dimensions (moat, management, financials, valuation) for a 0-100 score. Triggered when users request a value-investing analysis, fundamental scoring, moat assessment, or ask 'is this company worth investing in', 'analyze the fundamentals of XX', or 'evaluate this using Buffett's method'.",
+      "triggers": [
+        "a value-investing analysis",
+        "fundamental scoring",
+        "moat assessment",
+        "ask 'is this company worth investing in",
+        "analyze the fundamentals of XX",
+        "evaluate this using Buffett's method"
+      ],
+      "zip": "value-investing-scorecard.zip"
+    },
+    {
+      "name": "vc-industry-research",
+      "category": "Finance",
+      "description": "Generate professional primary market / venture capital industry research reports, including sector deep-dives, investment memos, and market analysis. Produces detailed PDF reports covering TMT, consumer, healthcare, and industrials. Triggered by requests to analyze an industry, create a market report, write a sector deep-dive, or generate any PE/VC-style research document in Chinese or English.",
+      "triggers": [
+        "analyze an industry",
+        "create a market report",
+        "write a sector deep-dive",
+        "generate any PE/VC-style research document in Chinese",
+        "English"
+      ],
+      "zip": "vc-industry-research.zip"
+    },
+    {
+      "name": "brand-name-forge",
+      "category": "Marketing",
+      "description": "A systematic brand naming workshop that generates 8 distinct name candidates using classic methods like portmanteau and metaphor, each with meaning, rationale, and domain suggestions. Triggered when a user needs to name a product, service, or company, or asks for brand name ideas, brainstorming, or naming help.",
+      "triggers": [
+        "a user needs to name a product",
+        "service",
+        "company",
+        "asks for brand name ideas",
+        "brainstorming",
+        "naming help"
+      ],
+      "zip": "brand-name-forge.zip"
+    },
+    {
+      "name": "campaign-plan",
+      "category": "Marketing",
+      "description": "Generate a full campaign brief with objectives, audience, messaging, channel strategy, content calendar, and success metrics. Use when planning a product launch, lead-gen push, or awareness campaign, when you need a week-by-week content calendar with dependencies, or when translating a marketing goal into a structured, executable plan.",
+      "triggers": [
+        "planning a product launch",
+        "lead-gen push",
+        "awareness campaign",
+        "you need a week-by-week content calendar with dependencies",
+        "translating a marketing goal into a structured",
+        "executable plan"
+      ],
+      "zip": "campaign-plan.zip"
+    },
+    {
+      "name": "churn-prevention",
+      "category": "Marketing",
+      "description": "Reduce voluntary and involuntary churn through cancel flow design, save offers, exit surveys, and dunning sequences. Use when designing or optimizing a cancel flow, building save offers, setting up dunning emails, or reducing failed-payment churn. Trigger keywords: cancel flow, churn reduction, save offers, dunning, exit survey, payment recovery, win-back, involuntary churn, failed payments, cancel page. NOT for customer health scoring or expansion revenue.",
+      "triggers": [
+        "designing",
+        "optimizing a cancel flow",
+        "building save offers",
+        "setting up dunning emails",
+        "reducing failed-payment churn"
+      ],
+      "zip": "churn-prevention.zip"
+    },
+    {
+      "name": "competitor-analysis",
+      "category": "Marketing",
+      "description": "Analyzes competitor SEO and GEO strategies—their ranking keywords, content, backlinks, and AI citations—to reveal opportunities to outperform them. Triggered by requests like \\\"analyze competitors,\\\" \\\"competitive SEO,\\\" \\\"who ranks for,\\\" \\\"what are my competitors doing,\\\" or \\\"why do they rank higher.",
+      "triggers": [
+        "\\\"analyze competitors",
+        "\\\" \\\"competitive SEO",
+        "\\\" \\\"who ranks for",
+        "\\\" \\\"what are my competitors doing",
+        "\\\"why do they rank higher"
+      ],
+      "zip": "competitor-analysis.zip"
+    },
+    {
+      "name": "copy-editing",
+      "category": "Marketing",
+      "description": "When the user wants to edit, review, or improve existing marketing copy. Also use when the user mentions 'edit this copy,' 'review my copy,' 'copy feedback,' 'proofread,' 'polish this,' 'make this better,' 'copy sweep,' 'tighten this up,' 'this reads awkwardly,' 'clean up this text,' 'too wordy,' or 'sharpen the messaging.' Use this when the user already has copy and wants it improved rather than rewritten from scratch.",
+      "triggers": [
+        "edit this copy",
+        "review my copy",
+        "copy feedback",
+        "proofread",
+        "polish this",
+        "make this better",
+        "copy sweep",
+        "tighten this up",
+        "this reads awkwardly",
+        "clean up this text",
+        "too wordy",
+        "sharpen the messaging.' Use this when the user already has copy and wants it improved rather than rewritten from scratch"
+      ],
+      "zip": "copy-editing.zip"
+    },
+    {
+      "name": "ecom-listing-copywriter",
+      "category": "Marketing",
+      "description": "Writes complete e-commerce product listing copy including titles, selling points, specifications, and FAQs, styled for Taobao, JD.com, or Amazon. Triggered by requests for product copy, titles, detail pages, bullet points, specifications, or platform-specific listings like Taobao titles or Amazon A+ content.",
+      "triggers": [
+        "product copy",
+        "titles",
+        "detail pages",
+        "bullet points",
+        "specifications",
+        "platform-specific listings like Taobao titles",
+        "Amazon A+ content"
+      ],
+      "zip": "ecom-listing-copywriter.zip"
+    },
+    {
+      "name": "email-newsletter-builder",
+      "category": "Marketing",
+      "description": "Generate professional HTML email newsletters compatible with Gmail and Outlook. Creates table-based layouts with inline CSS for reliable rendering. Use it when asked to \\\"build a newsletter,\\\" \\\"create an email template,\\\" or draft a marketing, internal, or digest email.",
+      "triggers": [],
+      "zip": "email-newsletter-builder.zip"
+    },
+    {
+      "name": "html-mailer-builder",
+      "category": "Marketing",
+      "description": "Generate professional HTML email templates compatible with Gmail, Outlook, and Apple Mail, using table layouts and inline CSS for responsive design. Triggered by requests for welcome emails, promotional campaigns, password resets, notifications, order confirmations, or any mention of creating EDM, newsletters, or transactional email templates.",
+      "triggers": [
+        "welcome emails",
+        "promotional campaigns",
+        "password resets",
+        "notifications",
+        "order confirmations",
+        "any mention of creating EDM",
+        "newsletters",
+        "transactional email templates"
+      ],
+      "zip": "html-mailer-builder.zip"
+    },
+    {
+      "name": "landing-page-scaffold",
+      "category": "Marketing",
+      "description": "Generate a self-contained landing page HTML prototype with five standard sections (Hero → Social Proof → Features → Pricing → CTA), outputting a single inlined HTML file ready to preview in any browser. Triggered when the user asks to build, generate, or scaffold a landing page, wireframe, or marketing page prototype, or mentions specific sections like hero, pricing, or CTA.",
+      "triggers": [
+        "build",
+        "generate",
+        "scaffold a landing page",
+        "wireframe",
+        "marketing page prototype",
+        "mentions specific sections like hero",
+        "pricing",
+        "CTA"
+      ],
+      "zip": "landing-page-scaffold.zip"
+    },
+    {
+      "name": "seo-content-writer",
+      "category": "Marketing",
+      "description": "Creates keyword-optimized SEO content like blog posts, articles, product descriptions, and landing pages, using a 12-step workflow that includes title optimization, meta descriptions, header hierarchy, and a full CORE-EEAT checklist. Triggered by requests to 'write SEO content', 'create a blog post', 'draft a how-to guide', or 'write a 2000-word article about [topic]'.",
+      "triggers": [
+        "write SEO content",
+        "create a blog post",
+        "draft a how-to guide",
+        "write a 2000-word article about [topic]"
+      ],
+      "zip": "seo-content-writer.zip"
+    },
+    {
+      "name": "support-response-writer",
+      "category": "Marketing",
+      "description": "Generate professional customer support replies for pre-sale, after-sale, complaints, and returns, including emotional de-escalation strategies. Triggered by requests like \\\"help me write a support reply,\\\" \\\"the customer is furious,\\\" or \\\"how to word a return response.",
+      "triggers": [
+        "\\\"help me write a support reply",
+        "\\\" \\\"the customer is furious",
+        "\\\"how to word a return response"
+      ],
+      "zip": "support-response-writer.zip"
+    },
+    {
+      "name": "audience-adaptive-comms",
+      "category": "Productivity",
+      "description": "Adapt stakeholder communication to the target audience (CEO, VP, Tech Lead, or Operations), adjusting detail level, language, and focus. Output tailored emails, briefings, or slide outlines. Trigger when a user asks for an executive briefing, stakeholder update, project status report for leadership, cross-team sync, or mentions writing to a VP, CEO, or tech lead.",
+      "triggers": [
+        "a user asks for an executive briefing",
+        "stakeholder update",
+        "project status report for leadership",
+        "cross-team sync",
+        "mentions writing to a VP",
+        "CEO",
+        "tech lead"
+      ],
+      "zip": "audience-adaptive-comms.zip"
+    },
+    {
+      "name": "email-to-calendar",
+      "category": "Productivity",
+      "description": "Extract calendar events and deadlines from emails and create calendar entries. Two modes: monitor your inbox directly, or process emails you forward to a dedicated address. Trigger when a user asks to scan emails for events, mentions an event in an email, or wants to add something from an email to their calendar.",
+      "triggers": [
+        "a user asks to scan emails for events",
+        "mentions an event in an email",
+        "wants to add something from an email to their calendar"
+      ],
+      "zip": "email-to-calendar.zip"
+    },
+    {
+      "name": "gantt-planner",
+      "category": "Productivity",
+      "description": "Generate interactive HTML Gantt charts with Critical Path Method (CPM) analysis from task lists and dependencies, highlighting the critical path and calculating float times. Use when the user asks to create a Gantt chart, schedule project tasks, analyze the critical path, visualize dependencies, or mentions project timelines, milestones, or task scheduling.",
+      "triggers": [
+        "create a Gantt chart",
+        "schedule project tasks",
+        "analyze the critical path",
+        "visualize dependencies",
+        "mentions project timelines",
+        "milestones",
+        "task scheduling"
+      ],
+      "zip": "gantt-planner.zip"
+    },
+    {
+      "name": "imap-smtp-email",
+      "category": "Productivity",
+      "description": "Manage email through IMAP and SMTP: read and search inboxes, check for new messages, fetch content, mark as read/unread, and send emails with attachments. Works with Gmail, Outlook, 163.com, and other standard servers. Triggered when the user asks to check mail, read an email, search inboxes, send an email, or mentions IMAP/SMTP email handling.",
+      "triggers": [
+        "check mail",
+        "read an email",
+        "search inboxes",
+        "send an email",
+        "mentions IMAP/SMTP email handling"
+      ],
+      "zip": "imap-smtp-email.zip"
+    },
+    {
+      "name": "incident-review-guide",
+      "category": "Productivity",
+      "description": "Blameless postmortem and incident review writing tool based on SRE best practices. Produces structured incident reports with timelines, root cause analysis (5 Whys), action items, and lessons learned. Trigger when users need to write incident reviews, perform RCAs, analyze production outages, or use keywords like postmortem, incident report, root cause analysis, or 5 Whys.",
+      "triggers": [
+        "write incident reviews",
+        "perform RCAs",
+        "analyze production outages",
+        "use keywords like postmortem",
+        "incident report",
+        "root cause analysis",
+        "5 Whys"
+      ],
+      "zip": "incident-review-guide.zip"
+    },
+    {
+      "name": "okr-strategist",
+      "category": "Productivity",
+      "description": "OKR drafting, breakdown, and retrospective coach that helps users craft high-quality objectives and key results, decompose goals into actionable layers, and conduct periodic reviews. Use when the user mentions OKR, goal management, key results, drafting, breakdown, retrospective, review, alignment, quarterly goals, or asks for help writing, reviewing, or breaking down an OKR.",
+      "triggers": [
+        "OKR",
+        "goal management",
+        "key results",
+        "drafting",
+        "breakdown",
+        "retrospective",
+        "review",
+        "alignment",
+        "quarterly goals",
+        "asks for help writing",
+        "reviewing",
+        "breaking down an OKR"
+      ],
+      "zip": "okr-strategist (1).zip"
+    },
+    {
+      "name": "okr-strategist",
+      "category": "Productivity",
+      "description": "OKR drafting, breakdown, and retrospective coach that helps users craft high-quality objectives and key results, decompose goals into actionable layers, and conduct periodic reviews. Use when the user mentions OKR, goal management, key results, drafting, breakdown, retrospective, review, alignment, quarterly goals, or asks for help writing, reviewing, or breaking down an OKR.",
+      "triggers": [
+        "OKR",
+        "goal management",
+        "key results",
+        "drafting",
+        "breakdown",
+        "retrospective",
+        "review",
+        "alignment",
+        "quarterly goals",
+        "asks for help writing",
+        "reviewing",
+        "breaking down an OKR"
+      ],
+      "zip": "okr-strategist.zip"
+    },
+    {
+      "name": "process-doc",
+      "category": "Productivity",
+      "description": "Document a business process — flowcharts, RACI, and SOPs. Use when formalizing a process that lives in someone's head, building a RACI to clarify who owns what, writing an SOP for a handoff or audit, or capturing the exceptions and edge cases of how work actually gets done.",
+      "triggers": [
+        "formalizing a process that lives in someone's head",
+        "building a RACI to clarify who owns what",
+        "writing an SOP for a handoff",
+        "audit",
+        "capturing the exceptions and edge cases of how work actually gets done"
+      ],
+      "zip": "process-doc.zip"
+    },
+    {
+      "name": "product-spec-writer",
+      "category": "Productivity",
+      "description": "Transform one-line product ideas into complete PRD documents with user stories, feature lists, MoSCoW prioritization, and acceptance criteria. Trigger when users ask to 'write a PRD', 'turn this idea into a spec', 'flesh out requirements', or mention product requirements, user stories, feature breakdowns, or acceptance criteria.",
+      "triggers": [
+        "write a PRD",
+        "turn this idea into a spec",
+        "flesh out requirements",
+        "mention product requirements",
+        "user stories",
+        "feature breakdowns",
+        "acceptance criteria"
+      ],
+      "zip": "product-spec-writer.zip"
+    },
+    {
+      "name": "professional-email-composer",
+      "category": "Productivity",
+      "description": "Write professional business emails for reminders, follow-ups, declines, thank-yous, apologies, and more, with tone automatically adjusted for the recipient's role and bilingual Chinese-English support. Trigger when users ask to draft an email, need a template, or mention specific email types like a reminder, follow-up, rejection, or complaint.",
+      "triggers": [
+        "draft an email",
+        "need a template",
+        "mention specific email types like a reminder",
+        "follow-up",
+        "rejection",
+        "complaint"
+      ],
+      "zip": "professional-email-composer.zip"
+    },
+    {
+      "name": "project-sizing-guide",
+      "category": "Productivity",
+      "description": "Software project effort estimation assistant. Outputs three-point estimates (optimistic/most-likely/pessimistic values with confidence intervals), T-shirt sizes, or Function Point Analysis (FPA) counts. Triggered when users ask 'how long will this feature take,' need to assess project workload, perform PERT estimation, T-shirt sizing, FPA, sprint planning, or quote-based effort breakdowns.",
+      "triggers": [
+        "users ask 'how long will this feature take",
+        "need to assess project workload",
+        "perform PERT estimation",
+        "T-shirt sizing",
+        "FPA",
+        "sprint planning",
+        "quote-based effort breakdowns"
+      ],
+      "zip": "project-sizing-guide.zip"
+    },
+    {
+      "name": "sprint-plan-builder",
+      "category": "Productivity",
+      "description": "Agile Sprint planning assistant that builds actionable plans by selecting scope based on team capacity and historical velocity, breaking down stories into estimated tasks, analyzing dependencies, and balancing workloads. Triggers when a user asks for Sprint Planning, iteration scoping, story/task assignment, workload balancing, dependency analysis, or team capacity calculation.",
+      "triggers": [
+        "a user asks for Sprint Planning",
+        "iteration scoping",
+        "story/task assignment",
+        "workload balancing",
+        "dependency analysis",
+        "team capacity calculation"
+      ],
+      "zip": "sprint-plan-builder.zip"
+    },
+    {
+      "name": "story-map-builder",
+      "category": "Productivity",
+      "description": "Generates an interactive HTML user story map visualizing product requirements in an Epic → Feature → Story structure, with MoSCoW priority tagging and Release swimlane grouping. Trigger when the user mentions story mapping, backlog visualization, MoSCoW priority, release planning, or asks to organize requirements into a story map.",
+      "triggers": [
+        "story mapping",
+        "backlog visualization",
+        "MoSCoW priority",
+        "release planning",
+        "asks to organize requirements into a story map"
+      ],
+      "zip": "story-map-builder.zip"
+    },
+    {
+      "name": "structured-minutes",
+      "category": "Productivity",
+      "description": "Transforms raw meeting materials (transcripts, notes, chat logs) into structured minutes by automatically extracting agenda topics, discussion highlights, decisions, and action items with owners and deadlines. Use when a user provides a transcript, notes, or chat log and asks to create meeting minutes, summarize a meeting, extract action items, recap a discussion, or clean up a transcript.",
+      "triggers": [
+        "a user provides a transcript",
+        "notes",
+        "chat log and asks to create meeting minutes",
+        "summarize a meeting",
+        "extract action items",
+        "recap a discussion",
+        "clean up a transcript"
+      ],
+      "zip": "structured-minutes.zip"
+    },
+    {
+      "name": "weighted-scorer",
+      "category": "Productivity",
+      "description": "Builds weighted scoring decision matrices for technology selection, vendor evaluation, and multi-criteria option comparisons. Guides you through defining criteria, assigning weights, scoring options, and validating results with sensitivity analysis. Trigger when users ask about decision matrices, weighted scoring, comparing options, vendor selection, or build vs. buy choices.",
+      "triggers": [
+        "users ask about decision matrices",
+        "weighted scoring",
+        "comparing options",
+        "vendor selection",
+        "build vs"
+      ],
+      "zip": "weighted-scorer.zip"
+    },
+    {
+      "name": "whatsapp-integration",
+      "category": "Productivity",
+      "description": "WhatsApp integration for sending messages, managing contacts, and interacting with chats and groups. Use when the user wants to send a WhatsApp message, check a contact, read a chat, or perform any other action related to WhatsApp data.",
+      "triggers": [
+        "send a WhatsApp message",
+        "check a contact",
+        "read a chat",
+        "perform any other action related to WhatsApp data"
+      ],
+      "zip": "whatsapp-integration.zip"
+    },
+    {
+      "name": "work-recap-writer",
+      "category": "Productivity",
+      "description": "Turn scattered work notes and git logs into structured weekly or monthly reports in data-driven, narrative, or OKR-aligned styles. Triggered when the user mentions a weekly report, monthly report, work summary, sprint summary, status update, OKR progress, or needs to organize scattered records into a formal recap.",
+      "triggers": [
+        "a weekly report",
+        "monthly report",
+        "work summary",
+        "sprint summary",
+        "status update",
+        "OKR progress",
+        "needs to organize scattered records into a formal recap"
+      ],
+      "zip": "work-recap-writer.zip"
+    }
+  ]
+}

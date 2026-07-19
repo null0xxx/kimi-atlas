@@ -165,6 +165,15 @@ class TestMainSynthetic(unittest.TestCase):
         code, output = self._run()
         self.assertEqual(code, 0, output)
 
+    def test_atlas_ledger_scratch_ignored(self):
+        # The atlas run-ledger workspace (.atlas/) is git-ignored scratch written
+        # by live runs — plan.md and friends are .md files but NOT tracked docs;
+        # a leftover ledger must never fail the drift gate.
+        (self.root / ".atlas" / "session_x").mkdir(parents=True)
+        (self.root / ".atlas" / "session_x" / "plan.md").write_text("x\n", encoding="utf-8")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
 
 class TestMainRealRepo(unittest.TestCase):
     """The gate MUST be green against the actual P1 repo tree (DS-9)."""

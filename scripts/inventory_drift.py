@@ -41,9 +41,11 @@ EXCLUDED_BASENAMES: frozenset[str] = frozenset({"SKILL.md"})
 # Directory segments never walked when scanning the tree. Alongside VCS/build
 # scratch (``.git``/``__pycache__``/``node_modules``), ``.superpowers`` is the
 # git-ignored SDD tooling workspace (task briefs, implementer reports, the
-# progress ledger) — its ``.md`` files are scratch, never tracked documentation.
+# progress ledger) and ``.atlas`` is the git-ignored atlas run-ledger workspace
+# (state.json, plan.md, diffs, critic JSONs written by a live run) — their
+# ``.md`` files are scratch, never tracked documentation.
 _SKIP_SEGMENTS: frozenset[str] = frozenset(
-    {".git", "__pycache__", "node_modules", ".superpowers"}
+    {".git", "__pycache__", "node_modules", ".superpowers", ".atlas"}
 )
 
 # Markdown inline-link target: the URL/path inside ``](...)``.

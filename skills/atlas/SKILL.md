@@ -245,6 +245,36 @@ refine-pass counter).
   transition — "without grounding" never means "without the bookkeeping":
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", degraded=True)`.
 - Normal path: `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", agent="context-scout")`.
+- **Select skills for the intent (advisory — V6).** After the digest persists, rank the
+  committed skill registry (`references/skill-registry.json`, built from the bundled
+  `Skills/` zips by `scripts/skillregistry.py`) against the frozen intent and persist the
+  selection as `.atlas/<run_id>/skills.json`. Selection is a **hint, never a gate**: an absent/unreadable
+  registry degrades to no-selection, and a selection failure must never block the machine:
+  ```
+  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  import json
+  from scripts import ctxstore, skillselect
+  run = "${KIMI_SESSION_ID}"
+  st = ctxstore.get_state(".atlas", run)
+  try:
+      ranked = skillselect.select(st.get("intent", ""), skillselect.load_registry(),
+                                  skillselect.load_overrides(), top_n=3)
+  except Exception:
+      ranked = []                      # advisory (V6) — selection never blocks the run
+  ctxstore.write_artifact(".atlas", run, "skills.json", ranked)
+  print("SKILLS=" + json.dumps([r["name"] for r in ranked]))
+  PY
+  ```
+  Inject the selected skills (names + categories + the `why` match explanations from
+  `.atlas/<run_id>/skills.json`) into the **elite-coder packet (CODED)** and each **critic
+  packet (VERIFIED)** as *available reference skills* the agent may consult — advisory only,
+  it never widens `scope_paths`. When a packet wants one-line descriptions, look them up by
+  name in `references/skill-registry.json`; free-form third-party descriptions are
+  deliberately kept OUT of the default injection (only the token-allow-listed fields are
+  inert).
+  The user steers selection by editing `references/skill-overrides.json`
+  (`pin`/`exclude`/`boost`/`categories` — semantics in `references/skill-registry.md`); an
+  absent overrides file means no overrides.
 - → After the `GROUNDED` call returns, proceed immediately to the **PRE-CODE HUMAN GATE**.
 
 ### PRE-CODE HUMAN GATE  (SAFE-1 / OPS-4 — before any mutation of a real tree)
@@ -294,7 +324,10 @@ Then branch on the run mode:
   Read it back with `ctxstore.read_artifact(".atlas","${KIMI_SESSION_ID}","review_root")`). **Cap the
   coder's scope** so one dispatch is unlikely to exceed the fixed 30-min timeout (see Timeout
   handling). A REFINE re-dispatch reuses the **same** `review_root`, so every pass writes and is
-  verified against one tree.
+  verified against one tree. Include the `.atlas/<run_id>/skills.json` selection from GROUNDED (read it back with
+  `ctxstore.read_artifact(".atlas","${KIMI_SESSION_ID}","skills.json")`, absent → `[]`) as
+  *available reference skills* — names + one-line summaries the coder may consult; advisory only,
+  it never widens `scope_paths`.
 - The coder self-verifies (runs `verify_cmd` before returning) and reports a `STATUS`. Its
   **`STATUS` is evidence, never proof** — only the harness's own `runcheck` in VERIFIED counts.
 - `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","CODED", agent="elite-coder", status="<coder STATUS>")`.

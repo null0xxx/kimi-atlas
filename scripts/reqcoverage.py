@@ -30,7 +30,7 @@ _NEW_PATH_RE = re.compile(r"^\+\+\+ (?:b/)?(.+)$", re.MULTILINE)
 
 # Generic words carry no coverage signal; dropping them avoids trivially-matched
 # criteria (every diff contains "the", "return", "value", …).
-_STOPWORDS: frozenset[str] = frozenset({
+STOPWORDS: frozenset[str] = frozenset({
     "the", "and", "for", "with", "that", "this", "from", "into", "than", "then",
     "when", "else", "must", "should", "shall", "will", "can", "may", "each",
     "every", "all", "any", "not", "are", "was", "were", "has", "have", "its",
@@ -50,7 +50,7 @@ def _split_identifier(ident: str) -> list[str]:
     return parts
 
 
-def _tokenize(text: str) -> set[str]:
+def tokenize(text: str) -> set[str]:
     """Return the set of lowercased sub-tokens (length >= 3) found in ``text``."""
     tokens: set[str] = set()
     for word in _WORD_RE.findall(text):
@@ -63,7 +63,7 @@ def _tokenize(text: str) -> set[str]:
 
 def _significant_tokens(criterion: str) -> set[str]:
     """Tokens of a criterion that carry coverage signal (stopwords removed)."""
-    return _tokenize(criterion) - _STOPWORDS
+    return tokenize(criterion) - STOPWORDS
 
 
 def _added_tokens(diff_text: str) -> set[str]:
@@ -71,7 +71,7 @@ def _added_tokens(diff_text: str) -> set[str]:
     added = "\n".join(
         line[1:] for line in _ADDED_LINE_RE.findall(diff_text)
     )
-    return _tokenize(added)
+    return tokenize(added)
 
 
 def _changed_paths(diff_text: str) -> list[str]:

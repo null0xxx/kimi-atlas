@@ -78,5 +78,29 @@
       "risk_features": "dict",
       "meta": "dict"
     }
+  },
+  "skill-registry": {
+    "required": {
+      "version": "int",
+      "skill_count": "int",
+      "skills": "list"
+    }
+  },
+  "skill-entry": {
+    "required": {
+      "name": "str",
+      "category": "str",
+      "description": "str",
+      "triggers": "list",
+      "zip": "str"
+    }
+  },
+  "skill-overrides": {
+    "required": {
+      "pin": "list",
+      "exclude": "list",
+      "boost": "dict",
+      "categories": "list"
+    }
   }
 }

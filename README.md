@@ -122,18 +122,27 @@ skills/atlas-weave/         the multi-agent meta-machine (decompose → integrat
 skills/atlas-resume/        graph-aware, compaction-surviving resume
 agents/*.md                 role files (documentation-only frontmatter; body prepended by the SKILL)
 scripts/*.py                the PURE decision cores + the deterministic I/O "hands" (importable, unit-tested)
-tests/                      585 unit tests + the red-team negative-gate fixtures
+scripts/skillregistry.py    builds references/skill-registry.json from the bundled Skills/ zips (audit-gated)
+scripts/skillselect.py      ranks the registry for a task intent (advisory; pin/exclude/boost overrides)
+tests/                      656 unit tests + the red-team negative-gate fixtures
 references/*.md             the design corpus — architecture, atlas-weave spec, rubric, runtime, live validation
+references/skill-registry.json   compact registry of all 117 bundled skills (zips stay source of truth)
+references/skill-overrides.json  manual selector overrides (pin / exclude / boost / categories)
 docs/superpowers/plans/     the test-first build plans, one per phase (P6–P12)
 probe/                      residual-runtime-unknown probes
 ```
+
+The skill registry — schema, the weighted selection algorithm, override semantics, and the
+rebuild command — is documented in [`references/skill-registry.md`](references/skill-registry.md);
+selection runs at the atlas GROUNDED stage and is injected into the coder/critic packets as an
+advisory hint.
 
 The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + memory model), `planstage` (decompose + degrade), `integrate` / `differential` (the combined-tree sink), `budget`, `bestofn`, `verdict`, `resume` — are standard-library-only, fully deterministic, and carry no runtime I/O. The "hands" (`suiterun`, `uniontree`, `leaseclock`, `runcaps`, `dogfood_weave`) are the thin, fail-safe boundary that lets the real Kimi runtime drive them.
 
 ## Quality gate
 
 ```bash
-make ci    # strict naming + 585 unit tests + inventory-drift + shell-syntax
+make ci    # strict naming + 656 unit tests + inventory-drift + shell-syntax
 ```
 
 Every phase was built test-first and adversarially reviewed; `make ci` is the mechanical floor the project holds itself to.
