@@ -89,3 +89,9 @@ a partial or failed registry is never committed. `tests/test_skillregistry.py` r
 the committed registry against the schemas in CI (E3), and
 `tests/test_skillextract.py::TestCommittedManifest` re-hashes the whole extracted tree against
 the manifest — zip-free, so it runs anywhere the repo is checked out.
+
+## Related
+
+- [2026-07-19 — skills-era hardening analysis](../docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md):
+  the 7 residual LOW defects (D1–D7) across the registry/selector/extractor, the TOP-1
+  injection dogfood approach, and the ordered fix plan.
