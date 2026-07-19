@@ -212,7 +212,7 @@ Yes — [`references/skill-overrides.json`](references/skill-overrides.json): ad
 The extracted `skills/` tree is the source of truth. Replace the package directory, then run `make skills-extract` (re-anchors the manifest) and `make skill-registry` (rebuilds the registry). `make ci` must stay green — it will tell you if anything drifted.
 
 **Where are the original zips?**
-Committed under `Skills/<Category>/` (41 MB) as the canonical import archive — a git install gets the complete picture: the zips, the extracted packages they produced, and the manifest binding them. Everything they contained is also in the extracted `skills/` tree, byte-identical and manifest-anchored.
+They were a one-time import source and are intentionally *not* committed (41 MB). Everything they contained is in the committed tree, byte-identical and manifest-anchored.
 
 **Does atlas ever change my code without asking?**
 No. Interactive runs edit the real tree only after the pre-CODE plan gate you approve; headless runs are confined to an isolated `git worktree`; and every change is presented at the OUTPUT human gate. Nothing is ever auto-merged.
