@@ -137,6 +137,12 @@ class TestExclusionSet(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(warnings, [])
 
+    def test_agents_md_never_fails(self):
+        # AGENTS.md is the platform's project-memory file (like README.md) — exempt.
+        errors, warnings = checker.check_file(self.root, "AGENTS.md")
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
     def test_non_md_fixture_never_fails(self):
         # LICENSE / Makefile lack a .md extension but must not error.
         for fixture in ("LICENSE", "Makefile"):

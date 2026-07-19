@@ -234,6 +234,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 
 ## Documentation
 
+- [`AGENTS.md`](AGENTS.md) — project memory for fast resume: commands, conventions, the skills system, open items
 - [`references/architecture.md`](references/architecture.md) — the atlas design: state machine, agents, invariants
 - [`references/atlas-weave.md`](references/atlas-weave.md) — the multi-agent spec: DAG, scheduler, combined-tree differential
 - [`references/rubric.md`](references/rubric.md) — the 6 falsifiable verification lenses and the PASS bar

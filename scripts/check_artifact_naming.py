@@ -45,7 +45,7 @@ from scripts import skillpkgs  # noqa: E402  (path shim precedes this import)
 
 # Project fixtures whose filenames are fixed by convention — exempt from all
 # naming rules (DS-9) so uppercase docs (README.md, SKILL.md, …) never fail CI.
-EXCLUSION_SET = {"README.md", "SKILL.md", "LICENSE", "Makefile", "PLAN.md"}
+EXCLUSION_SET = {"README.md", "SKILL.md", "LICENSE", "Makefile", "PLAN.md", "AGENTS.md"}
 
 # Files predating these conventions: exempt from recommended-prefix warnings but
 # still bound by the structural rules (lowercase, kebab-case, .md, non-generic).
