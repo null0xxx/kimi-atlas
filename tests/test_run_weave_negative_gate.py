@@ -24,9 +24,9 @@ from scripts import run_weave_negative_gate as gate
 class TestCanonicalScenarios(unittest.TestCase):
     """Every canonical scenario must produce the expected BLOCK (matched is True)."""
 
-    def test_there_are_five_scenarios(self):
+    def test_there_are_six_scenarios(self):
         scns = gate.scenarios()
-        self.assertEqual(len(scns), 5)
+        self.assertEqual(len(scns), 6)
         names = {s["name"] for s in scns}
         self.assertEqual(
             names,
@@ -36,8 +36,15 @@ class TestCanonicalScenarios(unittest.TestCase):
                 "cyclic-DAG",
                 "dropped-requirement",
                 "gas-exhausted-partial",
+                "illegal-transition",
             },
         )
+
+    def test_illegal_transition_blocks(self):
+        scn = _by_name("illegal-transition")
+        result = gate.run_scenario(scn)
+        self.assertEqual(result["actual"], "BLOCK")
+        self.assertIs(result["matched"], True)
 
     def test_every_scenario_matches(self):
         for scn in gate.scenarios():
@@ -106,6 +113,21 @@ class TestRubberStampDetection(unittest.TestCase):
                 },
                 "jobs": [],
             },
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
+    def test_legal_transition_does_not_block(self):
+        # Same kind as the illegal-transition scenario, but fed a LEGAL edge
+        # (CODED->VERIFIED). A gate that still "blocked" here would rubber-stamp;
+        # matched must be False (expected BLOCK, actual PASS).
+        broken = {
+            "name": "illegal-transition",
+            "kind": "illegal-transition",
+            "expected": "BLOCK",
+            "from": "CODED",
+            "to": "VERIFIED",
         }
         result = gate.run_scenario(broken)
         self.assertEqual(result["actual"], "PASS")

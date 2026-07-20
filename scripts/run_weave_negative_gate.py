@@ -10,7 +10,8 @@ through the REAL pure decision cores (``integrate`` / ``differential`` / ``plans
 outcome is not ``"OK"``. No agents, no git, no subprocess — every scenario is a pure
 function over crafted data, so this whole gate is deterministic and importable.
 
-Five scenarios (each a mathematically-certain combined-tree defect the sink must catch):
+Six scenarios (each a mathematically-certain defect the sink must catch — the first five
+are combined-tree defects; the sixth enforces the canonical stage machine):
 
 1. **hidden-same-file-overlap** — two node changes touch one file. Their declared scopes
    and a clean per-node ``git apply`` both miss it, but ``integrate.actual_conflicts``
@@ -29,6 +30,10 @@ Five scenarios (each a mathematically-certain combined-tree defect the sink must
 5. **gas-exhausted-partial** — the DAG has an unresolved node and gas 0.
    ``scheduler.final_aggregate`` synthesizes a blocking ``unresolved`` defect (FAIL) and
    ``scheduler.run_status`` returns ``UNVERIFIED`` — a dead frontier never fakes a pass.
+6. **illegal-transition** — a forward stage skip over the mandatory CODED stage
+   (GROUNDED->VERIFIED). ``fsm.legal_transition`` is False, so the ledger can never record
+   it as a legal canonical move → the gate BLOCKS. Proves the canonical FSM is enforced by
+   the negative gate (a test invariant + pure-scenario gate, NOT a hard error in ``advance``).
 
 A scenario dict carries ``{"name", "kind", "expected", <crafted payload>}``. ``expected``
 is ``"BLOCK"`` for every canonical scenario. ``run_scenario`` dispatches on ``kind``,
@@ -56,6 +61,7 @@ if str(_ROOT) not in sys.path:
 
 from scripts import (  # noqa: E402  (path shim must precede these imports)
     differential,
+    fsm,
     integrate,
     planstage,
     scheduler,
@@ -129,23 +135,35 @@ def _eval_gas_exhausted(scn: dict) -> bool:
     return agg.get("verdict") != "OK" and status == "UNVERIFIED"
 
 
+def _eval_illegal_transition(scn: dict) -> bool:
+    """An illegal canonical stage transition must be rejected by fsm.legal_transition.
+
+    Pure-scenario: the gate BLOCKS iff ``legal_transition(from, to)`` is False, so
+    a forward skip over a mandatory stage (the crafted payload) can never be
+    recorded as a legal move.
+    """
+    return not fsm.legal_transition(scn["from"], scn["to"])
+
+
 _EVALUATORS = {
     "hidden-same-file-overlap": _eval_hidden_overlap,
     "combined-red-while-leaves-green": _eval_combined_red,
     "cyclic-DAG": _eval_cyclic_dag,
     "dropped-requirement": _eval_dropped_requirement,
     "gas-exhausted-partial": _eval_gas_exhausted,
+    "illegal-transition": _eval_illegal_transition,
 }
 
 
 # ---------------------------------------------------------------------------
-# The five canonical scenarios
+# The six canonical scenarios
 # ---------------------------------------------------------------------------
 def scenarios() -> list[dict]:
-    """Return the 5 canonical combined-tree red-team scenarios (deterministic order).
+    """Return the 6 canonical red-team scenarios (deterministic order).
 
     Each is a self-contained crafted input plus ``expected == "BLOCK"``; the payloads
-    are exactly the adversarial inputs the sink must catch.
+    are exactly the adversarial inputs the sink must catch (five combined-tree defects
+    plus one illegal canonical stage transition).
     """
     return [
         {
@@ -212,6 +230,16 @@ def scenarios() -> list[dict]:
                 ],
             },
         },
+        {
+            "name": "illegal-transition",
+            "kind": "illegal-transition",
+            "expected": _BLOCK,
+            # A forward skip over the mandatory CODED stage: the ledger must never
+            # record GROUNDED->VERIFIED as a legal canonical move (fsm.legal_transition
+            # is False), so the gate BLOCKS.
+            "from": "GROUNDED",
+            "to": "VERIFIED",
+        },
     ]
 
 
@@ -259,9 +287,9 @@ def _format_line(result: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run every combined-tree scenario; exit 0 iff all match (non-zero on any miss)."""
+    """Run every red-team scenario; exit 0 iff all match (non-zero on any miss)."""
     results = [run_scenario(scn) for scn in scenarios()]
-    print("weave-negative-gate: %d combined-tree scenario(s)\n" % len(results))
+    print("weave-negative-gate: %d red-team scenario(s)\n" % len(results))
     for result in results:
         print(_format_line(result))
     n_pass = sum(1 for r in results if r["matched"])
