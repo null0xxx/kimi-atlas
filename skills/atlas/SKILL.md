@@ -602,6 +602,35 @@ consistent with `gate()`.
 - → This is a decision, not a pause: loop to **CODED** on `True`, go to **OUTPUT** on `False`.
   Never end your turn here.
 
+### Checkpoints & rollback (Phase 3 — two-phase, forward-only)
+*(Cross-cutting reference — **not** a `ctxstore.STAGES` member and not a pause: the machine still
+flows `REFINE? → OUTPUT` unchanged. This block documents the checkpoint/rollback machinery the
+CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage transition.)*
+- **Per-stage checkpoints at green stages.** At each green stage — a *passing* VERIFIED, and after
+  CODED just before a REFINE re-dispatch — create a per-stage code ref on the isolated
+  `atlas/${KIMI_SESSION_ID}` branch (`git commit --no-verify`, or a recorded `git stash create`)
+  and record it into state:
+  `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","<stage>", updates={"checkpoints": {"<stage>": "<sha>"}})`.
+  `ctxstore.last_green_stage(state)` then names the **last STABLE** ref — the recorded
+  `checkpoints` entry furthest along `STAGES` — so a rollback targets *that* ref, never
+  `baseline_sha`.
+- **Manual rollback (headless worktree only).** Rollback is **never automatic**. When a refine
+  budget is spent with a residual CRITICAL/HIGH and you choose to restore the last green ref,
+  invoke the driver — `rollback_driver.run_rollback(...)` records `rollback_intent` **before**
+  touching the tree, runs the idempotent `git reset --hard <sha>` seam, then records
+  `rollback_complete`:
+  `python3 -m scripts.rollback_driver --base .atlas --run-id ${KIMI_SESSION_ID} --cwd .atlas/${KIMI_SESSION_ID}/worktree --target-sha <last_green_sha> --target-stage VERIFIED`
+  (with `ATLAS_SANCTIONED_ROLLBACK` set). The driver **refuses** — via `sanctioned_rollback` —
+  unless the target is an isolated `.atlas/<run_id>/worktree` *linked* worktree carrying the
+  sanction token. On resume, an open `rollback_intent` with no `rollback_complete` re-runs the
+  idempotent reset (`rollback_driver.resume_rollback(...)`, CLI `--resume`) — safe to repeat.
+  `log.jsonl`/`intent.txt` are never truncated; the refine counter stays monotonic (ROLLBACK
+  ledger lines are **not** REFINE lines). A rolled-back run re-enters VERIFIED and terminates
+  through OUTPUT as ⚠️ UNVERIFIED.
+- **Interactive (real tree): NEVER auto-reset.** The `git reset` mechanism is headless-only. With a
+  human present, do not touch their tree — surface the residual change at the OUTPUT gate as
+  ⚠️ UNVERIFIED and let the human choose **revert / keep / discard** (see the OUTPUT gate below).
+
 ### OUTPUT  (terminal — the third and last sanctioned gate)
 - **Compute final status, record OUTPUT first, then run the bookkeeping backstop** (recording
   OUTPUT *before* `missing_stages` prevents OUTPUT itself showing as "missing"):
@@ -633,7 +662,10 @@ consistent with `gate()`.
     path if headless).
 - **Do NOT auto-apply** any change to a real tree.
   - **Interactive:** after the block, call `AskUserQuestion` — Apply / Refine further / Discard —
-    **before any merge**. (Sanctioned pause 3.) Never merge without an explicit answer.
+    **before any merge**. (Sanctioned pause 3.) Never merge without an explicit answer. If a
+    rollback is warranted (the headless-only `git reset` is unavailable on the real tree), the same
+    gate offers the human an explicit **revert / keep / discard** choice on the residual change —
+    kimi-atlas never auto-resets an interactive tree.
   - **Headless (`-p`):** print the block and **halt**. The change sits in the isolated
     worktree/sandbox for a human to review and merge; you never merge it yourself.
 - **OUTPUT is terminal.** The run is complete when its ledger records `OUTPUT`
