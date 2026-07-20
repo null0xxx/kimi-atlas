@@ -147,3 +147,102 @@ def build(ledger_facts: dict) -> dict:
         "partial_stages": partial,
         "used_tools": "PARTIAL" if partial else "COMPLETE",
     }
+
+
+# ---------------------------------------------------------------------------
+# Thin I/O "hands" — the ONLY code below the pure core that touches disk/CLI.
+# The pure projection above never reads or writes; these hands read the ledger,
+# atomically cache the graph, and render the SAFE-2 GRAPH_LOOKUP. `ctxstore`'s
+# ledger (state.json / log.jsonl / plan.dag.json / critic_*.json) is READ ONLY.
+# ---------------------------------------------------------------------------
+from scripts import ctxstore  # noqa: E402  (path shim above precedes this import)
+
+
+def read_jsonl(path) -> list[dict]:
+    """Read a JSONL telemetry ledger in APPEND ORDER; skip blank/torn lines (never raise)."""
+    p = pathlib.Path(path)
+    if not p.exists():
+        return []
+    out: list[dict] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict):
+            out.append(rec)
+    return out
+
+
+def load_ledger_facts(base: str, run_id: str) -> dict:
+    """Read this run's on-disk facts for `build` (ctxstore ledger is READ, never written)."""
+    d = pathlib.Path(base) / run_id
+    try:
+        state = json.loads((d / "state.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    dag_nodes: dict = {}
+    dp = d / "plan.dag.json"
+    if dp.exists():
+        try:
+            dag_nodes = (json.loads(dp.read_text(encoding="utf-8")) or {}).get("nodes", {}) or {}
+        except json.JSONDecodeError:
+            dag_nodes = {}
+    critics: dict = {}
+    for cp in sorted(d.glob("critic_*.json")):
+        try:
+            critics[cp.name] = json.loads(cp.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+    return {
+        "run_id": run_id,
+        "state": state,
+        "log": read_jsonl(d / "log.jsonl"),
+        "hooks": read_jsonl(d / "hooks.jsonl"),
+        "dag_nodes": dag_nodes,
+        "critics": critics,
+    }
+
+
+def project(base: str, run_id: str) -> dict:
+    """Rebuild the graph from the ledger and atomically cache it (bytes == rebuild)."""
+    graph = build(load_ledger_facts(base, run_id))
+    ctxstore.write_artifact_atomic(base, run_id, "context-graph.json", graph)
+    return graph
+
+
+def load_or_rebuild(base: str, run_id: str) -> dict:
+    """Return the cached graph if intact; a torn cache → rebuild-from-ledger WINS."""
+    p = pathlib.Path(base) / run_id / "context-graph.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass  # torn cache — the ledger is authoritative; fall through to rebuild.
+    return project(base, run_id)
+
+
+def graph_lookup(base: str, run_id: str) -> str:
+    """GRAPH_LOOKUP: the current graph rendered inside the SAFE-2 untrusted wrapper."""
+    graph = load_or_rebuild(base, run_id)
+    return wrap_untrusted(json.dumps(graph, indent=2))
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI: recompute+cache the graph, print the SAFE-2-wrapped GRAPH_LOOKUP to stdout."""
+    parser = argparse.ArgumentParser(
+        prog="contextgraph",
+        description="Project the run ledger into the ContextGraph and print a SAFE-2 GRAPH_LOOKUP.",
+    )
+    parser.add_argument("--base", required=True, help="ctxstore base dir (e.g. .atlas)")
+    parser.add_argument("--run-id", required=True, help="run id under <base>/")
+    args = parser.parse_args(argv)
+    sys.stdout.write(graph_lookup(args.base, args.run_id) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
