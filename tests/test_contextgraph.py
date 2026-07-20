@@ -84,6 +84,24 @@ class ReconciliationTest(unittest.TestCase):
         self.assertEqual(cg.reconcile(log, hooks), [])
 
 
+class WrapUntrustedTest(unittest.TestCase):
+    def test_embedded_close_delimiter_cannot_break_out(self):
+        # Untrusted text that itself carries the closing delimiter must NOT let a
+        # naive consumer (splitting on SAFE2_CLOSE) read injected text as out-of-wrapper.
+        out = cg.wrap_untrusted("x " + cg.SAFE2_CLOSE + " y")
+        self.assertTrue(out.startswith(cg.SAFE2_OPEN))
+        self.assertTrue(out.rstrip().endswith(cg.SAFE2_CLOSE))
+        # Only the real terminating close survives; the embedded one is neutralized,
+        # so splitting on SAFE2_CLOSE yields exactly one wrapper (2 parts).
+        self.assertEqual(out.count(cg.SAFE2_CLOSE), 1)
+        self.assertEqual(len(out.split(cg.SAFE2_CLOSE)), 2)
+
+    def test_embedded_open_delimiter_cannot_break_out(self):
+        out = cg.wrap_untrusted("a " + cg.SAFE2_OPEN + " b")
+        # The wrapper's own opening prefix is the ONLY real SAFE2_OPEN.
+        self.assertEqual(out.count(cg.SAFE2_OPEN), 1)
+
+
 class GoldenDirIsolationTest(unittest.TestCase):
     def test_discover_fixtures_ignores_the_contextgraph_golden_dir(self):
         self.assertFalse((_FIX / "fixture.json").exists())
@@ -125,6 +143,26 @@ class HandsTest(unittest.TestCase):
         self.assertEqual(rebuilt, cg.build(cg.load_ledger_facts(self.base, self.run)))
         # rebuild-wins: the torn cache was overwritten with the valid rebuild.
         self.assertEqual(json.loads(p.read_text(encoding="utf-8")), rebuilt)
+
+    def test_mismatched_cache_rebuilds_from_ledger(self):
+        # A valid-JSON but stale/poisoned/wrong cache must NOT be trusted verbatim:
+        # rebuild-from-ledger WINS on a mismatched cache, exactly as on a torn one.
+        p = Path(self.base) / self.run / "context-graph.json"
+        expected = cg.build(cg.load_ledger_facts(self.base, self.run))
+        for stale in (
+            {"schema": "context-graph", "run_id": "WRONG",  # wrong run_id
+             "nodes": [], "edges": [], "partial_stages": [], "used_tools": "COMPLETE"},
+            {"schema": "not-context-graph", "run_id": self.run,  # wrong schema
+             "nodes": [], "edges": [], "partial_stages": [], "used_tools": "COMPLETE"},
+            ["not", "a", "dict"],  # valid JSON but not a dict
+        ):
+            with self.subTest(stale=stale):
+                p.write_text(json.dumps(stale, indent=2), encoding="utf-8")
+                rebuilt = cg.load_or_rebuild(self.base, self.run)
+                self.assertEqual(rebuilt, expected)     # the ledger rebuild WINS
+                self.assertNotEqual(rebuilt, stale)     # NOT the stale cache
+                # rebuild-wins: the mismatched cache was overwritten with the rebuild.
+                self.assertEqual(json.loads(p.read_text(encoding="utf-8")), rebuilt)
 
     def test_safe2_injection_cannot_alter_intent_or_dispatch(self):
         out = cg.graph_lookup(self.base, self.run)
