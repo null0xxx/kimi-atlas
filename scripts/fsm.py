@@ -64,3 +64,14 @@ def legal_transition(a: str, b: str) -> bool:
     an arbitrary backward jump — is illegal.
     """
     return (a, b) in _LEGAL_EDGES
+
+
+def legal_path(stages: Sequence[str]) -> bool:
+    """True iff every consecutive pair in ``stages`` is a legal transition.
+
+    A path of 0 or 1 stages is vacuously legal. Classifies multi-step
+    trajectories as a whole — e.g. the refine loop
+    ``VERIFIED -> REFINE -> CODED -> VERIFIED`` is legal (each pair is a legal
+    edge), while any path containing a forward skip over a mandatory stage is not.
+    """
+    return all(legal_transition(a, b) for a, b in zip(stages, stages[1:]))

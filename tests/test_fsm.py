@@ -12,11 +12,6 @@ from scripts import fsm
 from scripts.ctxstore import CONDITIONAL_STAGES, MANDATORY_STAGES, STAGES
 
 
-def _path_is_legal(path):
-    """True iff every consecutive (a, b) hop along ``path`` is a legal edge."""
-    return all(fsm.legal_transition(a, b) for a, b in zip(path, path[1:]))
-
-
 class TestDerivedForwardEdges(unittest.TestCase):
     def test_every_forward_adjacent_pair_is_legal(self):
         for a, b in zip(STAGES, STAGES[1:]):
@@ -43,19 +38,6 @@ class TestDeclaredLoopEdge(unittest.TestCase):
         self.assertNotIn(("REFINE", "CODED"), fsm._derived_edges())
         self.assertIn(("REFINE", "CODED"), fsm._DECLARED_EDGES)
         self.assertIn(("REFINE", "CODED"), fsm._LEGAL_EDGES)
-
-
-class TestLegalPaths(unittest.TestCase):
-    def test_full_refine_loop_path_is_legal(self):
-        # The refine loop: VERIFIED -> REFINE -> CODED -> VERIFIED, hop by hop.
-        self.assertTrue(
-            _path_is_legal(["VERIFIED", "REFINE", "CODED", "VERIFIED"])
-        )
-
-    def test_mandatory_chain_is_a_legal_path(self):
-        # The both-conditionals-skipped spine is a legal path end to end. Derived
-        # from MANDATORY_STAGES so it self-adjusts if STAGES changes.
-        self.assertTrue(_path_is_legal(list(MANDATORY_STAGES)))
 
 
 class TestIllegalTransitions(unittest.TestCase):
@@ -89,6 +71,33 @@ class TestMembershipGuard(unittest.TestCase):
         self.assertEqual(
             fsm._ALL_NODES, frozenset(STAGES) | frozenset(CONDITIONAL_STAGES)
         )
+
+
+class TestLegalPath(unittest.TestCase):
+    def test_empty_and_single_are_vacuously_legal(self):
+        self.assertTrue(fsm.legal_path([]))
+        self.assertTrue(fsm.legal_path(["CODED"]))
+
+    def test_refine_loop_path_is_legal(self):
+        # VERIFIED->REFINE (derived) ; REFINE->CODED (declared) ; CODED->VERIFIED (derived).
+        self.assertTrue(
+            fsm.legal_path(["VERIFIED", "REFINE", "CODED", "VERIFIED"])
+        )
+
+    def test_mandatory_only_chain_is_a_legal_path(self):
+        # Both conditionals skipped: INTENT_CAPTURED->TRIAGED and VERIFIED->OUTPUT.
+        # Derived from MANDATORY_STAGES so it self-adjusts if STAGES changes.
+        self.assertTrue(fsm.legal_path(list(MANDATORY_STAGES)))
+
+    def test_full_chain_with_conditionals_is_legal(self):
+        self.assertTrue(fsm.legal_path(list(STAGES)))
+
+    def test_path_with_a_forward_skip_is_illegal(self):
+        # GROUNDED->VERIFIED skips mandatory CODED.
+        self.assertFalse(fsm.legal_path(["GROUNDED", "VERIFIED", "OUTPUT"]))
+
+    def test_path_with_illegal_backward_jump_is_illegal(self):
+        self.assertFalse(fsm.legal_path(["VERIFIED", "OUTPUT", "INIT"]))
 
 
 if __name__ == "__main__":
