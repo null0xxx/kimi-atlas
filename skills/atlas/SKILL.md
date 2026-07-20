@@ -342,7 +342,7 @@ Then branch on the run mode:
 
 ### VERIFIED  — the full 6-lens verification harness
 The 6 named lenses are scored here (rubric `references/rubric.md`): **3 fully-/advisory-deterministic
-lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck`; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
+lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck` **+ `astlens.lint` syntax/parse floor**; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
 6 REQUIREMENTS-COVERAGE = `reqcoverage.coverage`; plus `pathcheck.cross_check` grounding), and **3
 judgment lenses** run as isolated `Agent(subagent_type="plan")` critics (1 CORRECTNESS, 2
 CODE-QUALITY, 3 SECURITY). `verdict.merge` normalizes the 3 critic JSONs + the deterministic
@@ -412,7 +412,7 @@ avail=$(free -m | awk '/^Mem:/ {print $7}')
 echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/serialize before launching runcheck"
 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json, pathlib
-from scripts import ctxstore, runcheck, quality, reqcoverage, pathcheck, check_artifact_naming, sast
+from scripts import ctxstore, runcheck, astlens, quality, reqcoverage, pathcheck, check_artifact_naming, sast
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
@@ -433,6 +433,11 @@ ctxstore.write_artifact(".atlas", run, "runcheck.json", rc)
 # Lens 4 TEST-ADEQUACY / debug-token floor — config-driven, language-agnostic, MEDIUM-capped (V6).
 config = {"debug_tokens": st.get("debug_tokens", []), "test_glob": st.get("test_glob", "")}
 lint_defects = quality.lint_deliverable(changed_files, test_files, config)
+
+# Lens 5b DOES-IT-RUN / CODE-QUALITY — deterministic ast SYNTAX/PARSE floor (NOT a type-check):
+# ast.parse + compile() (py_compile) + a conservative unused-import/undefined-name pass over the
+# changed .py source. A syntax/parse or undefined-name hit is a HIGH DOES-IT-RUN defect (blocking).
+astlens_defects = astlens.lint(changed_files)
 
 # Lens 6 REQUIREMENTS-COVERAGE — FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
 reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff, st.get("scope_paths"))
@@ -458,11 +463,12 @@ for rel in list(changed_files) + list(test_files):
 evidence = {"verify_cmd": cmd, "runcheck": rc, "runcheck_green": runcheck.green(rc),
             "lint_defects": lint_defects, "reqcoverage_defects": reqcoverage_defects,
             "pathcheck_defects": pathcheck_defects, "sast_defects": sast_defects,
-            "docs_clean": docs_clean}
+            "astlens_defects": astlens_defects, "docs_clean": docs_clean}
 ctxstore.write_artifact(".atlas", run, "det_evidence.json", evidence)
 print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": docs_clean,
                   "lint": len(lint_defects), "reqcov": len(reqcoverage_defects),
-                  "pathcheck": len(pathcheck_defects), "sast": len(sast_defects)}))
+                  "pathcheck": len(pathcheck_defects), "sast": len(sast_defects),
+                  "astlens": len(astlens_defects)}))
 PY
 ```
 
@@ -528,6 +534,10 @@ script_defects += ev["pathcheck_defects"]
 # critic misses it. Fail-open: sast_defects is [] whenever semgrep is absent/failed, so this line
 # is a no-op that degrades the lens to judgment-only. `.get` tolerates an older evidence file.
 script_defects += ev.get("sast_defects", [])
+# AST syntax/parse + lint floor (astlens). A syntax/parse or undefined-name hit is a HIGH
+# DOES-IT-RUN defect, so merging it here makes it BLOCKING for gate()/should_refine(). Fail-safe
+# for older evidence files via .get. This is a syntax/parse floor, never a type-check.
+script_defects += ev.get("astlens_defects", [])
 if not runcheck.green(rc):     # green == ok AND test_count>0 AND new/changed tests collected
     script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
         "location": "verify_cmd (%s)" % ev.get("verify_cmd", ""),
