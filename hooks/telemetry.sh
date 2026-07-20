@@ -62,6 +62,30 @@ for k in ("session_id", "subagent_id", "agent_id", "id"):
     if isinstance(v, str) and v:
         rec[("agent_id" if k != "session_id" else "session_id")] = v
 
+# ContextGraph event tagging (Ph2): tag a root PostToolUse as a tool_call, and any
+# tool error as an error, with an UNTRUSTED payload. Root-observable ONLY and with NO
+# stage (the PARTIAL-by-construction reconciliation point) — the orchestrator emits
+# stage-tagged events via scripts.ctxevents. Payload text is DATA, never instructions.
+resp = d.get("tool_response")
+if not isinstance(resp, dict):
+    resp = d.get("tool_result") if isinstance(d.get("tool_result"), dict) else {}
+err = resp.get("error") or resp.get("stderr") or ""
+kind = ""
+if err:
+    kind = "error"
+elif rec["event"] == "PostToolUse" and rec["tool_name"]:
+    kind = "tool_call"
+if kind:
+    rec["kind"] = kind
+    payload = {"tool": rec["tool_name"]}
+    if kind == "error":
+        payload["untrusted_error"] = str(err)[:2000]
+    else:
+        out = resp.get("stdout") or ""
+        if out:
+            payload["untrusted_output"] = str(out)[:2000]
+    rec["payload"] = payload
+
 print(cwd if isinstance(cwd, str) else "")
 print(json.dumps(rec, ensure_ascii=False))
 ' 2>/dev/null)" || exit 0
