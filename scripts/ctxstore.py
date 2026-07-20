@@ -180,6 +180,109 @@ def get_refine_passes(base: str, run_id: str) -> int:
     return count
 
 
+# ---------------------------------------------------------------------------
+# Two-phase rollback ledger ops (Phase 3, additive — PURE PERSISTENCE, no subprocess).
+# Rollback markers carry stage=="ROLLBACK" (NOT "REFINE"), so the authoritative refine
+# counter (get_refine_passes) is provably unaffected; log.jsonl is only appended to. The
+# git reset itself lives in scripts/rollback_driver.py — ctxstore never shells out.
+# ---------------------------------------------------------------------------
+_ROLLBACK_STAGE = "ROLLBACK"
+_ROLLBACK_INTENT = "rollback_intent"
+_ROLLBACK_COMPLETE = "rollback_complete"
+
+
+def last_green_stage(state: dict) -> str | None:
+    """Return the latest green checkpoint stage recorded in ``state`` (PURE — no I/O).
+
+    A green checkpoint is an entry in ``state["checkpoints"]`` — a map
+    ``{stage_name: checkpoint_sha}`` the orchestrator populates (via
+    ``advance(..., updates={"checkpoints": ...})``) each time it commits/stashes a per-stage
+    code ref on the isolated ``atlas/<run_id>`` branch. The "last STABLE state" is the
+    recorded checkpoint whose stage sits furthest along ``STAGES`` — so a rollback restores
+    the most recent green ref, never ``baseline_sha``. Returns the stage name, or ``None``
+    when no checkpoint has been recorded. Reads only its argument.
+    """
+    checkpoints = state.get("checkpoints") or {}
+    named = [s for s in checkpoints if s in STAGES]
+    if not named:
+        return None
+    return max(named, key=STAGES.index)
+
+
+def rollback_to(base: str, run_id: str, target_sha: str, target_stage: str, event: str) -> dict:
+    """Append ONE two-phase rollback marker and persist a new state revision (PURE persistence).
+
+    ``event`` is ``"rollback_intent"`` (recorded BEFORE the driver's ``git reset``) or
+    ``"rollback_complete"`` (recorded AFTER it). ``target_stage`` must be a known
+    ``STAGES`` member. The appended ``log.jsonl`` line carries ``stage == "ROLLBACK"``
+    (never ``"REFINE"``), so ``get_refine_passes`` is provably unaffected — the refine
+    counter stays monotonic however many rollbacks occur. ``log.jsonl``/``intent.txt``
+    are only appended to, never truncated.
+
+    On ``rollback_intent`` a ``rollback_pending`` marker (target sha + stage) is written into
+    the state so a torn run is recoverable; on ``rollback_complete`` the marker is cleared and
+    ``current_state`` re-enters ``target_stage`` (a rolled-back run re-enters VERIFIED and
+    terminates through OUTPUT as ⚠️ UNVERIFIED). Both argument checks fire BEFORE any write,
+    so a rejected call leaves no partial marker. Contains **no subprocess/git**. Returns the
+    updated state dict.
+    """
+    if event not in (_ROLLBACK_INTENT, _ROLLBACK_COMPLETE):
+        raise ValueError(f"unknown rollback event: {event!r}")
+    if target_stage not in STAGES:
+        raise ValueError(f"unknown rollback target stage: {target_stage!r}")
+    st = get_state(base, run_id)
+    entry = {
+        "run_id": run_id,
+        "stage": _ROLLBACK_STAGE,
+        "event": event,
+        "target_sha": target_sha,
+        "target_stage": target_stage,
+        "ts": _now(),
+    }
+    _append_log(base, run_id, entry)
+    if event == _ROLLBACK_INTENT:
+        st["rollback_pending"] = {"target_sha": target_sha, "target_stage": target_stage}
+    else:
+        st.pop("rollback_pending", None)
+        st["current_state"] = target_stage
+    _write_state(base, run_id, st)
+    return st
+
+
+def pending_rollback(base: str, run_id: str) -> dict | None:
+    """Return the target of an in-flight rollback (intent w/o complete), else ``None``.
+
+    Mirrors ``get_refine_passes``: authoritative recovery state is re-derived from the
+    append-only ``log.jsonl``, never trusted from a possibly-torn ``state.json``. Scans
+    ROLLBACK lines in append order — an intent opens a pending target, its matching complete
+    closes it. A trailing open intent (the crash-between-steps case) is returned as
+    ``{"target_sha", "target_stage"}`` so the driver can REDO the idempotent reset. Blank or
+    malformed lines are skipped, never raised on.
+    """
+    p = _run_dir(base, run_id) / "log.jsonl"
+    if not p.exists():
+        return None
+    pending: dict | None = None
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(rec, dict) or rec.get("stage") != _ROLLBACK_STAGE:
+            continue
+        if rec.get("event") == _ROLLBACK_INTENT:
+            pending = {
+                "target_sha": rec.get("target_sha", ""),
+                "target_stage": rec.get("target_stage", ""),
+            }
+        elif rec.get("event") == _ROLLBACK_COMPLETE:
+            pending = None
+    return pending
+
+
 def write_artifact(base: str, run_id: str, name: str, data) -> str:
     """Write a named run artifact (JSON-encoded for dict/list, else str); return its path."""
     p = _run_dir(base, run_id) / name
