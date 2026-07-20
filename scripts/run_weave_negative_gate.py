@@ -6,12 +6,14 @@ eye blocks sub-elite code. This is its combined-tree sibling: it proves the *int
 gate — the seam where N independently-green node changes are merged — cannot be fooled
 into shipping a broken union. Each scenario feeds a CRAFTED, adversarial input straight
 through the REAL pure decision cores (``integrate`` / ``differential`` / ``planstage`` /
-``verdict`` / ``scheduler`` / ``plandag``) and asserts the gate BLOCKS, i.e. the final
-outcome is not ``"OK"``. No agents, no git, no subprocess — every scenario is a pure
-function over crafted data, so this whole gate is deterministic and importable.
+``verdict`` / ``scheduler`` / ``plandag`` / ``fsm`` / ``rollback_driver``) and asserts the
+gate BLOCKS, i.e. the final outcome is not ``"OK"``. No agents, no git, no subprocess —
+every scenario is a pure function over crafted data, so this whole gate is deterministic
+and importable.
 
-Six scenarios (each a mathematically-certain defect the sink must catch — the first five
-are combined-tree defects; the sixth enforces the canonical stage machine):
+Seven scenarios (each a mathematically-certain defect the sink must catch — the first five
+are combined-tree defects; the sixth enforces the canonical stage machine; the seventh
+enforces the sanctioned-rollback guard):
 
 1. **hidden-same-file-overlap** — two node changes touch one file. Their declared scopes
    and a clean per-node ``git apply`` both miss it, but ``integrate.actual_conflicts``
@@ -34,6 +36,11 @@ are combined-tree defects; the sixth enforces the canonical stage machine):
    (GROUNDED->VERIFIED). ``fsm.legal_transition`` is False, so the ledger can never record
    it as a legal canonical move → the gate BLOCKS. Proves the canonical FSM is enforced by
    the negative gate (a test invariant + pure-scenario gate, NOT a hard error in ``advance``).
+7. **rollback-refused** — a rollback aimed at the PRIMARY working tree
+   (``git_common_dir == git_dir``) with no sanction token.
+   ``rollback_driver.sanctioned_rollback`` is False, so the pure guard refuses the reset
+   before any tree is touched → the gate BLOCKS. Proves the headless-worktree-only rollback
+   guard is enforced by the negative gate, not just by the driver at runtime.
 
 A scenario dict carries ``{"name", "kind", "expected", <crafted payload>}``. ``expected``
 is ``"BLOCK"`` for every canonical scenario. ``run_scenario`` dispatches on ``kind``,
@@ -64,6 +71,7 @@ from scripts import (  # noqa: E402  (path shim must precede these imports)
     fsm,
     integrate,
     planstage,
+    rollback_driver,
     scheduler,
     verdict,
 )
@@ -145,6 +153,20 @@ def _eval_illegal_transition(scn: dict) -> bool:
     return not fsm.legal_transition(scn["from"], scn["to"])
 
 
+def _eval_rollback_refused(scn: dict) -> bool:
+    """A rollback aimed outside a sanctioned isolated worktree -> the driver must REFUSE.
+
+    Pure-scenario: ``rollback_driver.sanctioned_rollback`` returning False IS the block —
+    the pure guard refuses the reset BEFORE any tree is touched (no ``git reset``, no ledger
+    write), so a mis-aimed / unsanctioned rollback (primary tree where
+    ``git_common_dir == git_dir``, or a missing sanction token) can never fire git.
+    """
+    ok = rollback_driver.sanctioned_rollback(
+        scn["target"], scn["git_common_dir"], scn["git_dir"], scn.get("env_token"),
+    )
+    return not ok
+
+
 _EVALUATORS = {
     "hidden-same-file-overlap": _eval_hidden_overlap,
     "combined-red-while-leaves-green": _eval_combined_red,
@@ -152,18 +174,19 @@ _EVALUATORS = {
     "dropped-requirement": _eval_dropped_requirement,
     "gas-exhausted-partial": _eval_gas_exhausted,
     "illegal-transition": _eval_illegal_transition,
+    "rollback-refused": _eval_rollback_refused,
 }
 
 
 # ---------------------------------------------------------------------------
-# The six canonical scenarios
+# The seven canonical scenarios
 # ---------------------------------------------------------------------------
 def scenarios() -> list[dict]:
-    """Return the 6 canonical red-team scenarios (deterministic order).
+    """Return the 7 canonical red-team scenarios (deterministic order).
 
     Each is a self-contained crafted input plus ``expected == "BLOCK"``; the payloads
-    are exactly the adversarial inputs the sink must catch (five combined-tree defects
-    plus one illegal canonical stage transition).
+    are exactly the adversarial inputs the sink must catch (five combined-tree defects,
+    one illegal canonical stage transition, and one refused unsanctioned rollback).
     """
     return [
         {
@@ -239,6 +262,18 @@ def scenarios() -> list[dict]:
             # is False), so the gate BLOCKS.
             "from": "GROUNDED",
             "to": "VERIFIED",
+        },
+        {
+            "name": "rollback-refused",
+            "kind": "rollback-refused",
+            "expected": _BLOCK,
+            # A reset aimed at the PRIMARY working tree (git_common_dir == git_dir) with
+            # no sanction token: sanctioned_rollback must refuse, so git reset can never
+            # fire against the real tree.
+            "target": "src/real_tree.py",
+            "git_common_dir": "/repo/.git",
+            "git_dir": "/repo/.git",
+            "env_token": None,
         },
     ]
 
