@@ -199,8 +199,9 @@ per-action mutation.**
   behind an opt-in, fail-open flag (like `sast`), preserving determinism at the cost of stdlib-only;
   **or** (b) scope deterministic type-checking OUT, substituting runcheck + the CORRECTNESS critic —
   **noting the coverage cost** (the substitute for a *type* checker is partly non-deterministic).
-  *Recommend (a) opt-in fail-open, so the requirement gets a real deterministic answer without
-  hard-breaking stdlib-only.*
+  **RESOLVED (P4.7): arm (b) scope-out** — keep stdlib-only; the `ast` **syntax/parse** floor +
+  `runcheck` + the CORRECTNESS critic stand in for a type checker, with arm (a) opt-in/fail-open the
+  sanctioned future extension (see *Open decisions · OD-A*; scope pinned by `tests/test_astlens_scope.py`).
 - The **Evaluator** already exists as `verdict` + critics — documented, not duplicated.
 
 ### Cross-cutting — the 11 verified flaws
@@ -319,7 +320,8 @@ its frozen parts**; `main` code changes are staged on the branch and each keeps 
 - **MODIFY** `agents/elite-coder.md` + `skills/atlas/SKILL.md` — broaden the SAFE-2 enumeration to name
   program/test stdout+stderr (runcheck tails) as untrusted; extend the injection fixture to the write
   path.
-- **OD-A** (optional) — vendor a pinned type-checker fail-open, or scope out.
+- **OD-A** — RESOLVED (P4.7): **scope out**; the `ast` syntax/parse floor + `runcheck` + CORRECTNESS
+  critic substitute for a type checker, opt-in/fail-open pinned type-checker the sanctioned future arm.
 - **NEW** `tests/test_astlens.py`.
 
 **Cross-cutting — the 11 flaw fixes** (F1 `Makefile` real shell gate · F2 `guard-destructive.sh` ·
@@ -337,11 +339,26 @@ with the pure verdict core, the 6-lens harness, `plandag`, `log.jsonl`, and the 
 ## Open decisions (need your sign-off before any code)
 Settled by the challenge: projection-over-reducer; derive-FSM (+1 declared edge); `advance()`
 untouched; two-phase forward rollback; headless-only git-reset with interactive human-choice.
+
+**Resolved (P4.7):**
+- **OD-A · Phase-4 type-checker — RESOLVED: scope deterministic *type*-checking OUT (arm b).** The
+  brief's "linter" is already answered *deterministically* by the shipped `astlens` **syntax/parse**
+  floor (`astlens.lint`: `py_compile`/`ast.parse` syntax + unused-import + undefined-name — P4.1–P4.2,
+  which ship regardless of this decision). A separate *type* checker is scoped OUT: the substitute is
+  `runcheck` (running the real test suite catches the type errors that manifest at runtime) + the
+  CORRECTNESS judgment critic. This preserves the project's hard **stdlib-only** convention and avoids
+  vendoring a heavy third-party binary plus its manifest re-hash cost — noting the coverage cost (the
+  type-checking substitute is partly non-deterministic). **Reversible:** if a fully-deterministic type
+  signal is later required, a **pinned type-checker** may be added behind an **opt-in, fail-open
+  subprocess seam mirroring `scripts/sast.py`/semgrep** (Python stays stdlib-only; the seam degrades to
+  a no-op when the tool is absent) — the sanctioned future arm (a), documented, not built now. Either
+  way the ast floor is labelled **"syntax/parse", never "type-check"** — pinned by
+  `tests/test_astlens_scope.py` (categories only `DOES-IT-RUN`/`CODE-QUALITY`; no defect says
+  "type-check"). This keeps stdlib-only intact today while leaving the deterministic type door open
+  behind a flag, not silently dropping the requirement.
+
 Remaining:
 
-- **OD-A · Phase-4 type-checker:** vendor one pinned checker opt-in/fail-open **vs** scope out
-  (runcheck + CORRECTNESS critic). → *Recommend: opt-in fail-open.* (The `ast` syntax + lint floor
-  ships either way.)
 - **OD-B · event capture home:** record `tool_call`/`error` events into the **existing `hooks.jsonl`**
   (extend `telemetry.sh` + a tiny `ctxevents` CLI), leaving `ctxstore`/`log.jsonl` and
   `get_refine_passes` untouched. → *Recommend: yes — it is the least-invasive source.*
