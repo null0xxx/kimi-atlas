@@ -105,12 +105,21 @@ def run_rollback(
 ) -> int:
     """Execute one sanctioned two-phase rollback; 0 on success, non-zero on refusal/failure.
 
+    Front gate: an empty ``target_sha`` is invalid regardless of sanction — a fresh run must
+    name a concrete target, else it would record a ``rollback_intent`` then ``git reset --hard
+    ""`` (fails), leaving a permanently-stuck open intent. It refuses (returns 2, NO ledger
+    write, NO reset) BEFORE anything else. (``resume_rollback`` reads its target from the
+    ledger, so this gate never touches the resume path.)
+
     Refuses (returns 2, NO ledger write, NO reset) whenever ``sanctioned_rollback(...)`` is
     False. Otherwise records ``rollback_intent`` BEFORE touching the tree, runs the idempotent
     ``_git_reset`` seam, then records ``rollback_complete``. A non-zero reset returncode aborts
     BEFORE the completion marker (returns 3), leaving a recoverable ``rollback_intent`` for
     ``resume_rollback``.
     """
+    if not target_sha or not str(target_sha).strip():
+        sys.stderr.write("rollback refused: a fresh rollback requires a non-empty --target-sha\n")
+        return 2
     if not sanctioned_rollback(cwd, git_common_dir, git_dir, env_token):
         sys.stderr.write("rollback refused: not a sanctioned isolated worktree / missing token\n")
         return 2

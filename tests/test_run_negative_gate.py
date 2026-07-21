@@ -702,9 +702,12 @@ class MainTests(unittest.TestCase):
     def test_main_output_is_captured_not_leaked(self) -> None:
         # F10 guard: main()'s deliberately-alarming report lines (``RUBBER STAMP …``,
         # ``no fixtures found …``) must land in OUR buffer, never the real console.
-        buf, rc = self._main_captured(
-            ["--fixtures-root", tempfile.mkdtemp(), "--agents-dir", str(_AGENTS_DIR)]
-        )
+        # The empty fixtures-root uses a self-cleaning TemporaryDirectory so this guard
+        # test does not itself re-introduce the F9 /tmp-dir leak it exists to police.
+        with tempfile.TemporaryDirectory() as tmp:
+            buf, rc = self._main_captured(
+                ["--fixtures-root", tmp, "--agents-dir", str(_AGENTS_DIR)]
+            )
         self.assertNotEqual(rc, 0)
         self.assertIn("no fixtures found", buf)  # the noisy line is in OUR buffer
 

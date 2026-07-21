@@ -117,6 +117,21 @@ class RunRollbackTests(_SeamRunTestBase):
         self.assertEqual(self.reset_calls, [])
         self.assertEqual([r for r in self._ledger() if r.get("stage") == "ROLLBACK"], [])
 
+    def test_fresh_run_empty_target_sha_refuses_before_ledger_and_reset(self) -> None:
+        # An empty --target-sha on a FRESH run is invalid regardless of sanction: otherwise
+        # it would record a rollback_intent then `git reset --hard ""` (fails), leaving a
+        # permanently-stuck open intent. The front gate must refuse BEFORE any ledger write
+        # or reset — proven here with otherwise-fully-sanctioned args (real worktree + token).
+        self._patch_reset(0)
+        rc = rollback_driver.run_rollback(
+            self.base, self.run_id, _WT, "", "VERIFIED",
+            "/repo/.git", "/repo/.git/worktrees/x", "yes")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.reset_calls, [])  # no reset seam call
+        self.assertEqual(
+            [r for r in self._ledger() if r.get("stage") == "ROLLBACK"], [])  # no ledger write
+        self.assertIsNone(ctxstore.pending_rollback(self.base, self.run_id))  # no stuck intent
+
     def test_failed_reset_leaves_recoverable_intent(self) -> None:
         self._patch_reset(1)  # git reset fails
         rc = rollback_driver.run_rollback(
