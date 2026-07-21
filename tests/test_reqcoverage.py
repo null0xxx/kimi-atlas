@@ -87,5 +87,27 @@ class TestCoverage(unittest.TestCase):
         self.assertEqual(reqcoverage.coverage(["the value must be used"], ""), [])
 
 
+class TestReqCoverageTabHeader(unittest.TestCase):
+    # ---- F8: a POSIX `diff -u` header may carry a trailing TAB + timestamp ----
+    def test_tab_timestamp_header_is_in_scope(self):
+        diff = (
+            "--- a/foo.py\t2026-01-01 00:00:00 +0000\n"
+            "+++ b/foo.py\t2026-01-01 00:00:01 +0000\n"
+            "@@ -0,0 +1 @@\n"
+            "+x = 1\n"
+        )
+        # foo.py is in scope, no criteria -> no defects at all once the tab is stripped.
+        self.assertEqual(reqcoverage.coverage([], diff, ["foo.py"]), [])
+
+    def test_tab_timestamp_path_canonicalized(self):
+        diff = "+++ b/bar.py\t2026-01-01 00:00:01 +0000\n"
+        self.assertEqual(reqcoverage._changed_paths(diff), ["bar.py"])
+
+    def test_plain_header_still_works(self):
+        # No-tab path must still be parsed unchanged.
+        diff = "+++ b/baz.py\n"
+        self.assertEqual(reqcoverage._changed_paths(diff), ["baz.py"])
+
+
 if __name__ == "__main__":
     unittest.main()

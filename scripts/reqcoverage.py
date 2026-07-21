@@ -78,7 +78,7 @@ def _changed_paths(diff_text: str) -> list[str]:
     """New-side file paths from the diff's '+++' headers (excludes /dev/null)."""
     paths: list[str] = []
     for p in _NEW_PATH_RE.findall(diff_text):
-        p = p.strip()
+        p = p.split("\t", 1)[0].strip()  # drop any trailing \t<timestamp> metadata
         if p and p != "/dev/null":
             paths.append(p)
     return paths
