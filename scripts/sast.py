@@ -15,6 +15,14 @@ and the SECURITY lens degrades to exactly today's judgment-only behavior. semgre
 must NEVER break the harness or manufacture a false failure — a missing or broken
 scanner can only *lose* coverage, never invent a blocking defect.
 
+**Egress.** ``--config auto`` still fetches rules from semgrep.dev on first use, so
+a SECURITY-lens scan of a private diff does reach the network for rule content —
+that dependency is intentional and disclosed. Usage telemetry, however, is disabled
+explicitly via ``--metrics off`` (semgrep's default is to beacon pseudonymous scan
+metadata whenever ``--config`` pulls from the Registry), so scanning a confidential
+diff never sends metrics to a third party. Operators needing a fully offline floor
+should vendor a local ruleset in place of ``--config auto``.
+
 Layering:
 
 * :func:`parse_semgrep_json` — **pure**: maps ``semgrep --json`` output to the
@@ -182,7 +190,7 @@ def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
     if not paths:
         return []
 
-    argv = [executable, "--config", "auto", "--json", "--quiet", "--", *paths]
+    argv = [executable, "--config", "auto", "--metrics", "off", "--json", "--quiet", "--", *paths]
     try:
         proc = subprocess.run(
             argv,
