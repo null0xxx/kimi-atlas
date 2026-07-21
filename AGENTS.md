@@ -102,5 +102,5 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-713 tests green · `make ci` clean · 17 tracked docs, no inventory drift · v1.0.0 released
+713 tests green · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven.
