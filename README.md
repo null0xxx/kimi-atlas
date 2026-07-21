@@ -1,16 +1,18 @@
 # kimi-atlas
 
-**A many-agent, quality-calibrated orchestrator for Kimi Code — with 115 official skill packages built in. No line ships until a *pure, deterministic* gate says so, and no LLM ever computes pass/fail.**
+**A many-agent, quality-calibrated orchestrator for Kimi Code — with 115 official skill packages built in. No line ships until a *pure, deterministic* gate says so, and no LLM ever computes pass/fail. Now with a first-class agentic backbone: a live ContextGraph, an explicit state machine, and forward-only rollback.**
 
 [![ci](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml/badge.svg)](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml)
 ![tests](https://img.shields.io/badge/tests-passing-brightgreen)
 ![skills](https://img.shields.io/badge/skill%20packages-115-blue)
 
-kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Kimi Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is three composable capabilities:
+kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Kimi Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is four composable capabilities:
 
 - **atlas** — the single-change core. One root SKILL drives a deterministic `INIT → … → OUTPUT` state machine over Kimi's built-in subagents, gated by a **6-lens verification harness** and a **pure quality backbone** that owns the pass/fail decision.
 - **ATLAS-WEAVE** — the multi-agent meta-machine. It decomposes a larger change into a **file-disjoint plan-DAG**, drains it with a **flat pool of ≤3 concurrent node runs**, and merges results through a **combined-tree differential gate** — degrading *byte-identically* to a single atlas run when the work doesn't decompose.
 - **The skill system** — **115 vendored official Kimi skill packages** under `skills/<name>/` (platform-registered, usable on their own), plus a **deterministic selector** (`scripts/skillselect.py`) that picks the right skill for a task intent and injects it into atlas runs — with a user-editable override file.
+
+- **The agentic backbone (Graph + Loop + Verification)** — atlas now carries a first-class, *live* **ContextGraph**: a pure read-time projection of the run's state (task hierarchy, tools used, errors) that is injected into the coder at the `CODED` stage and recomputed on every refine pass. It runs on an **explicit finite-state machine** (`scripts/fsm.py` — legal transitions *derived* from the canonical stages), with **two-phase forward-only rollback** confined to the isolated worktree (never your real tree), and a stdlib **`ast` syntax/lint lens** added to the deterministic floor. Its design was hardened by the plugin's *own* 6-lens harness across six rounds (**27 → 0 defects**) before a line was written.
 
 The design goal was set explicitly: *"the kind of system Kimi's own creators would build."* Its answer is **quality over quantity** — many agents, every one of whose output is caught by a deterministic gate, adversarial verification, and combined-tree integration.
 
@@ -22,6 +24,7 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 - [Using the 115 skills](#using-the-115-skills)
 - [Automatic skill selection](#automatic-skill-selection)
 - [How atlas guarantees quality](#how-atlas-guarantees-quality)
+- [The agentic backbone — Graph + Loop + Verification](#the-agentic-backbone--graph--loop--verification)
 - [ATLAS-WEAVE — the multi-agent layer](#atlas-weave--the-multi-agent-layer)
 - [Proven live](#proven-live)
 - [Honest limits](#honest-limits)
@@ -63,14 +66,24 @@ kimi -p "/skill:atlas ping"        --output-format text    # single-change core
 kimi -p "/skill:atlas-weave ping"  --output-format text    # multi-agent meta-machine
 ```
 
-Then hand it real work:
+Then hand it real work. **Inside a Kimi Code session**, type a slash command:
 
-```bash
-kimi -p "/skill:atlas <rough change> verify_cmd: <cmd> success: <criteria> scope: <paths>"
-kimi -p "/skill:atlas-weave <larger multi-file change> verify_cmd: <cmd> success: <criteria> scope: <paths>"
+```
+/skill:atlas fix the off-by-one in pagination  verify_cmd: pytest -q  success: page 2 returns rows 11–20  scope: api/pagination.py
+/skill:atlas-weave add a --json flag to the export, importer, and CLI  verify_cmd: make test  success: all three accept --json  scope: src/export.py src/import.py src/cli.py
+/skill:atlas-resume                # pick up the newest interrupted run from its on-disk ledger
 ```
 
-`-m kimi-code/k3` selects the 1M-context Kimi-3 model. **Every run is human-gated**: it produces a verified change and stops at the OUTPUT gate — it never writes your working tree without approval, and in headless mode it works in an isolated `git worktree`.
+**Headless / CI** — one-shot, non-interactive:
+
+```bash
+kimi -p "/skill:atlas <rough change> verify_cmd: <cmd> success: <criteria> scope: <paths>" -m kimi-code/k3
+kimi -p "/skill:atlas-weave <larger multi-file change> verify_cmd: <cmd> success: <criteria> scope: <paths>" -m kimi-code/k3
+```
+
+The four fields are the contract: `verify_cmd:` the command that must pass, `success:` the human-readable acceptance criteria, `scope:` the files atlas may touch (anything outside is a blocking scope-creep defect). All are optional — omit them and atlas asks once at the `CLARIFY` gate. `-m kimi-code/k3` selects the 1M-context Kimi-3 model.
+
+**Every run is human-gated.** atlas produces a *verified* change and stops at the `OUTPUT` gate — it never writes your working tree without your approval; in headless mode it works entirely inside an isolated `git worktree`; and if it can't reach a green gate it labels the result `⚠️ UNVERIFIED` rather than pretending. State is persisted to a `.atlas/<run_id>/` ledger, so a run **survives compaction** and can be resumed.
 
 ---
 
@@ -131,7 +144,7 @@ INIT → INTENT_CAPTURED → [CLARIFY] → TRIAGED → GROUNDED → CODED → VE
 
 The root holds immutable intent, dispatches `context-scout` (grounding), `elite-coder` (implementation), and three isolated adversarial critics, and persists everything to an on-disk `ctxstore` ledger so the run **survives compaction**. Three mechanical tiers, cheapest first — **no model judgment ever enters a pass/fail decision**:
 
-1. **The 6-lens verification harness.** A free deterministic floor (`runcheck` / `lint` / `reqcoverage` / `pathcheck` / fail-open semgrep `sast`) contributes blocking defects on its own, then feeds the 3-critic judgment wave (correctness / code-quality / security — each isolated, adversarially framed). Everything is folded by pure functions: `verdict.merge` → `verdict.gate`. A coder cannot rubber-stamp itself; the rubric is [`references/rubric.md`](references/rubric.md).
+1. **The 6-lens verification harness.** A free deterministic floor — `runcheck` / `lint` / `reqcoverage` / `pathcheck` / **`astlens` (stdlib `ast` syntax-&-lint)** / fail-open semgrep `sast` — contributes blocking defects on its own, then feeds the 3-critic judgment wave (correctness / code-quality / security — each isolated, adversarially framed). Everything is folded by pure functions: `verdict.merge` → `verdict.gate`. A coder cannot rubber-stamp itself; the rubric is [`references/rubric.md`](references/rubric.md).
 2. **Provably-halting refinement.** Any CRITICAL/HIGH defect — and *any* correctness/security defect at any severity (V7) — forces a refine pass; the loop is hard-capped at `MAX_PASSES=2` by construction.
 3. **Human gates at the only right places.** Clarify (once), pre-CODE plan approval, and the OUTPUT gate. Nothing auto-applies.
 
@@ -147,6 +160,22 @@ DECOMPOSED → BUDGETED → SCHEDULE* → INTEGRATE → AGGREGATE → OUTPUT
 4. **AGGREGATE** — one pure fold of every node's verdict + synthetic `UNVERIFIED` per unresolved node + a criteria-conservation backstop + the combined-tree result.
 
 Full spec (halting argument, memory model, risk register): [`references/atlas-weave.md`](references/atlas-weave.md).
+
+---
+
+## The agentic backbone — Graph + Loop + Verification
+
+Layered *around* the pure core (it **wraps, never replaces**), the agentic backbone makes an atlas run stateful, self-correcting, and harder to fool. It was designed against the plugin's *own* 6-lens harness — six rounds, `27 → 24 → 7 → 1 → 0` defects — and every module is stdlib-only, deterministic, and unit-tested.
+
+- **ContextGraph — a live, read-time projection.** [`scripts/contextgraph.py`](scripts/contextgraph.py) renders the current run into one queryable graph: the task hierarchy (thin pointers into the plan-DAG), the tools invoked and their outcomes, the errors — recomputed *from the on-disk ledger + event log at read time*, so there is no event-sourced state to drift. At the `CODED` stage the SAFE-2-wrapped graph is injected into the coder's packet as *architectural-state evidence* (never instructions), and it recomputes on every refine pass so the loop always sees the true state. It is a **hint, never a gate**; an empty or unreadable graph degrades to no injection. `ctxstore.log.jsonl` and the halting counter are provably untouched — events live in a separate `hooks.jsonl`.
+
+- **An explicit finite-state machine.** [`scripts/fsm.py`](scripts/fsm.py)'s `legal_transition` is *derived* from the canonical `ctxstore.STAGES` — one source of truth — plus exactly one hand-declared edge: the `REFINE → CODED` loop. An import-time guard forces `fsm` to update if the stages ever change, and a red-team scenario proves an illegal transition is blocked. `advance()` stays a permissive recorder; the FSM is enforced by tests and the negative gate, not by mutating the hot path.
+
+- **Two-phase forward-only rollback.** When a headless run hits a hard failure, [`scripts/rollback_driver.py`](scripts/rollback_driver.py) runs a crash-safe *intent → git-reset → complete* sequence, gated by a pure `sanctioned_rollback` predicate that only fires inside the isolated `.atlas/<run_id>/worktree` (never your real tree). The ledger is **append-only** — a rollback never rewrites history, so the `MAX_PASSES` halting bound survives it — and a torn rollback is idempotently redone on resume. Interactive runs never auto-reset: the residual is surfaced at the `OUTPUT` gate with an explicit *revert / keep / discard* choice.
+
+- **A single canonical SAFE-2 wrapper.** Every piece of untrusted text a model sees — a selected skill's body, the ContextGraph's tool/error content, a build's `runcheck` stdout/stderr tails fed back on a refine — passes through one [`scripts/safewrap.py`](scripts/safewrap.py) wrapper that frames it as DATA and neutralizes any break-out attempt. An injection in a failing test's output cannot alter the coder's intent, scope, or target.
+
+Full design + the 6-lens challenge record: [`docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md`](docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md); the whole-system map: [`references/system-map.md`](references/system-map.md).
 
 ---
 
@@ -182,6 +211,14 @@ scripts/skillextract.py     zip → skills/<name>/ extractor + manifest builder 
 scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree
 scripts/skillselect.py      ranks the registry for a task intent (advisory; pin/exclude/boost overrides)
 scripts/skillpkgs.py        shared skill-package-aware markdown walk for the doc gates
+scripts/contextgraph.py     the live ContextGraph read-time projection (injected into the coder at CODED)
+scripts/ctxevents.py        records tool_call/error events into the run's hooks.jsonl (never log.jsonl)
+scripts/fsm.py              explicit legal_transition / legal_path, derived from ctxstore.STAGES
+scripts/rollback_driver.py  two-phase forward-only rollback + the pure sanctioned_rollback gate
+scripts/safewrap.py         the single canonical SAFE-2 untrusted-content wrapper
+scripts/astlens.py          stdlib ast syntax/parse + lint floor — a deterministic verification lens
+scripts/rubric.py           single-source rubric vocabulary (imported by verdict / quality / negative-gate)
+scripts/frontmatter.py      shared BOM+CRLF-aware frontmatter primitive
 tests/                      the full unit-test suite + the red-team negative-gate fixtures
 references/*.md             the design corpus — architecture, atlas-weave spec, rubric, runtime, live validation
 references/skills-manifest.json  sha256 anchor for the extracted skills/ tree (117 zips → 115 packages)
@@ -238,6 +275,9 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 - [`references/architecture.md`](references/architecture.md) — the atlas design: state machine, agents, invariants
 - [`references/atlas-weave.md`](references/atlas-weave.md) — the multi-agent spec: DAG, scheduler, combined-tree differential
 - [`references/rubric.md`](references/rubric.md) — the 6 falsifiable verification lenses and the PASS bar
+- [`references/system-map.md`](references/system-map.md) · [`references/system-graph.json`](references/system-graph.json) — the whole-system map (every subsystem, node, and edge)
+- [`docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md`](docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md) — the Graph+Loop+Verification design, hardened through six rounds of the plugin's own 6-lens harness
+- [`docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md`](docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md) — the 31-task TDD build plan · [`docs/superpowers/plans/2026-07-20-flaw-register.md`](docs/superpowers/plans/2026-07-20-flaw-register.md) — the verified flaw register (all fixed)
 - [`references/skill-registry.md`](references/skill-registry.md) — registry schema, selection algorithm, override semantics, rebuild
 - [`references/live-validation.md`](references/live-validation.md) — the live-on-Kimi-3 validation reports
 - [`references/kimi-runtime.md`](references/kimi-runtime.md) · [`references/orchestration.md`](references/orchestration.md) — runtime facts and orchestration notes

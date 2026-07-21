@@ -1,11 +1,11 @@
 {
   "version": 1,
   "kind": "system-graph",
-  "note": "One-time architectural snapshot of kimi-atlas produced by the graphify audit (multi-agent study, 2026-07-20). Nodes = components, edges = typed relationships. Not auto-rebuilt from the tree; the human navigator is references/system-map.md.",
+  "note": "Architectural snapshot of kimi-atlas (graphify audit, updated 2026-07-21 with the merged agentic backbone: ContextGraph / fsm / rollback / astlens / safewrap / rubric / frontmatter). Nodes = components, edges = typed relationships. Human navigator: references/system-map.md.",
   "counts": {
-    "subsystems": 8,
-    "nodes": 122,
-    "edges": 249,
+    "subsystems": 11,
+    "nodes": 133,
+    "edges": 285,
     "dangling_edge_endpoints": 13
   },
   "subsystems": [
@@ -13,6 +13,21 @@
       "id": "agent-roles",
       "title": "agent-roles (subagent role prompts)",
       "summary": "The `agents/*.md` files are the seven subagent role prompts that the atlas and atlas-weave orchestrators dispatch. kimi-atlas ships NO custom subagent runtime: each role is a plain Markdown file whose YAML frontmatter (name/description/tools/model/temperature/justification) is DOCUMENTATION ONLY — the orchestrator reads the file, strips the frontmatter, prepends the remaining body to a task packet, and calls the Kimi built-in `Agent(subagent_type=<mapped>)`. Real permissions come solely from the mapped built-in type (explore/coder/plan); the `tools:`/`model:` lines are never honored by the runtime. Roles split into one grounder (context-scout→explore), one implementer (elite-coder→coder), one decomposer (planner→plan), three per-node isolated 6-lens critics (correctness/code-quality/security→plan), and one cross-node seam critic (integration-critic→plan). Every read-only role (explore/plan) writes NOTHING and RETURNS its result as its final message; the root persists it. Correctness, security, and integration critics emit strict `critic`-schema JSON; the scout and planner emit their own bespoke JSON shapes."
+    },
+    {
+      "id": "agentic-contextgraph",
+      "title": "agentic-contextgraph",
+      "summary": "The ContextGraph is a PURE read-time projection that assembles a single current-each-step architectural-state view of a run from already-read on-disk ledger facts — ctxstore's state.json + log.jsonl (read, never written) + the per-run hooks.jsonl + plan.dag.json + critic_*.json. The pure core `build()` emits deterministic nodes/edges (task pointers into plandag, tool_call/error events from root-observable hooks in append order, verdict pointers, artifact pointers), dropping every telemetry `ts` and neutralizing untrusted tool/error text through the shared SAFE-2 wrapper. Thin I/O hands cache the graph atomically (byte-identical to rebuild) and render GRAPH_LOOKUP, which atlas.SKILL injects at the CODED stage as architectural-state DATA (a HINT, never a gate) and re-runs on every REFINE re-dispatch. ctxevents is the single non-hook writer that appends root-observable {kind,ts,payload} events to hooks.jsonl, never touching log.jsonl or the get_refine_passes counter."
+    },
+    {
+      "id": "agentic-fsm-rollback",
+      "title": "agentic-fsm-rollback",
+      "summary": "The explicit canonical FSM plus a two-phase, forward-only, headless-worktree-only rollback mechanism layered onto the kimi-atlas run ledger. `fsm.py` is a pure legality oracle: it derives the legal edge set from `ctxstore.STAGES` + `CONDITIONAL_STAGES` (single source of truth) plus one literal declared backward edge `REFINE->CODED`, guarded at import time. `rollback_driver.py` is the impure git seam — a pure `sanctioned_rollback` predicate gates a two-phase `run_rollback` (intent -> monkeypatchable `_git_reset` -> complete) with a ledger-derived `resume_rollback`; `ctxstore` stays pure persistence, appending ROLLBACK-stamped ledger ops (`last_green_stage`/`rollback_to`/`pending_rollback`) that provably never touch the REFINE counter. Both cores are enforced as pure-scenario negative-gate checks in `run_weave_negative_gate.py` (illegal-transition, rollback-refused) and wired into the atlas SKILL prose as checkpoints, manual headless rollback, and an interactive human revert/keep/discard choice at the OUTPUT gate."
+    },
+    {
+      "id": "agentic-verification",
+      "title": "agentic-verification",
+      "summary": "The agentic-verification subsystem is the deterministic floor + shared primitives that back the 6-lens VERIFIED gate of the atlas orchestrator. Two new pure lenses/primitives shipped: astlens (an AST syntax/parse + lint-floor lens whose defects fold into verdict.merge and thus into gate/should_refine identically to any critic or SAST defect) and safewrap (the SINGLE canonical SAFE-2 untrusted-content wrapper that both the Ph2 read path — contextgraph — and the Ph4 REFINE write path now delegate to). Two dedup hoists back them: rubric (single-source rubric vocabulary imported by verdict, quality and run_negative_gate) and frontmatter (BOM+CRLF-aware fence primitive shared by skillregistry and run_negative_gate). All four are stdlib-only, pure (text in → data out), unit-testable without a filesystem, and carry zero model judgment — that purity is what makes the refine loop provably halt and the gate deterministic."
     },
     {
       "id": "atlas-core-statemachine",
@@ -71,6 +86,83 @@
       "subsystem": "agent-roles",
       "path": "agents/planner.md",
       "responsibility": "Read-only decomposer (ATLAS-WEAVE): turns the frozen task packet into a file-disjoint plan-DAG (or a single node) plus per-node risk features, as one JSON object."
+    },
+    {
+      "id": "contextgraph",
+      "kind": "module",
+      "subsystem": "agentic-contextgraph",
+      "path": "scripts/contextgraph.py",
+      "responsibility": "Pure read-time ContextGraph projection over ctxstore ledger + hooks.jsonl, plus thin I/O hands that atomically cache the graph and render the SAFE-2 GRAPH_LOOKUP. No reducer, no per-action mutation; the pure core does zero I/O."
+    },
+    {
+      "id": "ctxevents",
+      "kind": "cli",
+      "subsystem": "agentic-contextgraph",
+      "path": "scripts/ctxevents.py",
+      "responsibility": "The ONE non-hook writer of a run's hooks.jsonl: the orchestrator records root-observable stage-tagged tool_call/error events (which the shell PostToolUse telemetry hook cannot label with a stage) as {kind,ts,payload} lines."
+    },
+    {
+      "id": "hooks.jsonl",
+      "kind": "schema",
+      "subsystem": "agentic-contextgraph",
+      "path": ".atlas/<run_id>/hooks.jsonl",
+      "responsibility": "Per-run append-only event log of root-observable {kind,ts,payload} tool_call/error events — the tool_call/error node SOURCE for the graph — dual-written by telemetry.sh and ctxevents."
+    },
+    {
+      "id": "safewrap",
+      "kind": "module",
+      "subsystem": "agentic-contextgraph",
+      "path": "scripts/safewrap.py",
+      "responsibility": "Canonical SAFE-2 untrusted-content wrapper shared by the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE->CODED runcheck tails); the single neutralization rule that cannot drift."
+    },
+    {
+      "id": "fsm",
+      "kind": "module",
+      "subsystem": "agentic-fsm-rollback",
+      "path": "scripts/fsm.py",
+      "responsibility": "Pure canonical-transition legality oracle for the atlas stage machine; classifies single edges and whole trajectories as legal/illegal. Additive and PURE — never touches ctxstore.advance (the permissive recorder); legality is a test invariant + negative-gate check, never a hard error at runtime."
+    },
+    {
+      "id": "rollback_driver",
+      "kind": "module",
+      "subsystem": "agentic-fsm-rollback",
+      "path": "scripts/rollback_driver.py",
+      "responsibility": "The impure git seam under ctxstore's pure ledger: pure sanction predicate + two-phase forward-only rollback orchestration + idempotent resume. The ONLY subprocess in the rollback path; ctxstore never shells out."
+    },
+    {
+      "id": "test_fsm",
+      "kind": "module",
+      "subsystem": "agentic-fsm-rollback",
+      "path": "tests/test_fsm.py",
+      "responsibility": "Pins fsm legality: forward-adjacent + conditional-skip + declared REFINE->CODED are legal; forward skips, backward jumps, unknown stages, self-loops illegal; import-time node-membership guard; refine-loop path legality (tests/test_fsm.py:16-99)."
+    },
+    {
+      "id": "test_rollback",
+      "kind": "module",
+      "subsystem": "agentic-fsm-rollback",
+      "path": "tests/test_rollback.py",
+      "responsibility": "Pins the sanction predicate (token/primary-tree/isolation-path refusals, path normalization) and the two-phase driver (both-markers-on-success, refusal writes no ledger, empty target_sha front gate, failed reset leaves recoverable intent, torn-then-resume idempotence) via monkeypatched _git_reset (tests/test_rollback.py:22-172)."
+    },
+    {
+      "id": "test_skill_rollback_doc",
+      "kind": "module",
+      "subsystem": "agentic-fsm-rollback",
+      "path": "tests/test_skill_rollback_doc.py",
+      "responsibility": "Prose-pin test: asserts SKILL.md honestly documents checkpoints (last_green_stage), manual rollback (rollback_driver + rollback_intent/complete), headless-only + 'never auto-reset', and the interactive revert/keep/discard human choice; and that every ctxstore/rollback_driver symbol the prose names actually exists (tests/test_skill_rollback_doc.py:21-71)."
+    },
+    {
+      "id": "astlens",
+      "kind": "module",
+      "subsystem": "agentic-verification",
+      "path": "scripts/astlens.py",
+      "responsibility": "Deterministic COMMIT-time AST lens over the {path:text} map of changed .py source: ast.parse+compile() syntax/parse floor plus a conservative undefined-name (DOES-IT-RUN) and unused-import (CODE-QUALITY) pass. Emits canonical {id,category,severity,location,fix} defects the backbone merges identically to a critic/sast defect. Labelled 'syntax/parse', never 'type-check'."
+    },
+    {
+      "id": "frontmatter",
+      "kind": "module",
+      "subsystem": "agentic-verification",
+      "path": "scripts/frontmatter.py",
+      "responsibility": "The one canonical YAML-frontmatter fence primitive (F7). BOM-aware (optional leading U+FEFF) AND CRLF-aware (\\r?\\n), closing the opposite blind spots the two former copies (skillregistry's and run_negative_gate's) each had. Locates the fence only — never interprets content (SAFE-2 DATA)."
     },
     {
       "id": "atlas.SKILL",
@@ -962,6 +1054,12 @@
       "note": "check-shell runs `sh -n` over hooks/*.sh"
     },
     {
+      "from": "astlens",
+      "to": "verdict",
+      "type": "wires-into",
+      "note": "astlens.lint defects merged verbatim into verdict.merge's script_defects (SKILL.md:557,569 → verdict.py:83), so a HIGH DOES-IT-RUN hit blocks gate/should_refine identically to a critic defect"
+    },
+    {
       "from": "atlas.SKILL",
       "to": "context-scout",
       "type": "injects",
@@ -969,9 +1067,21 @@
     },
     {
       "from": "atlas.SKILL",
+      "to": "contextgraph",
+      "type": "injects",
+      "note": "CODED stage calls graph_lookup('.atlas','${KIMI_SESSION_ID}') and injects the SAFE-2-wrapped graph verbatim as DATA HINT; re-runs on REFINE"
+    },
+    {
+      "from": "atlas.SKILL",
       "to": "elite-coder",
       "type": "injects",
       "note": "TOP-1 skill body ACTIVE + top-3 advisory, SAFE-2 framed"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "astlens",
+      "type": "invokes",
+      "note": "Step 2 calls astlens.lint(changed_files) as Lens 5b, writes astlens_defects into det_evidence.json (SKILL.md:444,469,495)"
     },
     {
       "from": "atlas.SKILL",
@@ -990,6 +1100,12 @@
       "to": "correctness-critic",
       "type": "invokes",
       "note": "VERIFIED wave: Agent(subagent_type=plan), temperature 0.2 per V5 (SKILL.md:469-497)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "ctxstore",
+      "type": "invokes",
+      "note": "checkpoint prose calls ctxstore.advance(..., updates={'checkpoints':...}) and reads ctxstore.last_green_stage to target the last STABLE ref, never baseline_sha (SKILL.md:655-662)"
     },
     {
       "from": "atlas.SKILL",
@@ -1023,9 +1139,21 @@
     },
     {
       "from": "atlas.SKILL",
+      "to": "rollback_driver",
+      "type": "invokes",
+      "note": "manual rollback prose invokes `python3 -m scripts.rollback_driver ... --cwd .atlas/${KIMI_SESSION_ID}/worktree` with ATLAS_SANCTIONED_ROLLBACK set; --resume redoes an open intent (SKILL.md:663-672)"
+    },
+    {
+      "from": "atlas.SKILL",
       "to": "runcheck",
       "type": "invokes",
       "note": "cmd=discover_verify_cmd; rc=runcheck.run(...,timeout_s=1500,mem_limit_mb=2048); runcheck.green(rc) (SKILL L429-431,458,531)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "safewrap",
+      "type": "invokes",
+      "note": "Ph4 REFINE re-dispatch wraps runcheck tails via safewrap.refine_feedback_block(rc) / coder_redispatch_packet — same wrapper as the Ph2 read path (SKILL.md:637-638)"
     },
     {
       "from": "atlas.SKILL",
@@ -1056,6 +1184,18 @@
       "to": "stage.INIT_INTENT",
       "type": "transitions",
       "note": "run starts at INIT→INTENT_CAPTURED"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "ctxevents",
+      "type": "wires-into",
+      "note": "orchestrator MAY ctxevents.record any root-observable dispatch/error the telemetry hook does not cover (optional; not required for GRAPH_LOOKUP to be live)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "rollback_driver",
+      "type": "wires-into",
+      "note": "OUTPUT gate offers interactive human revert/keep/discard on the residual change since the headless git reset is unavailable on a real tree — kimi-atlas never auto-resets an interactive tree (SKILL.md:676-678, 710-714)"
     },
     {
       "from": "atlas.node",
@@ -1130,6 +1270,42 @@
       "note": "returns grounding digest as final message; root persists as context.json (explore has no Write, F2)"
     },
     {
+      "from": "contextgraph",
+      "to": "safewrap",
+      "type": "delegates",
+      "note": "wrap_untrusted delegates to the ONE canonical safewrap.wrap_untrusted with fixed source 'context-graph'; SAFE2_OPEN/SAFE2_CLOSE re-exported from safewrap"
+    },
+    {
+      "from": "contextgraph",
+      "to": "ctxstore",
+      "type": "imports",
+      "note": "project() calls ctxstore.write_artifact_atomic to cache context-graph.json byte-identically; ctxstore ledger is otherwise READ ONLY"
+    },
+    {
+      "from": "contextgraph",
+      "to": "ctxstore",
+      "type": "reads-artifact",
+      "note": "load_ledger_facts reads state.json (draft_ref, run_id), log.jsonl (agent/artifact telemetry), plan.dag.json (nodes), critic_*.json (verdicts) — never mutating"
+    },
+    {
+      "from": "contextgraph",
+      "to": "hooks.jsonl",
+      "type": "reads-artifact",
+      "note": "read_jsonl(hooks.jsonl) is the tool_call/error node source; events consumed in append order, ts dropped"
+    },
+    {
+      "from": "contextgraph",
+      "to": "contextgraph",
+      "type": "validates",
+      "note": "reconcile() flags dispatched subagent stages (log agent=) with no covering hooks tool_call as partial_stages -> used_tools PARTIAL"
+    },
+    {
+      "from": "contextgraph",
+      "to": "contextgraph",
+      "type": "writes-artifact",
+      "note": "project() writes context-graph.json cache; load_or_rebuild serves it only when schema+run_id valid, else rebuild wins"
+    },
+    {
       "from": "correctness-critic",
       "to": "rubric",
       "type": "doc-links",
@@ -1158,6 +1334,18 @@
       "to": "atlas.SKILL",
       "type": "writes-artifact",
       "note": "returns critic JSON as final message; root persists as critic_correctness.json"
+    },
+    {
+      "from": "ctxevents",
+      "to": "hooks.jsonl",
+      "type": "writes-artifact",
+      "note": "record() appends root-observable {kind,ts,payload} events; single-writer contract with telemetry.sh; never writes log.jsonl"
+    },
+    {
+      "from": "ctxstore",
+      "to": "ctxstore",
+      "type": "validates",
+      "note": "rollback_to stamps stage=='ROLLBACK' so get_refine_passes (which counts 'REFINE' lines) is provably unaffected — refine counter monotonic across rollbacks (ctxstore.py:153-180, 212-249)"
     },
     {
       "from": "data.skill-registry-json",
@@ -1472,6 +1660,18 @@
       "note": "consumes task packet: intent, success_criteria, scope_paths, verify_cmd, debug_tokens, test_glob"
     },
     {
+      "from": "fsm",
+      "to": "ctxstore",
+      "type": "anchors",
+      "note": "the single non-derivable declared edge REFINE->CODED is anchored to the ledger's advance(...,'REFINE') then loop-back-to-CODED behavior, cited to SKILL.md:594-598 in the module docstring (fsm.py:22-23)"
+    },
+    {
+      "from": "fsm",
+      "to": "ctxstore",
+      "type": "imports",
+      "note": "from scripts.ctxstore import CONDITIONAL_STAGES, STAGES — the derived legal edge set is a function of STAGES (fsm.py:20); a STAGES change reshapes the graph and the import-time guard"
+    },
+    {
       "from": "guard-destructive.hook",
       "to": "probes",
       "type": "doc-links",
@@ -1581,15 +1781,45 @@
     },
     {
       "from": "quality",
+      "to": "rubric",
+      "type": "imports",
+      "note": "imports BLOCKING/CRITIC_TOP_KEYS/DEFECT_KEYS/DIMENSIONS/SEVERITIES (quality.py:29-35)"
+    },
+    {
+      "from": "quality",
       "to": "schemas",
       "type": "validates",
       "note": "enforce_critic_schema against critic schema"
+    },
+    {
+      "from": "quality",
+      "to": "verdict",
+      "type": "validates",
+      "note": "verdict.merge emits the canonical {dimensions,defects,verdict} shape that quality.enforce_critic_schema validates (verdict.py:12-13,71)"
     },
     {
       "from": "resume",
       "to": "plan.dag.json",
       "type": "reads-artifact",
       "note": "select_graph_run scans on-disk runs; resume() resets orphaned RUNNING jobs in the DAG"
+    },
+    {
+      "from": "rollback_driver",
+      "to": "ctxstore",
+      "type": "imports",
+      "note": "from scripts import ctxstore (rollback_driver.py:35, path shim 31-33); the impure driver calls the pure ledger ops"
+    },
+    {
+      "from": "rollback_driver",
+      "to": "ctxstore",
+      "type": "invokes",
+      "note": "run_rollback calls ctxstore.rollback_to(...,'rollback_intent') before reset and (...,'rollback_complete') after; resume_rollback reads ctxstore.pending_rollback and records complete (rollback_driver.py:126-153)"
+    },
+    {
+      "from": "rollback_driver",
+      "to": "ctxstore",
+      "type": "writes-artifact",
+      "note": "the two-phase ROLLBACK ledger markers are appended to log.jsonl via ctxstore.rollback_to; ctxstore never shells out, driver holds the only subprocess"
     },
     {
       "from": "rubric.doc",
@@ -1611,9 +1841,45 @@
     },
     {
       "from": "run_negative_gate",
+      "to": "frontmatter",
+      "type": "imports",
+      "note": "_FRONTMATTER_RE = frontmatter.FRONTMATTER_RE; strip_frontmatter uses it on critic role files (run_negative_gate.py:90,134,223)"
+    },
+    {
+      "from": "run_negative_gate",
+      "to": "rubric",
+      "type": "imports",
+      "note": "_BLOCKING = rubric.BLOCKING (run_negative_gate.py:103)"
+    },
+    {
+      "from": "run_negative_gate",
       "to": "fixtures",
       "type": "reads-artifact",
       "note": "discover_fixtures / load_manifest read tests/fixtures/*/fixture.json + code"
+    },
+    {
+      "from": "run_weave_negative_gate",
+      "to": "fsm",
+      "type": "imports",
+      "note": "from scripts import fsm (run_weave_negative_gate.py:69-77); _eval_illegal_transition dispatches to fsm.legal_transition"
+    },
+    {
+      "from": "run_weave_negative_gate",
+      "to": "rollback_driver",
+      "type": "imports",
+      "note": "from scripts import rollback_driver (run_weave_negative_gate.py:69-77); _eval_rollback_refused dispatches to rollback_driver.sanctioned_rollback"
+    },
+    {
+      "from": "run_weave_negative_gate",
+      "to": "fsm",
+      "type": "validates",
+      "note": "illegal-transition scenario (GROUNDED->VERIFIED) BLOCKS iff fsm.legal_transition is False — enforces the canonical FSM as a pure negative-gate check (run_weave_negative_gate.py:146-153, 256-265)"
+    },
+    {
+      "from": "run_weave_negative_gate",
+      "to": "rollback_driver",
+      "type": "validates",
+      "note": "rollback-refused scenario (primary tree git_common_dir==git_dir, no token) BLOCKS iff sanctioned_rollback is False — enforces the headless-worktree-only guard as a pure negative-gate check (run_weave_negative_gate.py:156-167, 266-277)"
     },
     {
       "from": "runcaps",
@@ -1632,6 +1898,12 @@
       "to": "differential",
       "type": "reads-artifact",
       "note": "revert_red (always False in a single run) is the run-pair signal differential.regressions computes across two runcheck.run calls (runcheck L34)"
+    },
+    {
+      "from": "safewrap",
+      "to": "runcheck",
+      "type": "reads-artifact",
+      "note": "refine_feedback_block/coder_redispatch_packet read runcheck stdout_tail/stderr_tail (attacker-influenceable combined child output) and quarantine them as DATA (safewrap.py:85-91)"
     },
     {
       "from": "scheduler",
@@ -1728,6 +2000,12 @@
       "to": "skills-manifest.json",
       "type": "anchors",
       "note": "category source + count check"
+    },
+    {
+      "from": "skillregistry",
+      "to": "frontmatter",
+      "type": "imports",
+      "note": "_FRONTMATTER_RE = frontmatter.FRONTMATTER_RE; parse_frontmatter builds on it (skillregistry.py:54,74)"
     },
     {
       "from": "skillregistry",
@@ -2060,6 +2338,12 @@
       "note": "end-to-end weave proof: builds real temp git repos + JUnit scaffolds, 4 scenarios (clean greens / hidden overlap blocks / combined regression blocks / one-node==atlas)"
     },
     {
+      "from": "test_fsm",
+      "to": "fsm",
+      "type": "validates",
+      "note": "pins derived vs declared edges, the import-time node guard, and refine-loop path legality (tests/test_fsm.py:16-99)"
+    },
+    {
       "from": "test_integrate",
       "to": "integrate",
       "type": "verifies",
@@ -2132,6 +2416,12 @@
       "note": "deterministic mtime tie-break"
     },
     {
+      "from": "test_rollback",
+      "to": "rollback_driver",
+      "type": "validates",
+      "note": "pins sanction refusals, two-phase ordering, empty-target front gate, recoverable intent on failed reset, and resume idempotence via monkeypatched _git_reset (tests/test_rollback.py:22-172)"
+    },
+    {
       "from": "test_run_negative_gate",
       "to": "fixtures",
       "type": "reads-artifact",
@@ -2172,6 +2462,18 @@
       "to": "scheduler",
       "type": "verifies",
       "note": "430 lines — weave concurrency scheduling"
+    },
+    {
+      "from": "test_skill_rollback_doc",
+      "to": "atlas.SKILL",
+      "type": "validates",
+      "note": "prose-pin: asserts SKILL.md documents checkpoints/manual-rollback/headless-only/never-auto-reset/revert-keep-discard and that named ctxstore/rollback_driver symbols exist (tests/test_skill_rollback_doc.py:21-71)"
+    },
+    {
+      "from": "test_skill_rollback_doc",
+      "to": "ctxstore",
+      "type": "validates",
+      "note": "asserts last_green_stage reads the checkpoints map and pins the ctxstore symbols the prose references (tests/test_skill_rollback_doc.py:50-71)"
     },
     {
       "from": "test_skillextract",
@@ -2262,6 +2564,12 @@
       "to": "ctxstore",
       "type": "imports",
       "note": "from scripts.ctxstore import MANDATORY_STAGES, STAGES"
+    },
+    {
+      "from": "verdict",
+      "to": "rubric",
+      "type": "imports",
+      "note": "from scripts.rubric import BLOCKING, DIMENSIONS (verdict.py:23) — single-sourced vocabulary"
     },
     {
       "from": "verdict",

@@ -15,15 +15,25 @@ vendored official skill packages** built in. Public repo: <https://github.com/nu
 `~/.kimi-code/plugins/managed/kimi-atlas`); from source: `./scripts/install.sh`
 (installs to `~/.kimi-code/plugins/kimi-atlas`).
 
-Three layers, all first-party:
+Four layers, all first-party:
 
 - **atlas** (`skills/atlas/SKILL.md`) — single-change core: deterministic
   `INIT → INTENT_CAPTURED → [CLARIFY] → TRIAGED → GROUNDED → CODED → VERIFIED → [REFINE]* → OUTPUT`
   state machine; 6-lens verification harness (deterministic `runcheck`/`lint`/`reqcoverage`/
-  `pathcheck` floor + 3 isolated adversarial critics); **no LLM ever computes pass/fail**
+  `pathcheck`/`astlens` floor + 3 isolated adversarial critics); **no LLM ever computes pass/fail**
   (`verdict.merge`/`gate` are pure). Never auto-applies; human gates only.
 - **ATLAS-WEAVE** (`skills/atlas-weave/SKILL.md`) — multi-agent meta-machine: file-disjoint
   plan-DAG, ≤3 concurrent inner atlas runs, combined-tree differential integration.
+- **The agentic backbone (Graph + Loop + Verification)** — wraps the pure core, never replaces it
+  (merged `da90f6c`, 6-lens-hardened `27→0`): **ContextGraph** (`scripts/contextgraph.py`) — pure
+  read-time projection over the ledger + `hooks.jsonl`, injected as SAFE-2 DATA into the CODED coder
+  packet (recomputed each REFINE; a hint, never a gate); **`scripts/ctxevents.py`** records
+  tool_call/error events to `hooks.jsonl` (never `log.jsonl`); **`scripts/fsm.py`** — `legal_transition`
+  derived from `ctxstore.STAGES` + one declared `REFINE→CODED` edge; **`scripts/rollback_driver.py`** —
+  two-phase forward-only rollback (pure `sanctioned_rollback` + monkeypatchable git seam, worktree-only,
+  append-only ledger); **`scripts/safewrap.py`** — the single canonical SAFE-2 wrapper; **`scripts/astlens.py`**
+  — `ast` syntax/lint lens folded into VERIFIED; **`scripts/rubric.py`**/**`scripts/frontmatter.py`** —
+  single-source rubric vocab / shared BOM+CRLF frontmatter primitive.
 - **The skill system** — 115 vendored skill packages + registry/selector (below).
 
 ## Commands (the daily five)
@@ -85,6 +95,13 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 - Scripts run via `PYTHONPATH=<plugin-root> python3 -c "from scripts import <mod>"`.
 - Refine loop: any CRITICAL/HIGH defect, or any CORRECTNESS/SECURITY defect at any severity,
   forces a pass; hard cap `MAX_PASSES=2`.
+- Agentic backbone wiring: at CODED the SAFE-2-wrapped `contextgraph.graph_lookup(".atlas",
+  "${KIMI_SESSION_ID}")` is injected into the elite-coder packet as architectural-state DATA
+  (recomputed on every REFINE; a hint, never a gate). `fsm.legal_transition` is a test + negative-gate
+  invariant — `advance()` stays a permissive recorder. Rollback: a headless hard-fail calls
+  `rollback_driver.run_rollback` (worktree-only, gated by `sanctioned_rollback`); interactive runs
+  surface the residual for human revert/keep/discard at OUTPUT. Events → `hooks.jsonl` (via
+  `hooks/telemetry.sh` + `scripts/ctxevents.py`), never `log.jsonl`.
 
 ## Open items (as of v1.0.0)
 
@@ -102,5 +119,11 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
-(tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven.
+unit-test suite green (886) · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
+(tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
+backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
+`fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed.**
+Design + build record: `docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md`,
+`docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md`; whole-system map:
+`references/system-map.md`. Remaining opportunities (not defects): deeper ContextGraph consumption
+(critic packets, orchestrator `ctxevents`), the real `rollback_driver` git seam is monkeypatch-tested.
