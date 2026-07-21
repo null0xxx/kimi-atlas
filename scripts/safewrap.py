@@ -62,6 +62,20 @@ def wrap_untrusted(source: str, body: str) -> str:
     )
 
 
+# Public view of the canonical fence delimiters, so other ingest paths (e.g. the Ph2
+# read path in scripts/contextgraph.py) can re-export THESE rather than mint their own.
+CLOSE_MARKER = _CLOSE
+
+
+def open_marker(source: str) -> str:
+    """The canonical SAFE-2 opening fence for ``source`` (pure).
+
+    Byte-identical to the opening marker :func:`wrap_untrusted` emits for the same
+    ``source`` (the label is sanitized identically), so a consumer may split on it.
+    """
+    return _OPEN % _sanitize_source(source)
+
+
 def refine_feedback_block(runcheck: dict) -> str:
     """Wrap ``runcheck``'s stdout/stderr tails as SAFE-2 untrusted DATA for the coder.
 

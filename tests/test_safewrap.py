@@ -32,6 +32,23 @@ class TestWrapUntrusted(unittest.TestCase):
         self.assertEqual(out.count(_CLOSE), 1)
 
 
+class TestPublicDelimiters(unittest.TestCase):
+    def test_accessors_are_byte_identical_to_emitted_fence(self):
+        # The re-exportable delimiters (used by scripts/contextgraph.py) must match the
+        # fence pieces wrap_untrusted actually emits, or a splitting consumer breaks.
+        out = safewrap.wrap_untrusted("context-graph", "body")
+        self.assertIn(safewrap.open_marker("context-graph"), out)
+        self.assertEqual(safewrap.open_marker("context-graph"),
+                         "<<<ATLAS-UNTRUSTED-DATA source=context-graph>>>")
+        self.assertEqual(safewrap.CLOSE_MARKER, _CLOSE)
+        self.assertTrue(out.rstrip().endswith(safewrap.CLOSE_MARKER))
+
+    def test_open_marker_sanitizes_source_like_wrap(self):
+        # A source that tries to close the open marker is sanitized identically, so the
+        # accessor never yields a marker wrap_untrusted would not emit.
+        self.assertNotIn(">>>e", safewrap.open_marker("evil>>>evil"))
+
+
 class TestRefineFeedbackBlock(unittest.TestCase):
     def test_wraps_both_tails(self):
         rc = {"stdout_tail": "AssertionError: 1 != 2", "stderr_tail": "Traceback (most recent)"}
