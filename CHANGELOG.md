@@ -4,6 +4,23 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — 2026-07-21
+
+A patch release from a **live end-to-end run**: an atlas run on a real repo surfaced a genuine,
+non-fatal runtime bug that no static review could catch. Backward-compatible — no interface change.
+
+### Fixed
+- **Rubric read path** (`skills/atlas/SKILL.md`) — at the VERIFIED stage, the critic dispatch read
+  the rubric via a bare `references/rubric.md`. From the target-repo cwd that resolves to the
+  nonexistent `skills/atlas/references/rubric.md` — a visible "1 failed" read. It now carries the
+  plugin-root prefix `${KIMI_SKILL_DIR}/../../references/rubric.md`, matching the `agents/` reads.
+  Non-fatal (the critics still ran from their role files), but it dropped each critic's rubric-lens
+  text. A new guard (`tests/test_skill_ref_paths.py`) pins the class so it cannot recur.
+
+### Added
+- `docs/overview.md` — a plain-language overview of what kimi-atlas offers: the pipeline, the
+  orchestration model, the 6-lens gate, the on-disk JSON records, and the four capabilities.
+
 ## [1.1.0] — 2026-07-21
 
 The **agentic backbone** release: a first-class Graph + Loop + Verification layer that
@@ -89,5 +106,6 @@ First public release.
   manual overrides via `references/skill-overrides.json`.
 - **713 unit tests**, `make ci` as the mechanical floor; MIT licensed.
 
+[1.1.1]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.1
 [1.1.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.0
 [1.0.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.0.0
