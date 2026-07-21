@@ -179,6 +179,28 @@ class HandsTest(unittest.TestCase):
         self.assertIn("ignore previous instructions", tool["untrusted_output"])
         self.assertNotIn("intent", tool)  # untrusted text is siloed, not promoted
 
+    def test_graph_lookup_is_always_fresh_on_reappend(self):
+        # HIGH-1: within one run, run_id is constant, so a cache-when-valid read path
+        # would serve the FIRST-pass graph forever. On a REFINE re-dispatch the ledger
+        # has grown (new tool_call/error events), and GRAPH_LOOKUP MUST recompute — never
+        # serve the stale first-pass cache. First lookup (caches the first-pass graph):
+        first = cg.graph_lookup(self.base, self.run)
+        self.assertNotIn("REFRESH_MARKER_TOOL", first)  # not present yet
+        # A REFINE pass appends a NEW tool_call event to the run's hooks ledger.
+        hp = Path(self.base) / self.run / "hooks.jsonl"
+        with hp.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"kind": "tool_call", "ts": "T2",
+                                "payload": {"tool": "REFRESH_MARKER_TOOL", "stage": "REFINE"}}) + "\n")
+        # Second lookup MUST reflect the appended event (recomputed, not the stale cache).
+        second = cg.graph_lookup(self.base, self.run)
+        self.assertIn("REFRESH_MARKER_TOOL", second)
+        graph = cg.build(cg.load_ledger_facts(self.base, self.run))
+        self.assertIn("REFRESH_MARKER_TOOL",
+                      [n.get("tool") for n in graph["nodes"] if n["kind"] == "tool_call"])
+        # And the on-disk cache was refreshed to the recomputed (fresh) graph.
+        cached = json.loads((Path(self.base) / self.run / "context-graph.json").read_text(encoding="utf-8"))
+        self.assertEqual(cached, graph)
+
     def test_cli_prints_wrapped_lookup(self):
         buf = io.StringIO()
         with redirect_stdout(buf):

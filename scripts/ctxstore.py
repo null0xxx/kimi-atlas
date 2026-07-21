@@ -156,17 +156,19 @@ def advance(base: str, run_id: str, stage: str, updates: dict | None = None, **t
     return st
 
 
-def get_refine_passes(base: str, run_id: str) -> int:
-    """Return the authoritative refine-pass count = ``REFINE`` lines in ``log.jsonl``.
+def _iter_log_records(base: str, run_id: str):
+    """Yield each parsed dict line of the run's append-only ``log.jsonl``, in append order.
 
-    Reads the on-disk telemetry ledger, never model memory (PLAN V2). Returns 0 when
-    no refine pass has been recorded (or no ledger exists yet). Malformed/blank lines
-    are skipped rather than raising, so a partially-written ledger still counts.
+    The single JSONL ledger scanner shared by ``get_refine_passes`` and
+    ``pending_rollback`` (behavior-preserving extraction, LOW-2): an absent ledger yields
+    nothing; blank lines and JSON-decode-error lines are skipped; only ``dict`` records are
+    yielded (non-dict JSON is dropped, matching both callers' prior ``isinstance`` guards).
+    Deliberately does NOT guard ``read_text`` against ``OSError`` — that preserves the exact
+    frozen behavior of both callers (an unreadable ledger raises, as before).
     """
     p = _run_dir(base, run_id) / "log.jsonl"
     if not p.exists():
-        return 0
-    count = 0
+        return
     for line in p.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -175,7 +177,20 @@ def get_refine_passes(base: str, run_id: str) -> int:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(rec, dict) and rec.get("stage") == "REFINE":
+        if isinstance(rec, dict):
+            yield rec
+
+
+def get_refine_passes(base: str, run_id: str) -> int:
+    """Return the authoritative refine-pass count = ``REFINE`` lines in ``log.jsonl``.
+
+    Reads the on-disk telemetry ledger, never model memory (PLAN V2). Returns 0 when
+    no refine pass has been recorded (or no ledger exists yet). Malformed/blank lines
+    are skipped rather than raising, so a partially-written ledger still counts.
+    """
+    count = 0
+    for rec in _iter_log_records(base, run_id):
+        if rec.get("stage") == "REFINE":
             count += 1
     return count
 
@@ -259,19 +274,9 @@ def pending_rollback(base: str, run_id: str) -> dict | None:
     ``{"target_sha", "target_stage"}`` so the driver can REDO the idempotent reset. Blank or
     malformed lines are skipped, never raised on.
     """
-    p = _run_dir(base, run_id) / "log.jsonl"
-    if not p.exists():
-        return None
     pending: dict | None = None
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(rec, dict) or rec.get("stage") != _ROLLBACK_STAGE:
+    for rec in _iter_log_records(base, run_id):
+        if rec.get("stage") != _ROLLBACK_STAGE:
             continue
         if rec.get("event") == _ROLLBACK_INTENT:
             pending = {

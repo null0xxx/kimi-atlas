@@ -7,6 +7,7 @@ monkeypatched, and the torn-between-steps resume (P3B.3).
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,10 +76,17 @@ class _SeamRunTestBase(unittest.TestCase):
         self.run_id = "20260720-000000"
         ctxstore.init_run(self.base, self.run_id, dict(_PACKET))
         self._orig_reset = rollback_driver._git_reset
+        self._orig_git_dirs = rollback_driver._git_dirs
+        self._orig_env = os.environ.get(rollback_driver.SANCTION_ENV)
         self.reset_calls = []
 
     def tearDown(self) -> None:
         rollback_driver._git_reset = self._orig_reset
+        rollback_driver._git_dirs = self._orig_git_dirs
+        if self._orig_env is None:
+            os.environ.pop(rollback_driver.SANCTION_ENV, None)
+        else:
+            os.environ[rollback_driver.SANCTION_ENV] = self._orig_env
         self._tmp.cleanup()
 
     def _patch_reset(self, rc: int = 0):
@@ -86,6 +94,17 @@ class _SeamRunTestBase(unittest.TestCase):
             self.reset_calls.append((sha, cwd))
             return ("reset ok", rc)
         rollback_driver._git_reset = fake
+
+    def _sanction(self, common: str = "/repo/.git",
+                  gdir: str = "/repo/.git/worktrees/x", token: str | None = "yes"):
+        # Make resume_rollback's internally-resolved sanction signals point at a real
+        # linked worktree (common != gdir) with a token — the guard HIGH-2 added reads
+        # (git_common_dir, git_dir) from `_git_dirs(cwd)` and the token from the env.
+        rollback_driver._git_dirs = lambda cwd: (common, gdir)
+        if token is None:
+            os.environ.pop(rollback_driver.SANCTION_ENV, None)
+        else:
+            os.environ[rollback_driver.SANCTION_ENV] = token
 
     def _ledger(self) -> list[dict]:
         # A refusal writes NO ledger line, and init_run never pre-creates log.jsonl,
@@ -149,12 +168,15 @@ class ResumeRollbackTests(_SeamRunTestBase):
         # Simulate a crash: intent recorded, git reset + completion never happened.
         ctxstore.rollback_to(self.base, self.run_id, "sha_green", "VERIFIED", "rollback_intent")
         self._patch_reset(0)
+        self._sanction()  # resume now enforces the same sanction gate as run_rollback
         rc = rollback_driver.resume_rollback(self.base, self.run_id, _WT)
         self.assertEqual(rc, 0)
         self.assertEqual(self.reset_calls, [("sha_green", _WT)])  # reset REDONE
         self.assertIsNone(ctxstore.pending_rollback(self.base, self.run_id))
 
     def test_resume_is_noop_when_nothing_pending(self) -> None:
+        # Nothing pending -> genuinely nothing to do (no reset seam reached), so the
+        # sanction gate is never exercised: a balanced ledger resumes to 0 regardless.
         self._patch_reset(0)
         rc = rollback_driver.resume_rollback(self.base, self.run_id, _WT)
         self.assertEqual(rc, 0)
@@ -163,15 +185,42 @@ class ResumeRollbackTests(_SeamRunTestBase):
     def test_resume_is_idempotent_across_repeated_calls(self) -> None:
         ctxstore.rollback_to(self.base, self.run_id, "sha_green", "VERIFIED", "rollback_intent")
         self._patch_reset(0)
+        self._sanction()
         rollback_driver.resume_rollback(self.base, self.run_id, _WT)
         rollback_driver.resume_rollback(self.base, self.run_id, _WT)  # second call
         self.assertEqual(len(self.reset_calls), 1)  # only redone once; then no pending
+
+    # ---- HIGH-2: resume must uphold the SAME sanction gate as run_rollback --------
+
+    def test_resume_refuses_on_non_worktree_tree(self) -> None:
+        # A pending intent + a NON-worktree cwd (primary tree: git_common_dir == git_dir)
+        # must be REFUSED — resume must NEVER `git reset --hard` the real working tree.
+        # The _git_reset seam is never reached and the intent stays open (recoverable).
+        ctxstore.rollback_to(self.base, self.run_id, "sha_green", "VERIFIED", "rollback_intent")
+        self._patch_reset(0)
+        self._sanction(common="/repo/.git", gdir="/repo/.git", token="yes")  # primary tree
+        rc = rollback_driver.resume_rollback(self.base, self.run_id, "/real/repo")
+        self.assertNotEqual(rc, 0)              # refused
+        self.assertEqual(self.reset_calls, [])  # NO reset on the real tree
+        self.assertEqual(                       # intent left open for a sanctioned resume
+            ctxstore.pending_rollback(self.base, self.run_id),
+            {"target_sha": "sha_green", "target_stage": "VERIFIED"})
+
+    def test_resume_refuses_when_token_missing(self) -> None:
+        # Sanctioned worktree dirs but NO caller-set token -> still refused, no reset.
+        ctxstore.rollback_to(self.base, self.run_id, "sha_green", "VERIFIED", "rollback_intent")
+        self._patch_reset(0)
+        self._sanction(token=None)
+        rc = rollback_driver.resume_rollback(self.base, self.run_id, _WT)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.reset_calls, [])
 
 
 class RollbackMainCliTests(_SeamRunTestBase):
     def test_main_resume_dispatches_without_git(self) -> None:
         ctxstore.rollback_to(self.base, self.run_id, "sha_green", "VERIFIED", "rollback_intent")
         self._patch_reset(0)
+        self._sanction()  # main --resume -> resume_rollback resolves the gate internally
         rc = rollback_driver.main(
             ["--base", self.base, "--run-id", self.run_id, "--cwd", _WT, "--resume"])
         self.assertEqual(rc, 0)

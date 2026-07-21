@@ -136,14 +136,26 @@ def resume_rollback(base: str, run_id: str, cwd: str) -> int:
     """Redo an interrupted rollback (``rollback_intent`` w/o ``rollback_complete``); idempotent.
 
     Reads ``ctxstore.pending_rollback`` (ledger-derived, not the possibly-torn state.json). No
-    pending intent ⇒ nothing to do (returns 0). Otherwise REDO the idempotent ``_git_reset`` to
-    the recorded SHA and record ``rollback_complete``. Resetting to an already-reset SHA is a
-    no-op, so repeated resumes are safe. A failed reset leaves the intent open (returns 3) for
-    the next resume.
+    pending intent ⇒ nothing to do (returns 0, no gate exercised, no reset). Otherwise it
+    upholds the IDENTICAL sanction gate as ``run_rollback`` before touching the tree: it
+    resolves ``(git_common_dir, git_dir)`` from ``cwd`` and reads the sanction token from
+    ``ATLAS_SANCTIONED_ROLLBACK``, and refuses (returns 2, NO reset, intent left open) unless
+    ``sanctioned_rollback(cwd, common, gdir, token)`` holds — so ``--resume`` can NEVER
+    ``git reset --hard`` the real (non-worktree) working tree. Only once sanctioned does it REDO
+    the idempotent ``_git_reset`` to the recorded SHA and record ``rollback_complete`` (resetting
+    to an already-reset SHA is a no-op, so repeated sanctioned resumes are safe). A failed reset
+    leaves the intent open (returns 3) for the next resume.
     """
     pending = ctxstore.pending_rollback(base, run_id)
     if not pending:
         return 0
+    common, gdir = _git_dirs(cwd)
+    if not sanctioned_rollback(cwd, common, gdir, os.environ.get(SANCTION_ENV)):
+        sys.stderr.write(
+            "rollback resume refused: not a sanctioned isolated worktree / missing token; "
+            "intent left open\n"
+        )
+        return 2
     target_sha = pending.get("target_sha", "")
     target_stage = pending.get("target_stage", "")
     _, rc = _git_reset(target_sha, cwd)

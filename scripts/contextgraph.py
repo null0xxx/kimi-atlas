@@ -180,7 +180,11 @@ def read_jsonl(path) -> list[dict]:
     if not p.exists():
         return []
     out: list[dict] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return []  # unreadable ledger degrades to empty (rebuild-wins), never raises.
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -205,13 +209,13 @@ def load_ledger_facts(base: str, run_id: str) -> dict:
     if dp.exists():
         try:
             dag_nodes = (json.loads(dp.read_text(encoding="utf-8")) or {}).get("nodes", {}) or {}
-        except json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             dag_nodes = {}
     critics: dict = {}
     for cp in sorted(d.glob("critic_*.json")):
         try:
             critics[cp.name] = json.loads(cp.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             continue
     return {
         "run_id": run_id,
@@ -258,16 +262,28 @@ def load_or_rebuild(base: str, run_id: str) -> dict:
 
 
 def graph_lookup(base: str, run_id: str) -> str:
-    """GRAPH_LOOKUP: the current graph rendered inside the SAFE-2 untrusted wrapper."""
-    graph = load_or_rebuild(base, run_id)
+    """GRAPH_LOOKUP: the current graph rendered inside the SAFE-2 untrusted wrapper.
+
+    The INJECTION read path is ALWAYS fresh — it recomputes via ``project`` (an
+    unconditional rebuild-from-ledger) rather than ``load_or_rebuild``. Within one run
+    ``run_id`` (``${KIMI_SESSION_ID}``) is constant, so a cache-when-valid read would
+    serve the FIRST-pass graph on every later lookup — feeding a REFINE re-dispatch a
+    STALE graph missing the error/tool_call events appended since. ``build`` is pure,
+    deterministic and cheap, and ``project`` re-writes the byte-identical cache when the
+    ledger is unchanged, so this is fresh-always with no cost to determinism (mirrors
+    ``skills/atlas/SKILL.md``: "GRAPH_LOOKUP re-runs and the graph is recomputed ...
+    never a stale one"). ``load_or_rebuild`` stays available for CLI/resume reads.
+    """
+    graph = project(base, run_id)
     return wrap_untrusted(json.dumps(graph, indent=2))
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI: print the SAFE-2-wrapped GRAPH_LOOKUP to stdout.
 
-    Serves the cached graph when present and valid; recomputes from the ledger and
-    re-caches on a missing, torn, or mismatched cache (via `load_or_rebuild`).
+    Always recomputes from the ledger and re-caches (via `graph_lookup` → `project`),
+    so the printed graph is never stale; `load_or_rebuild` remains for a cache-when-valid
+    read (e.g. resume).
     """
     parser = argparse.ArgumentParser(
         prog="contextgraph",
