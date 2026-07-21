@@ -20,20 +20,9 @@ from __future__ import annotations
 from typing import Sequence
 
 from scripts.ctxstore import MANDATORY_STAGES, STAGES
+from scripts.rubric import BLOCKING as _BLOCKING, DIMENSIONS as _DIMENSIONS
 
-_BLOCKING = {"CRITICAL", "HIGH"}
 MAX_PASSES = 2
-
-# The six canonical rubric lenses (references/rubric.md). Every merged
-# ``dimensions`` key and every defect ``category`` is one of these exact strings.
-_DIMENSIONS: tuple[str, ...] = (
-    "CORRECTNESS",
-    "CODE-QUALITY",
-    "SECURITY",
-    "TEST-ADEQUACY",
-    "DOES-IT-RUN",
-    "REQUIREMENTS-COVERAGE",
-)
 
 
 def missing_stages(state: dict, flow: Sequence[str] = STAGES) -> list[str]:

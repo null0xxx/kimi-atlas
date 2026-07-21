@@ -90,6 +90,7 @@ from scripts import (  # noqa: E402  (path shim must precede these imports)
     pathcheck,
     quality,
     reqcoverage,
+    rubric,
     runcheck,
     sast,
     verdict,
@@ -98,7 +99,7 @@ from scripts import (  # noqa: E402  (path shim must precede these imports)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_BLOCKING = {"CRITICAL", "HIGH"}
+_BLOCKING = rubric.BLOCKING  # single-sourced (F6); identical to the old {"CRITICAL", "HIGH"}
 JUDGMENT_LENSES: tuple[str, ...] = ("CORRECTNESS", "CODE-QUALITY", "SECURITY")
 
 # lens name -> the agents/<name>.md critic role file that judges that lens.
