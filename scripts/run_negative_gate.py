@@ -87,6 +87,7 @@ if str(_ROOT) not in sys.path:
 from scripts import (  # noqa: E402  (path shim must precede these imports)
     check_artifact_naming,
     difftool,
+    frontmatter,
     pathcheck,
     quality,
     reqcoverage,
@@ -127,9 +128,10 @@ _SAST_BLOCKER = "deterministic-sast"
 # New-side path headers in a unified diff (excludes /dev/null and the ``+++`` marker).
 _NEW_PATH_RE = re.compile(r"^\+\+\+ (?:b/)?(.+)$", re.MULTILINE)
 
-# A leading YAML ``---`` frontmatter block (optional BOM), matched so the body after
-# it is sliced out verbatim (trailing newline preserved). No closing fence -> no match.
-_FRONTMATTER_RE = re.compile(r"\A﻿?---[ \t]*\n.*?\n---[ \t]*\n?", re.DOTALL)
+# A leading YAML ``---`` frontmatter block, matched so the body after it is sliced out
+# verbatim (trailing newline preserved). No closing fence -> no match. Shared BOM- and
+# CRLF-aware primitive (F7): the LF-only blind spot the old local copy had is gone.
+_FRONTMATTER_RE = frontmatter.FRONTMATTER_RE
 
 
 # ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from scripts import validate  # noqa: E402  (path shim must precede this import)
+from scripts import frontmatter, validate  # noqa: E402  (path shim must precede this import)
 
 # The extracted skills tree lives at <plugin-root>/skills, the manifest and the
 # registry at <plugin-root>/references (same resolution idiom as
@@ -70,7 +70,8 @@ REGISTRY_VERSION = 2
 FIRST_PARTY_DIRS: frozenset[str] = frozenset({"atlas", "atlas-weave", "atlas-resume"})
 
 # A SKILL.md opens with a YAML frontmatter block between two `---` fences.
-_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n", re.DOTALL)
+# Shared BOM- and CRLF-aware primitive (F7): fixes encoding handling in one place.
+_FRONTMATTER_RE = frontmatter.FRONTMATTER_RE
 # Top-level `key: value` (indented lines belong to nested blocks and are skipped).
 _KV_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*(.*)$")
 
