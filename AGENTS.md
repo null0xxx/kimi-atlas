@@ -119,7 +119,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (919) · `make ci` clean · 23 tracked docs, no inventory drift · v1.1.0 released
+unit-test suite green (`make test`) · `make ci` clean · 23 tracked docs, no inventory drift · v1.1.0 released
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
 `fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;

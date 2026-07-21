@@ -17,7 +17,7 @@
 | **build-ci-packaging** | How it builds/gates/installs/ships: the `make ci` hub, negative gates, the plugin manifest, install flow. |
 | **docs-and-references** | The prose spine: `references/*.md` + narrative + phased plans, gated by inventory-drift. |
 | **skill-system** | 115 vendored skill packages + registry + advisory selector; TOP-1 injected into the coder. |
-| **tests** | 37-file, 714-test unittest suite with 1:1 `scripts/*.py → tests/test_*.py` coverage. |
+| **tests** | unittest suite with 1:1 `scripts/*.py → tests/test_*.py` coverage, green via `make test`. |
 | **verification-harness** | The 6-lens code-review gate; three deterministic lenses + three model critics; `verdict.merge/gate` are PURE. |
 
 ## High-level overview
@@ -32,7 +32,7 @@ flowchart TB
   HARNESS -->|pure| VERDICT[["verdict.merge / gate"]]
   SEL --> REG
   REG --> SKILLS["skills/ — 115 vendored packages"]
-  MK["Makefile · make ci"] --> TESTS["tests/ — 714 green"]
+  MK["Makefile · make ci"] --> TESTS["tests/ — green"]
   MK --> DOCS["references/*.md"]
   ATLAS -. persists .-> LEDGER[(".atlas/&lt;run_id&gt;/ ledger")]
 ```
@@ -414,7 +414,7 @@ The documentation corpus of kimi-atlas: a human-readable design spine that groun
 - Claims degrade-to-atlas byte-identity and human-gated, never-auto-apply
 - Encodes the stdlib-only/pure-core/hands conventions and doc-gate rules
 - Lists D1-D7 open items pointing at the 2026-07-19 hardening plan
-- Status line: 713 tests green, 17 tracked docs, registry v2 (115 skills)
+- Status line: suite green (`make test`), tracked docs in sync (no inventory drift), registry v2 (115 skills)
 - Predates the skills system and ATLAS-WEAVE (covers P0-P5 only; P6-P12 live in atlas-weave.md + plan docs)
 - Cited by architecture/atlas-weave/kimi-runtime/AGENTS but links out to no other .md itself (uses backtick paths)
 - Referenced as the authority for non-goals (§1) and harness design (§4)
@@ -452,7 +452,7 @@ The documentation corpus of kimi-atlas: a human-readable design spine that groun
 - PLAN.md is the OLDER layer: it covers only the single-change atlas build phases P0-P5 (apex methodology) and predates both the skills system and ATLAS-WEAVE. It is linked-in by architecture/atlas-weave/kimi-runtime/AGENTS but links out to no other .md itself (it cites paths in backticks, not markdown links). README.md does NOT link PLAN.md.
 - references/schemas.json is dual-purpose: documented here under references/ but also read at RUNTIME by the pure scripts relative to themselves (orchestration.md Conventions:10). It is simultaneously a doc artifact and a live contract — edits here change validator behavior.
 - The doc-link graph is a genuine hub-and-spoke: README.md and AGENTS.md are the two hubs (README links all 7 reference docs + the 3 skill JSONs + AGENTS; AGENTS links the core references + the hardening plan). kimi-runtime.md is the most-cited spoke (architecture, atlas-weave, orchestration all ground in it). The 8 plan docs are leaves reachable only from atlas-weave.md §9 (P6-P12) and AGENTS/skill-registry (hardening).
-- Numbers to watch for drift across docs: README badge + AGENTS + Makefile comments say '713 tests', but the README prose/CI badge also references 713 while live-validation cites the target-repo's 585-test suite (different repo-under-test, not a contradiction). skill counts are consistently 115 (117 zips → 115 packages). AGENTS.md status: '17 tracked docs, no inventory drift'.
+- Test counts are intentionally NOT baked into README/AGENTS prose (F4, guarded by tests/test_doc_testcount.py) — the suite size is proven by `make test`; only live-validation cites the target-repo's own suite (a different repo-under-test, not a contradiction). Skill counts are consistently 115 (117 zips → 115 packages); tracked-doc drift is caught by inventory_drift.
 - The KNOWN open items D1-D7 (from the audit brief) live entirely in one doc: docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md, cross-referenced from AGENTS.md Open items and skill-registry.md Related. Any new registry/selector/extractor finding should be checked against that D1-D7 table first.
 
 ---
@@ -514,14 +514,14 @@ The right-skill-at-the-right-time layer: 115 vendored official skill packages un
 
 ## tests
 
-The tests/ subsystem is a 37-file, 714-test unittest suite that runs fully green (Ran 714 tests ... OK). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync.
+The tests/ subsystem is a comprehensive unittest suite that runs fully green (proven by `make test`). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync.
 
 
 ### Key components
 
 | id | path | responsibility |
 |----|------|----------------|
-| `suite.discover` | `tests/` | The unittest suite: 37 test_*.py files, 714 tests, all green (Ran 714 tests ... OK). |
+| `suite.discover` | `tests/` | The unittest suite: all test_*.py files green (proven by `make test`). |
 | `scripts.pkg` | `scripts/__init__.py` | Package marker that makes `from scripts import X` importable when discover runs from repo root. |
 | `fixtures` | `tests/fixtures/` | 5 packet fixtures driving the negative-gate: good, bad_correctness, bad_quality, bad_security, bad_security_sast. |
 | `test_verdict` | `tests/test_verdict.py` | Pins verdict.py pure fns (merge/gate/should_refine/final_status) + PLAN V2 proof that a permanently-blocking critic halts at exactly 2 re-drafts and yields UNVERIFIED. |
@@ -551,7 +551,7 @@ The tests/ subsystem is a 37-file, 714-test unittest suite that runs fully green
 
 ### Invariants that matter
 
-- Real count is 714 tests, OK/green (verified by running discover)
+- The suite is green (verified by `make test`); the exact count is intentionally not baked into prose (F4).
 - No conftest.py and no tests/__init__.py — discovery relies on being run from repo root so cwd is on sys.path and `from scripts import X` resolves via scripts/__init__.py
 - No test does sys.path manipulation (grep sys.path in tests/ => NONE)
 - Some suites print their own stdout (weave gates), so the unittest summary must be read off stderr
@@ -568,23 +568,23 @@ The tests/ subsystem is a 37-file, 714-test unittest suite that runs fully green
 
 | if you want to change… | look here |
 |------------------------|-----------|
-| The real, current test count and green/red status | Run `python3 -m unittest discover -s tests 2>&1 \| grep -E '^(Ran\|OK\|FAILED)'` from repo root -> `Ran 714 tests in ~16s` / `OK`. Reading `\| tail -5` is misleading because the weave-gate tests print their own stdout after the summary. |
+| The real, current test count and green/red status | Run `python3 -m unittest discover -s tests 2>&1 \| grep -E '^(Ran\|OK\|FAILED)'` from repo root -> `Ran <N> tests` / `OK`. Reading `\| tail -5` is misleading because the weave-gate tests print their own stdout after the summary. |
 | Which scripts lack a test (coverage gap) | NONE — every scripts/*.py has tests/test_*.py. The only two test files without a same-name script are tests/test_audit_findings.py and tests/test_ctxstore_atomic.py (both intentional supplements). |
 | How tests import scripts without a conftest/path-shim | tests/ has no conftest.py, no __init__.py, no sys.path munging (grep sys.path tests/ => NONE). They do `from scripts import X`; scripts/__init__.py makes it a package and `discover -s tests` run from repo root puts cwd on sys.path. |
 | The end-to-end / real-repo pins | tests/test_check_artifact_naming.py:299 (TestMainRealRepo), tests/test_inventory_drift.py:206 (TestMainRealRepo test_repo_tree_is_in_sync), tests/test_skillregistry.py:440 (TestCommittedRegistry), tests/test_skillextract.py:524/552 (TestCommittedNamePolicy/TestCommittedManifest), tests/test_plugin_meta.py:9/test_planstage.py (_REPO_ROOT = parents[1] pin of .kimi-plugin/plugin.json). |
 | The 6-lens negative-gate fixtures and their expected outcomes | tests/fixtures/{good,bad_correctness,bad_quality,bad_security,bad_security_sast}/fixture.json (each carries expected_verdict + expected_lens); driven by tests/test_run_negative_gate.py (ProcessFixtureTests/EvaluateOutcomeTests). |
 | The verdict PLAN V2 / refine-loop proof | tests/test_verdict.py:233 PermanentlyBlockingLoopTests.test_loop_halts_at_exactly_two_redrafts (drives the real ledger via ctxstore). |
 | The self-certifying weave end-to-end proof | tests/test_dogfood_weave.py:142 DogfoodWeaveTest — builds real temp git repos + JUnit scaffolds, 4 scenarios (test_clean_multi_file_greens / test_hidden_overlap_blocks / test_combined_regression_blocks / test_one_node_degrade_equals_atlas). |
-| The doc test-count claim that has drifted | README.md:156 says '713 tests green' — the suite now runs 714 (off by one; minor doc drift, not a code defect). |
+| Why no literal test count lives in the docs | README/AGENTS never bake a `<N> tests` count — it always drifts (F4); the size is proven by `make test`, guarded by tests/test_doc_testcount.py. |
 
-**Entry points:** `python3 -m unittest discover -s tests  (from repo root — 714 tests, OK)` · `scripts/run_negative_gate.py  (fixture-driven 6-lens gate; test_run_negative_gate mirrors it)` · `scripts/run_weave_negative_gate.py  (weave BLOCK scenarios; 5/5 matched)` · `tests/test_dogfood_weave.py  (self-certifying end-to-end weave proof on real temp repos)`
+**Entry points:** `python3 -m unittest discover -s tests  (from repo root — green)` · `scripts/run_negative_gate.py  (fixture-driven 6-lens gate; test_run_negative_gate mirrors it)` · `scripts/run_weave_negative_gate.py  (weave BLOCK scenarios; 5/5 matched)` · `tests/test_dogfood_weave.py  (self-certifying end-to-end weave proof on real temp repos)`
 
 
 ### Notes
 
-- VERIFIED LIVE: `Ran 714 tests in 16.482s` / `OK` — the whole suite is green.
+- VERIFIED LIVE: the whole suite is green (`make test`).
 - Coverage is complete: 31 non-__init__ scripts, 31 same-name test files, plus 6 extra test modules (test_audit_findings, test_ctxstore_atomic — no same-name script; and the negative-gate/dogfood suites which pin scripts that also have direct tests).
-- DOC DRIFT (minor, worth a fix): README.md:156 claims '713 tests green' but the real count is 714. Not a flaw in the tests themselves — the suite is authoritative.
+- Test counts are proven by `make test`, never baked into README/AGENTS prose (F4) — so there is no literal count to drift; the suite is authoritative.
 - Watch-out for future auditors: `python3 -m unittest discover -s tests 2>&1 \| tail -5` does NOT show the pass/fail summary because test_run_weave_negative_gate / test_dogfood emit their own stdout AFTER the run; grep '^(Ran\|OK\|FAILED)' or read stderr instead.
 - Two distinct assertion regimes coexist: (1) hermetic pure-function tests using tempfiles, and (2) real-artifact pins that will legitimately go RED if a committed artifact (skill-registry.json, skills-manifest.json, plugin.json, or the doc/link graph) drifts from source-of-truth — these are guardrails, not brittleness.
 - test_audit_findings.py is the 'regression museum' — its class names (IntegrateConflictFailOpenTests, ResumeTieBreakTests, PlandagConservationTests, RunStatusGasFrozenTests, FinalAggregateFalseGreenTests) map 1:1 to previously-fixed defects across 4 subsystems.

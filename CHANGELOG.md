@@ -12,7 +12,7 @@ preserved (pure `verdict.merge`/`gate`, `log.jsonl` append-only, monotonic
 `get_refine_passes`, the human gate), so this is a backward-compatible feature release —
 the `/atlas`, `/atlas-weave`, and `/atlas-resume` entry points are unchanged. The design
 was hardened `27 → 0` defects through six rounds of the plugin's *own* 6-lens harness
-before a line was written. Test suite grew **713 → 919**; `make ci` stays the mechanical floor.
+before a line was written. Test suite grew **713 → 920**; `make ci` stays the mechanical floor.
 
 ### Added
 - **ContextGraph** (`scripts/contextgraph.py`) — a live, pure **read-time projection** of

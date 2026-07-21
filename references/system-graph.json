@@ -57,7 +57,7 @@
     {
       "id": "tests",
       "title": "tests (kimi-atlas unittest suite)",
-      "summary": "The tests/ subsystem is a 37-file, 714-test unittest suite that runs fully green (Ran 714 tests ... OK). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync."
+      "summary": "The tests/ subsystem is a comprehensive unittest suite that runs fully green (proven by `make test`). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync."
     },
     {
       "id": "verification-harness",
@@ -785,7 +785,7 @@
       "kind": "config",
       "subsystem": "tests",
       "path": "tests/",
-      "responsibility": "The unittest suite: 37 test_*.py files, 714 tests, all green (Ran 714 tests ... OK)."
+      "responsibility": "The unittest suite: all test_*.py files green (proven by `make test`)."
     },
     {
       "id": "test_audit_findings",
