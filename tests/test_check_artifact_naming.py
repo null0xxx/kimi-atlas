@@ -143,6 +143,13 @@ class TestExclusionSet(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(warnings, [])
 
+    def test_changelog_md_never_fails(self):
+        # CHANGELOG.md is a convention-named root doc (GitHub renders it specially),
+        # exempt like README.md/AGENTS.md despite its uppercase name.
+        errors, warnings = checker.check_file(self.root, "CHANGELOG.md")
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
     def test_non_md_fixture_never_fails(self):
         # LICENSE / Makefile lack a .md extension but must not error.
         for fixture in ("LICENSE", "Makefile"):

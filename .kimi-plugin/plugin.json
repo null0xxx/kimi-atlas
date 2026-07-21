@@ -1,7 +1,7 @@
 {
   "name": "kimi-atlas",
-  "version": "1.0.0",
-  "description": "Turns a rough coding request into elite, verified, human-gated implemented code. A root orchestrator drives a deterministic state machine over the built-in coder/explore/plan subagents, gated by a 6-lens verification harness and a deterministic quality backbone.",
+  "version": "1.1.0",
+  "description": "Turns a rough coding request into elite, verified, human-gated implemented code. A root orchestrator drives a deterministic state machine over the built-in coder/explore/plan subagents — carried on a first-class agentic backbone (a live ContextGraph, an explicit finite-state machine, and forward-only worktree rollback) — gated by a 6-lens verification harness and a deterministic quality backbone. No LLM ever computes pass/fail.",
   "keywords": [
     "orchestrator",
     "code-generation",
@@ -9,6 +9,9 @@
     "quality-gate",
     "red-team",
     "human-gated",
+    "agentic",
+    "state-machine",
+    "context-graph",
     "elite"
   ],
   "license": "MIT",
@@ -38,7 +41,7 @@
   "interface": {
     "displayName": "kimi-atlas",
     "shortDescription": "Elite, verified, human-gated code orchestrator for Kimi Code.",
-    "longDescription": "kimi-atlas turns a rough coding request into elite implemented code. It captures immutable intent, grounds in the repo via a read-only scout, drafts and implements via the coder subagent under an explicit elite-quality mandate, then verifies the change through a 6-lens harness (3 isolated model critics + 3 deterministic gates) whose merge/gate/refine decisions are pure functions. It refuses to declare done unless every gate is green, otherwise labelling the result UNVERIFIED. Never applies changes to a real working tree without a human gate.",
+    "longDescription": "kimi-atlas turns a rough coding request into elite implemented code. It captures immutable intent, grounds in the repo via a read-only scout, drafts and implements via the coder subagent under an explicit elite-quality mandate, then verifies the change through a 6-lens harness — 3 isolated model critics plus a deterministic floor (runcheck, lint, reqcoverage, pathcheck, ast-lens, and SAST) — whose merge/gate/refine decisions are pure functions. An agentic backbone wraps that pure core without replacing it: a live ContextGraph (a read-time projection of run state, injected into the coder and recomputed each refine), an explicit finite-state machine derived from the canonical stages, and two-phase forward-only rollback confined to the isolated worktree. It refuses to declare done unless every gate is green, otherwise labelling the result UNVERIFIED. Never applies changes to a real working tree without a human gate.",
     "developerName": "kimi-atlas"
   }
 }

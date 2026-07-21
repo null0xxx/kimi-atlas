@@ -11,7 +11,7 @@ what exists, how to verify it, and what is still open. For depth, follow the lin
 
 **kimi-atlas** — a many-agent, quality-calibrated orchestrator plugin for Kimi Code with **115
 vendored official skill packages** built in. Public repo: <https://github.com/null0xxx/kimi-atlas>
-(v1.0.0, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
+(v1.1.0, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
 `~/.kimi-code/plugins/managed/kimi-atlas`); from source: `./scripts/install.sh`
 (installs to `~/.kimi-code/plugins/kimi-atlas`).
 
@@ -103,7 +103,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
   surface the residual for human revert/keep/discard at OUTPUT. Events → `hooks.jsonl` (via
   `hooks/telemetry.sh` + `scripts/ctxevents.py`), never `log.jsonl`.
 
-## Open items (as of v1.0.0)
+## Open items (as of v1.1.0)
 
 - **D1–D7 fix run** — ordered + risk-assessed in
   [`docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md`](docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md):
@@ -119,10 +119,11 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (886) · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
+unit-test suite green (919) · `make ci` clean · 23 tracked docs, no inventory drift · v1.1.0 released
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
-`fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed.**
+`fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;
+deep whole-system 6-lens (`51f652f`) fixed atlas-weave apply-failures + 4 more, adversary-verified.**
 Design + build record: `docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md`,
 `docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md`; whole-system map:
 `references/system-map.md`. Remaining opportunities (not defects): deeper ContextGraph consumption

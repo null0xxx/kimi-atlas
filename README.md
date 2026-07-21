@@ -46,7 +46,7 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
 
 ```
-/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.0.0
+/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.0
 /plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
 ```
 
@@ -271,6 +271,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 
 ## Documentation
 
+- [`CHANGELOG.md`](CHANGELOG.md) — every release and what changed, newest first (Keep a Changelog format)
 - [`AGENTS.md`](AGENTS.md) — project memory for fast resume: commands, conventions, the skills system, open items
 - [`references/architecture.md`](references/architecture.md) — the atlas design: state machine, agents, invariants
 - [`references/atlas-weave.md`](references/atlas-weave.md) — the multi-agent spec: DAG, scheduler, combined-tree differential
