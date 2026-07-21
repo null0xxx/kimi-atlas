@@ -41,6 +41,29 @@ reports honestly rather than pretending.
 
 ---
 
+## An orchestra, not a soloist
+
+This is the "many-agent" part, and it's the reason the verdict can be trusted. kimi-atlas is an
+**orchestrator**: a root conductor that never writes code itself. It dispatches specialized
+subagents — each in its own **fresh context**, each with one job — and collects what they return:
+
+- a **scout** that surveys the repo, read-only, before anything is changed;
+- a **coder** that implements the change in the isolated worktree;
+- independent **critics** for correctness, code quality, and security — each judging in isolation,
+  none seeing the others' verdicts;
+- for split work, an **integration critic** that inspects the seams where parallel changes meet.
+
+The conductor owns the state machine, hands each agent exactly the context it needs (nothing more),
+feeds their results through the deterministic gates, and runs the human gate at the end. Because
+every agent starts fresh and returns a **structured result**, nothing accumulates into one giant
+drifting context.
+
+Why it matters: **separation of powers.** The agent that *writes* the code is never the agent that
+*judges* it, and the judges don't collude. That independence — not a bigger model — is what makes
+the verdict worth trusting.
+
+---
+
 ## The verdict: six falsifiable questions
 
 Every change is judged on the same six lenses. Three are argued by independent AI critics; three are
@@ -58,6 +81,33 @@ settled by deterministic checks — the **floor** — that a model can't talk it
 The step that merges these into a single **pass or fail is a pure function** — the same inputs always
 produce the same verdict. That is the whole promise: verification is arithmetic, not an opinion the
 model can be flattered into.
+
+---
+
+## Every run writes itself down
+
+A run is not throwaway chat — it is recorded, on disk, as structured JSON under a per-run folder
+(`.atlas/<run>/`). These files are not debris; they are what makes the guarantees possible.
+
+| File | What it holds |
+|------|---------------|
+| `intent.txt` | The frozen, immutable goal — written once, never edited, so nothing drifts from what you asked. |
+| `log.jsonl` | An **append-only ledger** of every stage, refine pass, and decision — never rewritten. |
+| `hooks.jsonl` | An event log of the tools each agent used and the errors it hit. |
+| `context-graph.json` | A live, queryable map of the run — the task hierarchy, tools, and errors — rebuilt from the ledger so it can never drift out of sync. |
+| `plan.dag.json` | For split work: the file-disjoint plan — its nodes, dependencies, and budget. |
+| `critic_*.json` | Each lens's verdict, persisted as evidence behind the pass/fail. |
+
+**What all that detail buys you:**
+
+- **Resumable** — if a run is killed, times out, or your session is compacted, it picks up *exactly*
+  where it stopped (`/atlas-resume`). The ledger is the recovery map — no lost work, no restart.
+- **Auditable** — you can see *why* any verdict happened. Every stage, tool call, and critic result
+  is on the record; it is a paper trail, not a black box.
+- **Deterministic** — the pure gates recompute the verdict *from these records*, so there is no
+  hidden state. The same records always produce the same answer, and you can re-derive it yourself.
+- **Safe** — the ledger is append-only and the progress counter is provable, so a run cannot silently
+  rewrite its own history, fabricate a pass, or loop forever.
 
 ---
 
@@ -82,7 +132,7 @@ model can be flattered into.
 |---|---|---|
 | **Pure gate** | The model never grades its own work | Pass/fail is a deterministic function. A model can propose a fix; it cannot vote itself a passing grade. |
 | **Human-gated** | Nothing touches your tree without you | All work happens in an isolated worktree. You review the verdict and the diff, then keep, revert, or discard. No silent auto-apply. |
-| **Self-proven** | Built and verified by its own harness | The plugin's own skills were implemented and checked by the same 6-lens gate it ships — which caught real defects before merge. 920 tests, green CI on every commit. |
+| **Self-proven** | Built and verified by its own harness | The plugin's own skills were implemented and checked by the same 6-lens gate it ships — which caught real defects before merge. Its full test suite is green on every commit. |
 | **Deterministic** | Same inputs, same verdict — every time | The decision cores are pure, standard-library-only, and carry no hidden state. Reruns don't drift, and the reasoning behind a verdict is inspectable. |
 
 ---
