@@ -26,6 +26,8 @@ Coverage:
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import pathlib
 import tempfile
@@ -684,9 +686,31 @@ class ProcessFixtureTests(unittest.TestCase):
 # CLI (main)
 # ---------------------------------------------------------------------------
 class MainTests(unittest.TestCase):
+    def _main_captured(self, argv) -> tuple[str, int]:
+        """Run rng.main under captured stdout+stderr; return (captured_text, rc).
+
+        main() prints progress + a PASS/FAIL report to stdout and the deliberately
+        alarming ``RUBBER STAMP …`` / ``no fixtures found …`` lines to stderr. Capturing
+        both keeps a *green* suite quiet (F10) — assertions read the returned rc / buffer
+        instead of letting the module write to the real console.
+        """
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = rng.main(argv)
+        return out.getvalue() + err.getvalue(), rc
+
+    def test_main_output_is_captured_not_leaked(self) -> None:
+        # F10 guard: main()'s deliberately-alarming report lines (``RUBBER STAMP …``,
+        # ``no fixtures found …``) must land in OUR buffer, never the real console.
+        buf, rc = self._main_captured(
+            ["--fixtures-root", tempfile.mkdtemp(), "--agents-dir", str(_AGENTS_DIR)]
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no fixtures found", buf)  # the noisy line is in OUR buffer
+
     def test_no_fixtures_exits_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            rc = rng.main(["--fixtures-root", tmp, "--agents-dir", str(_AGENTS_DIR)])
+            _, rc = self._main_captured(["--fixtures-root", tmp, "--agents-dir", str(_AGENTS_DIR)])
             self.assertNotEqual(rc, 0)
 
     def test_full_matrix_all_pass_exits_zero(self) -> None:
@@ -703,7 +727,7 @@ class MainTests(unittest.TestCase):
             )
             with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
-                rc = rng.main([
+                _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
                     "--mem-limit-mb", "0", "--runcheck-timeout", "60",
                 ])
@@ -722,7 +746,7 @@ class MainTests(unittest.TestCase):
             _write_sast_fixture(root, "bad_security_sast")
             with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
-                rc = rng.main([
+                _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
                     "--mem-limit-mb", "0", "--runcheck-timeout", "60",
                 ])
@@ -739,7 +763,7 @@ class MainTests(unittest.TestCase):
             )
             with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
-                rc = rng.main([
+                _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
                     "--mem-limit-mb", "0", "--runcheck-timeout", "60",
                 ])
