@@ -391,7 +391,7 @@ Then branch on the run mode:
   (Completion Invariant corollary 1).
 
 ### VERIFIED  — the full 6-lens verification harness
-The 6 named lenses are scored here (rubric `references/rubric.md`): **3 fully-/advisory-deterministic
+The 6 named lenses are scored here (rubric `${KIMI_SKILL_DIR}/../../references/rubric.md`): **3 fully-/advisory-deterministic
 lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck` **+ `astlens.lint` syntax/parse floor**; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
 6 REQUIREMENTS-COVERAGE = `reqcoverage.coverage`; plus `pathcheck.cross_check` grounding), and **3
 judgment lenses** run as isolated `Agent(subagent_type="plan")` critics (1 CORRECTNESS, 2
@@ -530,7 +530,7 @@ PY
 1. `Read` `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md` and **strip its YAML frontmatter**.
 2. **Prepend the body**, then append the **isolated packet — ONLY**: `{frozen intent +
    success_criteria, the captured `diff.patch`, that critic's single rubric lens from
-   `references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
+   `${KIMI_SKILL_DIR}/../../references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
    (no orchestrator state, no other critic's output) — isolation is prompt-level (F6), it buys
    anti-anchoring. The per-lens evidence slice:
    - **correctness** ← `runcheck` (`ok`/`test_count`/`new_tests_collected`/`revert_red`/tails) +
