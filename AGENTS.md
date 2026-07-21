@@ -30,7 +30,7 @@ Three layers, all first-party:
 
 ```bash
 make ci               # THE gate: strict naming + unit tests + inventory-drift + shell syntax
-make test             # 713 unit tests (python3 -m unittest discover -s tests -v)
+make test             # the full unit-test suite (python3 -m unittest discover -s tests -v)
 make skill-registry   # rebuild references/skill-registry.json from the extracted skills/ tree
 make skills-extract   # re-extract vendored packages + --verify against the sha256 manifest
 make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
@@ -102,5 +102,5 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-713 tests green · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
+unit-test suite green · `make ci` clean · 22 tracked docs, no inventory drift · v1.0.0 released
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven.
