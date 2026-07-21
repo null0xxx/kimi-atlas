@@ -4,8 +4,8 @@
 #
 # Idempotent + re-runnable: installs the committed HEAD (a consistent state,
 # never a half-written working tree), replaces any prior kimi-atlas entry, and
-# preserves every other installed plugin. Safe: installed.json is backed up and
-# written atomically.
+# preserves every other installed plugin. Safe: installed.json is backed up to a
+# single rolling `installed.json.bak` and written atomically.
 #
 # Usage:  ./scripts/install.sh            # install into $HOME/.kimi-code
 #         KIMI_CODE_HOME=/path ./scripts/install.sh
@@ -31,7 +31,7 @@ INSTALLED="$PLUGINS_DIR/installed.json"
 
 # --- uninstall path -------------------------------------------------------
 if [ "${1:-}" = "--uninstall" ]; then
-    [ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+    [ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak"
     python3 - "$INSTALLED" <<'PY'
 import json, os, sys, tempfile
 path = sys.argv[1]
@@ -62,7 +62,7 @@ git -C "$PLUGIN_SRC" archive --format=tar HEAD | tar -x -C "$DEST"
 
 # 4. Register (or replace) the kimi-atlas entry in installed.json — backed up,
 #    preserving all other plugins, written atomically.
-[ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+[ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak"
 python3 - "$INSTALLED" "$DEST" <<'PY'
 import json, os, sys, tempfile
 path, dest = sys.argv[1], sys.argv[2]
