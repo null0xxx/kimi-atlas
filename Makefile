@@ -4,7 +4,7 @@
 # green in PLAN.md P1/P3 as scripts/ and tests/ land. `help` and `check-shell`
 # work from P0.
 .DEFAULT_GOAL := help
-.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate skill-registry skills-extract clean install-hooks
+.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate skill-registry skills-extract clean install-hooks bench-validate
 
 check: check-artifacts ## Run the artifact naming checker (alias)
 check-artifacts:
@@ -24,6 +24,9 @@ check-shell: ## Validate shell script syntax (hooks, installer, probes)
 
 negative-gate: ## Red-team fixture matrix: good->OK, each bad_*->UNVERIFIED (P3)
 	python3 scripts/run_negative_gate.py
+
+bench-validate: ## Confirm every benchmark task is sound (reference passes, stub fails) — no model/API
+	python3 -m bench.run_bench --validate
 
 skill-registry: ## Rebuild references/skill-registry.json from the extracted skills/ tree (audit-gated)
 	python3 scripts/skillregistry.py

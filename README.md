@@ -272,6 +272,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 ## Documentation
 
 - [`docs/overview.md`](docs/overview.md) — a plain-language overview of what kimi-atlas offers: the pipeline, the 6-lens gate, and the four capabilities (start here)
+- [`bench/`](bench/) — the benchmark harness: runs atlas on verified tasks and scores not just correctness but **gate trustworthiness** — does an `OK` verdict really mean correct? (`make bench-validate`; `python3 -m bench.run_bench --headless t1-roman`)
 - [`CHANGELOG.md`](CHANGELOG.md) — every release and what changed, newest first (Keep a Changelog format)
 - [`AGENTS.md`](AGENTS.md) — project memory for fast resume: commands, conventions, the skills system, open items
 - [`references/architecture.md`](references/architecture.md) — the atlas design: state machine, agents, invariants
