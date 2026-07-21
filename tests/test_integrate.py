@@ -123,3 +123,59 @@ class ActualConflictsTests(unittest.TestCase):
                    {"id": "n3", "diff": d3}]
         locations = [d["location"] for d in integrate.actual_conflicts(changes)]
         self.assertEqual(locations, sorted(locations))
+
+
+class ApplyFailuresTests(unittest.TestCase):
+    """The third disjointness net: a change the union git-apply REJECTED (or a union tree
+    that could not be built at all) never landed on the merged tree, so it is a
+    deterministic CRITICAL integration blocker — NOT something left to the seam critic."""
+
+    def test_clean_union_has_no_apply_defects(self) -> None:
+        u = {"worktree": "/wt", "applied": ["n1", "n2"], "failed": [], "combined_diff": "x"}
+        self.assertEqual(integrate.apply_failures(u), [])
+
+    def test_rejected_change_is_one_critical_per_reject(self) -> None:
+        u = {"worktree": "/wt", "applied": ["n1"],
+             "failed": [{"id": "n2", "reason": "patch does not apply"}], "combined_diff": "x"}
+        defects = integrate.apply_failures(u)
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["id"], "combined-apply-failed:n2")
+        self.assertEqual(d["category"], "CORRECTNESS")
+        self.assertEqual(d["severity"], "CRITICAL")
+        self.assertEqual(d["location"], "n2")
+        self.assertIn("patch does not apply", d["fix"])
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+    def test_multiple_rejects_each_flagged(self) -> None:
+        u = {"worktree": "/wt", "applied": [],
+             "failed": [{"id": "a", "reason": "r1"}, {"id": "b", "reason": "r2"}],
+             "combined_diff": ""}
+        ids = {d["id"] for d in integrate.apply_failures(u)}
+        self.assertEqual(ids, {"combined-apply-failed:a", "combined-apply-failed:b"})
+
+    def test_unbuildable_union_is_one_blocker(self) -> None:
+        # worktree add itself failed -> apply_union returns worktree=None with every change
+        # in `failed`; that is a SINGLE unbuildable blocker, not one-per-spurious-reject.
+        u = {"worktree": None, "applied": [],
+             "failed": [{"id": "n1", "reason": "worktree add failed"},
+                        {"id": "n2", "reason": "worktree add failed"}], "combined_diff": ""}
+        defects = integrate.apply_failures(u)
+        self.assertEqual(len(defects), 1)
+        d = defects[0]
+        self.assertEqual(d["id"], "combined-tree-unbuildable")
+        self.assertEqual(d["severity"], "CRITICAL")
+        self.assertEqual(d["location"], "union")
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+    def test_empty_union_no_changes_no_blocker(self) -> None:
+        # No changes to integrate and no worktree: nothing was dropped -> no blocker.
+        u = {"worktree": None, "applied": [], "failed": [], "combined_diff": ""}
+        self.assertEqual(integrate.apply_failures(u), [])
+
+    def test_apply_failures_fold_fails_the_integration_verdict(self) -> None:
+        # The whole point: a reject must FAIL integration_verdict, not merely be recorded.
+        u = {"worktree": "/wt", "applied": [],
+             "failed": [{"id": "n1", "reason": "does not apply"}], "combined_diff": ""}
+        iv = integrate.integration_verdict([integrate.apply_failures(u)])
+        self.assertEqual(iv["verdict"], "FAIL")

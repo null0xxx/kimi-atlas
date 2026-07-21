@@ -181,17 +181,10 @@ def dogfood(repo_cwd: str, packet: dict, planner_output, scripted_nodes: dict) -
             if wt:
                 worktrees.append((wt, "union"))
                 combined = suiterun.run_suite(verify_cmd, wt)
-            elif changes:
-                # Could not build the combined tree at all -> block, never a false green.
-                apply_defects.append(_blocking_defect(
-                    "combined-tree-unbuildable", "union",
-                    "could not create the combined worktree; integration is unverifiable"))
-            # A change the union git-apply REJECTED corrupts the merged tree -> block.
-            for f in u.get("failed", []) or []:
-                apply_defects.append(_blocking_defect(
-                    f"combined-apply-failed:{f.get('id')}", str(f.get("id")),
-                    f"change {f.get('id')} did not apply onto the combined tree: "
-                    f"{f.get('reason')}"))
+            # A change the union git-apply REJECTED (or an unbuildable union tree) never
+            # landed on the merged tree -> a CRITICAL blocker, never a false green. Single
+            # source: the same integrate.apply_failures the ATLAS-WEAVE SKILL folds in.
+            apply_defects.extend(integrate.apply_failures(u))
         elif changes:
             apply_defects.append(_blocking_defect(
                 "baseline-sha-unresolved", repo_cwd,

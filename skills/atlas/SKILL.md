@@ -686,7 +686,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   invoke the driver — `rollback_driver.run_rollback(...)` records `rollback_intent` **before**
   touching the tree, runs the idempotent `git reset --hard <sha>` seam, then records
   `rollback_complete`:
-  `python3 -m scripts.rollback_driver --base .atlas --run-id ${KIMI_SESSION_ID} --cwd .atlas/${KIMI_SESSION_ID}/worktree --target-sha <last_green_sha> --target-stage VERIFIED`
+  `PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -m scripts.rollback_driver --base .atlas --run-id ${KIMI_SESSION_ID} --cwd .atlas/${KIMI_SESSION_ID}/worktree --target-sha <last_green_sha> --target-stage VERIFIED`
   (with `ATLAS_SANCTIONED_ROLLBACK` set). The driver **refuses** — via `sanctioned_rollback` —
   unless the target is an isolated `.atlas/<run_id>/worktree` *linked* worktree carrying the
   sanction token. On resume, an open `rollback_intent` with no `rollback_complete` re-runs the

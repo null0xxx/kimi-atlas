@@ -150,11 +150,16 @@ Loop until `scheduler.is_terminated(dag)` is true:
   the merged tree: `combined = suiterun.run_suite(verify_cmd, u["worktree"])` (green == exactly
   `"pass"`); `regressions = differential.regressions(baseline_pass, combined)` — a zero-false-positive
   combined-tree regression oracle (a test green-alone but red-combined).
+- **Fold apply-failures into the deterministic floor (the third disjointness net).**
+  `apply_defects = integrate.apply_failures(u)` — a change the union `git apply` REJECTED (`u["failed"]`),
+  or an unbuildable union tree (`u["worktree"] is None`), never landed on the merged tree, so it is a
+  CRITICAL blocker decided HERE, not deferred to the seam critic. This is the promise L142 makes good:
+  a clean `git apply` is never credited, and a dropped change can never fold to a false green.
 - **Seam wave.** Dispatch `agents/integration-critic.md → plan` over the `combined_diff` + touched
   exported symbols (sharded above a diff-size threshold, honestly labeled weaker there). It RETURNS a
   critic-schema report; persist as `critic_integration.json`.
 - `integration = integrate.integration_verdict([conflicts,
-  differential.integration_defects(regressions), <integration critic defects>])`.
+  differential.integration_defects(regressions), apply_defects, <integration critic defects>])`.
 - `ctxstore.advance(".atlas","${SESSION}","INTEGRATE")`.
 
 ### AGGREGATE — the one pure fold (no LLM)

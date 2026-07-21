@@ -92,6 +92,47 @@ def actual_conflicts(changes: list[dict]) -> list[dict]:
     return defects
 
 
+def apply_failures(u: dict) -> list[dict]:
+    """Return a CRITICAL blocker per change the combined-tree union could not land.
+
+    ``u`` is a ``uniontree.apply_union`` result
+    ``{"worktree": str|None, "applied": [...], "failed": [{"id","reason"}], ...}``.
+    A change whose diff the union ``git apply`` REJECTED — or a union worktree that could
+    not be built at all — is absent from the merged tree, so the combined suite would
+    verify the WRONG tree. Per the pure cores' degrade-toward-BLOCK rule this is the third
+    disjointness net (``actual_conflicts`` catches same-file overlap; the differential
+    catches a green-alone/red-combined test; this catches a change that never landed):
+    a node whose change is not in the merged tree can never be credited green by the seam,
+    so it is flagged deterministically here, NOT left to the integration critic.
+
+    ``worktree is None`` means the whole union tree is unbuildable (``apply_union`` then
+    lists every change in ``failed`` with a "worktree add failed" reason); those per-change
+    entries are spurious, so it yields a SINGLE ``combined-tree-unbuildable`` blocker. A
+    cleanly-built union with no rejects (or an empty change set) yields ``[]``. Pure.
+    """
+    if u.get("worktree") is None:
+        if not u.get("failed"):
+            return []
+        return [{
+            "id": "combined-tree-unbuildable",
+            "category": "CORRECTNESS",
+            "severity": "CRITICAL",
+            "location": "union",
+            "fix": "could not build the combined worktree; integration is unverifiable",
+        }]
+    defects: list[dict] = []
+    for f in u.get("failed", []) or []:
+        cid = f.get("id")
+        defects.append({
+            "id": f"combined-apply-failed:{cid}",
+            "category": "CORRECTNESS",
+            "severity": "CRITICAL",
+            "location": str(cid),
+            "fix": f"change {cid} did not apply onto the combined tree: {f.get('reason')}",
+        })
+    return defects
+
+
 def integration_verdict(defect_lists) -> dict:
     """Fold conflict + differential defect lists into one canonical integration critic.
 

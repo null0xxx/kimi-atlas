@@ -59,6 +59,18 @@ class TestExpired(unittest.TestCase):
         leases = {"a": {}, "b": {"deadline": 9000}}
         self.assertEqual(leaseclock.expired(leases, now=1000), ["a"])
 
+    def test_non_numeric_deadline_degrades_to_expired(self):
+        # A non-numeric deadline hits the except (TypeError, ValueError) fail-safe:
+        # it cannot prove the turn is live, so it is reaped, never left running forever.
+        leases = {"a": {"deadline": "abc"}, "b": {"deadline": 9000}}
+        self.assertEqual(leaseclock.expired(leases, now=1000), ["a"])
+
+    def test_non_dict_lease_degrades_to_expired(self):
+        # A lease value that is not a dict fails the isinstance guard -> deadline stays
+        # None -> reaped. A malformed lease must never smuggle an unbounded turn through.
+        leases = {"a": "notadict", "b": {"deadline": 9000}}
+        self.assertEqual(leaseclock.expired(leases, now=1000), ["a"])
+
 
 if __name__ == "__main__":
     unittest.main()

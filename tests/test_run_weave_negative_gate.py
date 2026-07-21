@@ -141,6 +141,61 @@ class TestRubberStampDetection(unittest.TestCase):
         self.assertEqual(result["actual"], "PASS")
         self.assertIs(result["matched"], False)
 
+    def test_clean_combined_suite_does_not_block(self):
+        # Same kind as scenario 2, but the merged tree keeps every baseline-green test
+        # green (no regression). differential.regressions is empty, so the gate does NOT
+        # block — a gate that still blocked here would rubber-stamp _eval_combined_red.
+        broken = {
+            "name": "combined-red-while-leaves-green",
+            "kind": "combined-red-while-leaves-green",
+            "expected": "BLOCK",
+            "baseline_pass": ["t1", "t2"],
+            "combined": {"t1": "pass", "t2": "pass"},
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
+    def test_fully_covered_requirements_do_not_block(self):
+        # Same kind as scenario 4, but every frozen criterion is assigned to a node —
+        # coverage_partition finds no dropped criterion, so _eval_dropped_requirement
+        # must NOT block. A gate that blocked here would rubber-stamp.
+        broken = {
+            "name": "dropped-requirement",
+            "kind": "dropped-requirement",
+            "expected": "BLOCK",
+            "node_criteria": [["c1"], ["c2", "c3"]],
+            "frozen_criteria": ["c1", "c2", "c3"],
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
+    def test_resolved_frontier_with_gas_does_not_block(self):
+        # Same kind as scenario 5, but the single node RESOLVED (job DONE, clean verdict)
+        # with gas remaining: final_aggregate is OK and run_status is not UNVERIFIED, so
+        # _eval_gas_exhausted must NOT block. A gate that blocked here would rubber-stamp.
+        broken = {
+            "name": "gas-exhausted-partial",
+            "kind": "gas-exhausted-partial",
+            "expected": "BLOCK",
+            "dag": {
+                "meta": {"gas_remaining": 30, "depth_max": 4, "node_max": 12, "next_seq": 0},
+                "nodes": {
+                    "root": {"kind": "LEAF", "depth": 0, "deps": [],
+                             "scope_paths": ["a.py"], "success_criteria_subset": []},
+                },
+                "jobs": [
+                    {"job_id": "root#0", "node_id": "root", "kind": "LEAF",
+                     "deps": [], "attempts": 0, "state": "DONE"},
+                ],
+            },
+            "node_verdicts": {"root": {"dimensions": {}, "defects": [], "verdict": "OK"}},
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
     def test_sanctioned_rollback_does_not_block(self):
         # Same kind as the rollback-refused scenario, but fed a SANCTIONED input:
         # a reset aimed inside an isolated ``.atlas/<run>/worktree`` linked worktree

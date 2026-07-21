@@ -347,6 +347,15 @@ class AggregateTests(unittest.TestCase):
         merged = scheduler.final_aggregate(dag, None, None)
         self.assertEqual(merged["verdict"], "OK")
 
+    def test_final_aggregate_empty_dag_fails(self) -> None:  # never fabricate a pass from nothing
+        # A node-less run verified NOTHING; unresolved_nodes({}) is [] and no other synth
+        # fires, so the empty-dag guard is the SOLE thing forcing FAIL. Pin it: a refactor
+        # that drops it must break a test, not silently ship an empty run as green.
+        for dag in ({}, {"nodes": {}}, {"meta": {"gas_remaining": 5}, "nodes": {}, "jobs": []}):
+            merged = scheduler.final_aggregate(dag, None, None)
+            self.assertEqual(merged["verdict"], "FAIL")
+            self.assertTrue(any(d["id"] == "empty-dag" for d in merged["defects"]))
+
     def test_run_status_unverified_when_gas_frozen(self) -> None:  # only with unresolved work
         dag = {"meta": {"gas_remaining": 0}, "nodes": {"a": {"kind": "LEAF"}},
                "jobs": [{"node_id": "a", "state": "PENDING"}]}
