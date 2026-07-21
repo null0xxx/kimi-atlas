@@ -55,13 +55,17 @@ def wrap_untrusted(text: str) -> str:
 
 
 def reconcile(log: list[dict], hooks: list[dict]) -> list[str]:
-    """Return the sorted stages that dispatched a subagent but have no matching tool_call.
+    """Return the sorted stages that dispatched a subagent but recorded no covering tool_call marker.
 
-    A `log.jsonl` line carrying `agent=…` is a subagent dispatch; a `hooks.jsonl`
-    `tool_call` whose `payload.stage` names that stage is its (root-observable) cover.
-    A dispatched stage with no covering tool_call is flagged PARTIAL so silent gaps
-    are visible, not assumed complete (subagent-internal tools are invisible by
-    construction). Deterministic: a sorted set difference.
+    A `log.jsonl` line carrying `agent=…` is a subagent dispatch; its cover is the
+    stage-tagged `hooks.jsonl` `tool_call` (its `payload.stage` names that stage) that
+    the ORCHESTRATOR records via `ctxevents.record` immediately after the matching
+    `ctxstore.advance(..., agent=…)`. So this is a DISPATCH-INTEGRITY check — is the
+    dispatch marker present? — NOT a probe of subagent-internal tool visibility. On a
+    normal run every dispatch's marker is recorded, so `covered == dispatched` and
+    nothing is PARTIAL; a stage is flagged PARTIAL only when its marker is missing (a
+    crash/skip between the dispatch and its `record` — a genuine recording gap), so a
+    silent gap is visible, not assumed complete. Deterministic: a sorted set difference.
     """
     dispatched: set[str] = set()
     for e in log:

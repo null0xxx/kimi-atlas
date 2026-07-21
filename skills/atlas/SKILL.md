@@ -247,6 +247,18 @@ refine-pass counter).
   transition — "without grounding" never means "without the bookkeeping":
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", degraded=True)`.
 - Normal path: `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","GROUNDED", agent="context-scout")`.
+- **Record the GROUNDED dispatch marker (REQUIRED — dispatch-integrity).** Immediately after that
+  `agent="context-scout"` advance returns, emit a **stage-tagged `tool_call`** into this run's
+  `hooks.jsonl` so the ContextGraph can confirm the dispatch was recorded. This is the cover that
+  makes tool-use completeness a REAL signal: a dispatch with a matching marker is `COMPLETE`; a
+  dispatch whose marker never lands (a crash/skip between the advance and this step) legitimately
+  surfaces `PARTIAL` for `GROUNDED` at OUTPUT — a recording gap, by design, not a constant. Its
+  first argument is the **run directory** `.atlas/${KIMI_SESSION_ID}` (NOT the base + run_id pair):
+  ```
+  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+    "from scripts import ctxevents; ctxevents.record('.atlas/${KIMI_SESSION_ID}', 'tool_call', {'tool': 'Agent', 'stage': 'GROUNDED'})" \
+    || true    # a failed marker only surfaces PARTIAL at OUTPUT; it never blocks the machine
+  ```
 - **Select skills for the intent (advisory — V6).** After the digest persists, rank the
   committed skill registry (`references/skill-registry.json`, built from the extracted
   `skills/` tree by `scripts/skillregistry.py`, manifest-anchored) against the frozen intent and persist the
@@ -366,6 +378,15 @@ Then branch on the run mode:
 - The coder self-verifies (runs `verify_cmd` before returning) and reports a `STATUS`. Its
   **`STATUS` is evidence, never proof** — only the harness's own `runcheck` in VERIFIED counts.
 - `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","CODED", agent="elite-coder", status="<coder STATUS>")`.
+- **Record the CODED dispatch marker (REQUIRED — dispatch-integrity).** Immediately after that
+  `agent="elite-coder"` advance returns, emit the **stage-tagged `tool_call`** cover for `CODED`
+  (same rule as the GROUNDED marker above: run directory `.atlas/${KIMI_SESSION_ID}` first arg; a
+  missing marker legitimately surfaces `PARTIAL` for `CODED` at OUTPUT, never blocks the machine):
+  ```
+  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+    "from scripts import ctxevents; ctxevents.record('.atlas/${KIMI_SESSION_ID}', 'tool_call', {'tool': 'Agent', 'stage': 'CODED'})" \
+    || true    # a failed marker only surfaces PARTIAL at OUTPUT; it never blocks the machine
+  ```
 - → After that call returns, proceed immediately to **VERIFIED**. **Do not present the diff here**
   (Completion Invariant corollary 1).
 
@@ -707,14 +728,18 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   - The **diff location** (`.atlas/${KIMI_SESSION_ID}/diff.patch`, and the isolated worktree/branch
     path if headless).
   - **Tool-use completeness (informational, NEVER a gate).** Alongside the `missing_stages`
-    completeness reporting above, surface the ContextGraph's *tool-use* completeness so a silent
-    subagent tool-use gap is visible to the human. Read the graph the same way CODED does —
+    completeness reporting above, surface the ContextGraph's *tool-use* completeness so a missing
+    dispatch marker is visible to the human. Read the graph the same way CODED does —
     `contextgraph.project(".atlas", "${KIMI_SESSION_ID}")` (base `.atlas`, run_id
     `${KIMI_SESSION_ID}` — the **same** ledger coordinates every `ctxstore`/GRAPH_LOOKUP call uses;
-    no invented base/run_id) — and read its `used_tools` and `partial_stages` fields. If
-    `used_tools == "PARTIAL"` (equivalently `partial_stages` is non-empty), add ONE informational
-    line to the summary, e.g. `⚠️ tool-use completeness: PARTIAL — unobserved subagent tool use at
-    stage(s): <partial_stages>`. This is **DATA about the run** — trusted stage names plus the
+    no invented base/run_id) — and read its `used_tools` and `partial_stages` fields. On a normal
+    run every dispatch recorded its stage-tagged `tool_call` marker (the REQUIRED GROUNDED + CODED
+    markers above), so `used_tools == "COMPLETE"` and this line is omitted. If
+    `used_tools == "PARTIAL"` (equivalently `partial_stages` is non-empty), a **dispatched stage has
+    no recorded `tool_call` marker** — a recording gap between that dispatch and its
+    `ctxevents.record` (a crash/skip), not a per-run anomaly — so add ONE informational line to the
+    summary, e.g. `⚠️ tool-use completeness: PARTIAL — dispatched stage(s) with no recorded tool_call
+    marker: <partial_stages>`. This is **DATA about the run** — trusted stage names plus the
     `used_tools` literal — so it is surfaced directly; it is **NOT** the untrusted tool/error node
     text (`untrusted_output`/`untrusted_text` stay SAFE-2-wrapped and are **never** surfaced here).
     It is purely **informational for the human's judgment**: it does **NOT** compute pass/fail, does
@@ -723,7 +748,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
     still ships — `used_tools == "COMPLETE"` likewise surfaces no warning):
     ```
     PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
-      "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - unobserved subagent tool use at stage(s): '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
+      "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - dispatched stage(s) with no recorded tool_call marker: '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
       2>/dev/null || true    # empty/unreadable graph → no line; the summary still ships
     ```
 - **Do NOT auto-apply** any change to a real tree.
