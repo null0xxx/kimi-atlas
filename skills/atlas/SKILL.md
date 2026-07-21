@@ -706,6 +706,26 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
     `merged_critic.json` and why the gate failed (e.g. `runcheck` red, budget exhausted).
   - The **diff location** (`.atlas/${KIMI_SESSION_ID}/diff.patch`, and the isolated worktree/branch
     path if headless).
+  - **Tool-use completeness (informational, NEVER a gate).** Alongside the `missing_stages`
+    completeness reporting above, surface the ContextGraph's *tool-use* completeness so a silent
+    subagent tool-use gap is visible to the human. Read the graph the same way CODED does —
+    `contextgraph.project(".atlas", "${KIMI_SESSION_ID}")` (base `.atlas`, run_id
+    `${KIMI_SESSION_ID}` — the **same** ledger coordinates every `ctxstore`/GRAPH_LOOKUP call uses;
+    no invented base/run_id) — and read its `used_tools` and `partial_stages` fields. If
+    `used_tools == "PARTIAL"` (equivalently `partial_stages` is non-empty), add ONE informational
+    line to the summary, e.g. `⚠️ tool-use completeness: PARTIAL — unobserved subagent tool use at
+    stage(s): <partial_stages>`. This is **DATA about the run** — trusted stage names plus the
+    `used_tools` literal — so it is surfaced directly; it is **NOT** the untrusted tool/error node
+    text (`untrusted_output`/`untrusted_text` stay SAFE-2-wrapped and are **never** surfaced here).
+    It is purely **informational for the human's judgment**: it does **NOT** compute pass/fail, does
+    **NOT** gate (the OUTPUT human gate, the COMPLETION INVARIANT and the NO-LLM-verdict rule are
+    untouched), and an empty/unreadable graph **degrades to nothing** (omit the line; the summary
+    still ships — `used_tools == "COMPLETE"` likewise surfaces no warning):
+    ```
+    PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+      "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - unobserved subagent tool use at stage(s): '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
+      2>/dev/null || true    # empty/unreadable graph → no line; the summary still ships
+    ```
 - **Do NOT auto-apply** any change to a real tree.
   - **Interactive:** after the block, call `AskUserQuestion` — Apply / Refine further / Discard —
     **before any merge**. (Sanctioned pause 3.) Never merge without an explicit answer. If a
