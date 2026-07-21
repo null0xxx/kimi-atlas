@@ -1,0 +1,2420 @@
+{
+  "version": 1,
+  "kind": "system-graph",
+  "note": "One-time architectural snapshot of kimi-atlas produced by the graphify audit (multi-agent study, 2026-07-20). Nodes = components, edges = typed relationships. Not auto-rebuilt from the tree; the human navigator is references/system-map.md.",
+  "counts": {
+    "subsystems": 8,
+    "nodes": 122,
+    "edges": 249,
+    "dangling_edge_endpoints": 13
+  },
+  "subsystems": [
+    {
+      "id": "agent-roles",
+      "title": "agent-roles (subagent role prompts)",
+      "summary": "The `agents/*.md` files are the seven subagent role prompts that the atlas and atlas-weave orchestrators dispatch. kimi-atlas ships NO custom subagent runtime: each role is a plain Markdown file whose YAML frontmatter (name/description/tools/model/temperature/justification) is DOCUMENTATION ONLY — the orchestrator reads the file, strips the frontmatter, prepends the remaining body to a task packet, and calls the Kimi built-in `Agent(subagent_type=<mapped>)`. Real permissions come solely from the mapped built-in type (explore/coder/plan); the `tools:`/`model:` lines are never honored by the runtime. Roles split into one grounder (context-scout→explore), one implementer (elite-coder→coder), one decomposer (planner→plan), three per-node isolated 6-lens critics (correctness/code-quality/security→plan), and one cross-node seam critic (integration-critic→plan). Every read-only role (explore/plan) writes NOTHING and RETURNS its result as its final message; the root persists it. Correctness, security, and integration critics emit strict `critic`-schema JSON; the scout and planner emit their own bespoke JSON shapes."
+    },
+    {
+      "id": "atlas-core-statemachine",
+      "title": "atlas-core-statemachine",
+      "summary": "The single-change core of kimi-atlas: one uninterrupted, human-gated state machine (INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT) prose-encoded in skills/atlas/SKILL.md. The LLM orchestrator is the sole root; it holds frozen intent, dispatches exactly three kinds of subagent via role-file prepend (context-scout→explore for grounding, elite-coder→coder for implementation, three isolated critics→plan for judgment lenses), and marshals inputs into PURE decision functions (scripts/verdict.py) that alone compute pass/fail. Durable truth lives on disk in a per-run .atlas/<run_id>/ ledger (scripts/ctxstore.py), which is what makes the run compaction-survivable and resumable. Verification is a 6-lens harness: a deterministic floor (runcheck/quality/reqcoverage/pathcheck + sast) whose defects are merged in so every gate() failure condition also becomes a blocking merged defect, plus three adversarial model critics; the refine loop provably halts at MAX_PASSES=2."
+    },
+    {
+      "id": "atlas-weave-orchestration",
+      "title": "atlas-weave-orchestration",
+      "summary": "The multi-agent OUTER meta-machine that wraps the unchanged single-change `atlas` inner machine. It takes a change too large for one coherent atlas run, decomposes it into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges results through a combined-tree differential gate — all without letting any LLM compute pass/fail (every scheduling/disjointness/cycle/differential/gate decision is a pure function over on-disk facts) and while provably halting (gas + MAX_ATTEMPTS caps). The hierarchy lives entirely in the persisted `plan.dag.json` data, never in the agent tree: the orchestrator stays the sole root and marshals evidence into pure cores that decide. A 1-node DAG (or any planner failure) degrades byte-identically to a single atlas run. Layered as pure decision cores (plandag/planstage/scheduler/differential/integrate/resume/budget/bestofn) plus thin I/O \"hands\" (uniontree/leaseclock/ctxstore/runcaps) plus the orchestrator SKILL prose that sequences them."
+    },
+    {
+      "id": "build-ci-packaging",
+      "title": "build-ci-packaging",
+      "summary": "The build-ci-packaging subsystem is how kimi-atlas builds, gates, installs, and ships. Its hub is a stdlib-only Makefile whose `ci` target (check-strict + test + inventory-drift + check-shell) is the exact pipeline GitHub Actions (`.github/workflows/check.yml`) and the opt-in local pre-commit hook (`.githooks/pre-commit`, installed by `scripts/install-hooks.sh`) both run. Two red-team negative gates live OUTSIDE `make ci` on purpose: `run_negative_gate.py` (needs Kimi + semgrep) proves the judgment critics and SAST floor block sub-elite fixtures, and `run_weave_negative_gate.py` proves the combined-tree integration sink blocks via pure cores. Shipping is two-sided: `.kimi-plugin/plugin.json` is the plugin manifest (declares skills dir, sessionStart resume skill, telemetry hooks, tool-wiring instructions), `scripts/install.sh` installs the committed HEAD into `~/.kimi-code/plugins` with atomic installed.json registration, and `scripts/skillextract.py --verify` is the zip-free manifest-integrity gate for the 115 vendored skill packages."
+    },
+    {
+      "id": "docs-and-references",
+      "title": "docs-and-references (the prose spine)",
+      "summary": "The documentation corpus of kimi-atlas: a human-readable design spine that grounds and cross-links the three code layers (atlas single-change core, ATLAS-WEAVE multi-agent meta-machine, the 115-skill system). It is organized as a set of reference docs under references/ (architecture, atlas-weave spec, runtime facts, rubric, orchestration contract, skill-registry, live-validation) plus machine-readable schema/registry/manifest JSON, three top-level narrative files (README, AGENTS, PLAN), and eight phased build-plan docs under docs/superpowers/plans/. The docs deliberately separate authority: SKILL.md files are the executable authority and ctxstore.STAGES is the single source of truth, while these docs are the durable, compaction-independent summary (\"when the two disagree, the SKILL governs\"). Every first-party .md is markdown-linked from references/*.md or README.md by an enforced inventory-drift doc gate."
+    },
+    {
+      "id": "skill-system",
+      "title": "skill-system",
+      "summary": "The right-skill-at-the-right-time layer: 115 vendored official skill packages under skills/<name>/ (byte-identical to their source zips, sha256-anchored by references/skills-manifest.json), distilled into a compact committed registry and ranked by an advisory, explainable selector. skillextract was the one-time importer; at runtime skillregistry builds the registry from the tree and skillselect scores it against a task intent. Selection is advisory-only (V6): it emits no verdicts and can never gate or widen scope. The atlas GROUNDED stage persists the top-3 to skills.json and injects the TOP-1 SKILL.md body into the coder packet as the ACTIVE skill under SAFE-2 untrusted framing."
+    },
+    {
+      "id": "tests",
+      "title": "tests (kimi-atlas unittest suite)",
+      "summary": "The tests/ subsystem is a 37-file, 714-test unittest suite that runs fully green (Ran 714 tests ... OK). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync."
+    },
+    {
+      "id": "verification-harness",
+      "title": "verification-harness",
+      "summary": "The verification-harness is kimi-atlas's 6-lens code-review gate. Three lenses are fully deterministic scripts (runcheck = DOES-IT-RUN; quality.lint_deliverable = TEST-ADEQUACY/CODE-QUALITY floor; reqcoverage = REQUIREMENTS-COVERAGE) plus grounding backstops (pathcheck for CORRECTNESS paths, sast for a partial SECURITY floor), and three are isolated model `plan` critics (CORRECTNESS, CODE-QUALITY, SECURITY) whose JSON is normalized by verdict.merge. The load-bearing invariant is that NO LLM ever computes pass/fail: verdict.merge/gate/should_refine/final_status/aggregate/coverage_partition are pure fold functions over defect severity, and quality.enforce_critic_schema mechanically validates critic shape. difftool.capture supplies the single reproducible diff every lens reads; runcaps.seed_caps provisions the halting caps + soft token budget for the multi-agent (WEAVE) variant; validate.py enforces data-artifact schemas. The harness has no CLI entry points — every module is a pure/thin-I/O library invoked from the atlas / atlas-weave SKILL.md orchestrator prose at the VERIFIED stage."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "critic.schema",
+      "kind": "schema",
+      "subsystem": "agent-roles",
+      "path": "references/schemas.json",
+      "responsibility": "Shape all four critic role JSON outputs must match: required keys dimensions(dict), defects(list), verdict(str)."
+    },
+    {
+      "id": "integration-critic",
+      "kind": "agent-role",
+      "subsystem": "agent-roles",
+      "path": "agents/integration-critic.md",
+      "responsibility": "ATLAS-WEAVE seam critic: reviews the COMBINED union tree of K file-disjoint node diffs for cross-node interactions no single node's isolated 6-lens gate could see — the residual the differential oracle is SOUND-but-not-COMPLETE about. Emits a critic-schema report."
+    },
+    {
+      "id": "planner",
+      "kind": "agent-role",
+      "subsystem": "agent-roles",
+      "path": "agents/planner.md",
+      "responsibility": "Read-only decomposer (ATLAS-WEAVE): turns the frozen task packet into a file-disjoint plan-DAG (or a single node) plus per-node risk features, as one JSON object."
+    },
+    {
+      "id": "atlas.SKILL",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md",
+      "responsibility": "Prose-encoded root orchestrator + canonical state machine; drives INIT→OUTPUT in one uninterrupted turn, dispatches subagents by role-file prepend, marshals inputs into the pure verdict functions, and never auto-applies."
+    },
+    {
+      "id": "check_artifact_naming",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/check_artifact_naming.py",
+      "responsibility": "Doc-gate check (PASS-bar item 5) — verifies naming/inventory cleanliness for any changed .md doc (docs_clean)."
+    },
+    {
+      "id": "code-quality-critic",
+      "kind": "agent-role",
+      "subsystem": "atlas-core-statemachine",
+      "path": "agents/code-quality-critic.md",
+      "responsibility": "Isolated adversarial judgment lens 2 (CODE-QUALITY) — dead abstraction, unclear structure, convention drift. HIGH is rare."
+    },
+    {
+      "id": "context-scout",
+      "kind": "agent-role",
+      "subsystem": "atlas-core-statemachine",
+      "path": "agents/context-scout.md",
+      "responsibility": "Grounding role. Scans target repo for facts/conventions/constraints relevant to intent, returns the grounding digest JSON as its final message (writes nothing)."
+    },
+    {
+      "id": "correctness-critic",
+      "kind": "agent-role",
+      "subsystem": "atlas-core-statemachine",
+      "path": "agents/correctness-critic.md",
+      "responsibility": "Isolated adversarial judgment lens 1 (CORRECTNESS). Also confirms advisory lenses 4/6, may escalate a real gap to HIGH."
+    },
+    {
+      "id": "ctxstore",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/ctxstore.py",
+      "responsibility": "Run persistence + canonical STAGES + compaction-surviving ledger. Holds NO prompting knowledge — deterministic disk I/O only."
+    },
+    {
+      "id": "difftool",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/difftool.py",
+      "responsibility": "Captures the single deterministic unified diff every lens reviews, from review_root, handling tracked + untracked-in-scope files."
+    },
+    {
+      "id": "elite-coder",
+      "kind": "agent-role",
+      "subsystem": "atlas-core-statemachine",
+      "path": "agents/elite-coder.md",
+      "responsibility": "Implementation role. Implements the change under the elite mandate, self-verifies by running verify_cmd, returns STATUS: COMPLETE|INCOMPLETE + changed files."
+    },
+    {
+      "id": "pathcheck",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/pathcheck.py",
+      "responsibility": "Grounding backstop for lenses 1/6 — a cited path in the diff that does not exist under review_root is a CRITICAL CORRECTNESS defect."
+    },
+    {
+      "id": "quality",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/quality.py",
+      "responsibility": "Lens 4 TEST-ADEQUACY / debug-token floor + the merged-critic schema enforcer."
+    },
+    {
+      "id": "reqcoverage",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/reqcoverage.py",
+      "responsibility": "Lens 6 REQUIREMENTS-COVERAGE — token-overlap of FROZEN success_criteria vs the diff + scope-creep detection."
+    },
+    {
+      "id": "rubric",
+      "kind": "doc",
+      "subsystem": "atlas-core-statemachine",
+      "path": "references/rubric.md",
+      "responsibility": "The six canonical verification lenses; each critic receives exactly its single lens; verdict._DIMENSIONS mirrors it."
+    },
+    {
+      "id": "runcheck",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/runcheck.py",
+      "responsibility": "Lens 5 DOES-IT-RUN — fully deterministic. Discovers verify_cmd, launches an arbitrary target build mem-capped + hard-timeout in a new process group, parses test counts/collection, computes the green bar."
+    },
+    {
+      "id": "sast",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/sast.py",
+      "responsibility": "SECURITY deterministic floor (semgrep). Fail-open: absent/error/timeout → [] and the SECURITY lens degrades to judgment-only."
+    },
+    {
+      "id": "schemas",
+      "kind": "schema",
+      "subsystem": "atlas-core-statemachine",
+      "path": "references/schemas.json",
+      "responsibility": "Defines the task-packet, context (run-state), and critic JSON schemas the state machine validates against."
+    },
+    {
+      "id": "security-critic",
+      "kind": "agent-role",
+      "subsystem": "atlas-core-statemachine",
+      "path": "agents/security-critic.md",
+      "responsibility": "Isolated adversarial judgment lens 3 (SECURITY) — taint inputs to sinks; also audits whether ingestors treat content as DATA."
+    },
+    {
+      "id": "skillselect",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/skillselect.py",
+      "responsibility": "Advisory skill selector (V6) — ranks the committed skill-registry against frozen intent, honoring overrides; result persisted as skills.json for coder/critic injection."
+    },
+    {
+      "id": "stage.CLARIFY",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:180-208",
+      "responsibility": "Conditional human gate 1. Deterministic trigger: validate.validate(packet,'task-packet') schema errors OR any of verify_cmd/success_criteria/scope_paths empty. Interactive → ONE batched AskUserQuestion (<=3, never re-ask); headless → deterministic defaults recorded as assumptions."
+    },
+    {
+      "id": "stage.CODED",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:323-341",
+      "responsibility": "Memory-guard (>=3GB), dispatch elite-coder (coder) with the full frozen packet + persisted review_root + injected skills (TOP-1 ACTIVE, top-3 advisory). Coder self-verifies; its STATUS is evidence, never proof. Advance CODED. Never present the diff here."
+    },
+    {
+      "id": "stage.GROUNDED",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:216-285",
+      "responsibility": "Dispatch context-scout (explore) for a grounding digest, persist it as context.json, advance GROUNDED (degraded=True if scout JSON unusable after one retry), then run advisory skill selection into skills.json."
+    },
+    {
+      "id": "stage.INIT_INTENT",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:110-178",
+      "responsibility": "Resume-check first (scan .atlas/*/state.json for newest non-terminal run), else parse $ARGUMENTS into the task packet, record baseline_sha, protect tree via .git/info/exclude, freeze the immutable packet, advance INIT then INTENT_CAPTURED."
+    },
+    {
+      "id": "stage.OUTPUT",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:605-641",
+      "responsibility": "Terminal human gate 3. Compute verdict.final_status; advance OUTPUT first, then missing_stages backstop; present labelled STOP block (✅ VERIFIED / ⚠️ UNVERIFIED + residual blocking defects + diff location). Interactive → AskUserQuestion Apply/Refine/Discard before any merge; headless → print + halt. Never auto-apply."
+    },
+    {
+      "id": "stage.PRE_CODE_GATE",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:287-321",
+      "responsibility": "Human gate 2 (SAFE-1/OPS-4) before any real-tree mutation. Synthesize+persist plan.md preview; set and persist review_root; branch interactive (AskUserQuestion Approve/Adjust/Cancel, review_root='.') vs headless (isolate: git worktree off baseline_sha, or throwaway sandbox)."
+    },
+    {
+      "id": "stage.REFINE",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:574-603",
+      "responsibility": "Conditional, provably-halting loop. Read authoritative pass count from ledger; refine if verdict.should_refine (CRITICAL/HIGH AND passes<2) OR V7 clause (any CORRECTNESS/SECURITY defect at any severity AND passes<1). True → advance REFINE and loop back to CODED with the blocking fixes; False → OUTPUT."
+    },
+    {
+      "id": "stage.TRIAGED",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:210-214",
+      "responsibility": "Classify archetype (bugfix/feature/refactor/test), confirm target is a code tree. Pure bookkeeping, no subagent, no pause."
+    },
+    {
+      "id": "stage.VERIFIED",
+      "kind": "state-machine",
+      "subsystem": "atlas-core-statemachine",
+      "path": "skills/atlas/SKILL.md:343-572",
+      "responsibility": "The 6-lens harness in 5 steps: (1) capture one diff.patch + changed/test file maps from review_root; (2) run 3+ deterministic lenses at root Bash into det_evidence.json (runcheck lens5, quality.lint_deliverable lens4, reqcoverage lens6, pathcheck grounding, sast SECURITY floor, docs naming); (3) dispatch 3 isolated judgment critics as one <=3 wave; (4) verdict.merge PURE; enforce_critic_schema; (5) verdict.gate PURE. Advance VERIFIED with provisional verdict."
+    },
+    {
+      "id": "validate",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/validate.py",
+      "responsibility": "Schema validator used by the CLARIFY trigger (task-packet) and the GROUNDED state-integrity backstop (context)."
+    },
+    {
+      "id": "verdict",
+      "kind": "module",
+      "subsystem": "atlas-core-statemachine",
+      "path": "scripts/verdict.py",
+      "responsibility": "The PURE decision functions of the 6-eye harness — no model judgment, no prompt knowledge. Makes the refine loop provably halt and degradation deterministic."
+    },
+    {
+      "id": "atlas.node",
+      "kind": "agent-role",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "skills/atlas/SKILL.md",
+      "responsibility": "A weave node IS an inner atlas sub-run: a full INIT->OUTPUT 6-lens machine over the node's scope_paths in its own isolated worktree at run_id ${SESSION}/tasks/<node_id>, reporting completion."
+    },
+    {
+      "id": "bestofn",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/bestofn.py",
+      "responsibility": "Risk-funded best-of-N draft selection: pure lexicographic N->1 collapse before a node's VERIFIED, so best-of-N never touches merge/combined-tree machinery."
+    },
+    {
+      "id": "budget",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/budget.py",
+      "responsibility": "Pure risk/budget heuristics for BUDGETED: score a node's blast radius to SIZE spend (how many drafts it funds); never gates pass/fail."
+    },
+    {
+      "id": "dogfood_weave",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/dogfood_weave.py",
+      "responsibility": "End-to-end deterministic proof harness: drives the FULL weave pipeline on a real temp git repo with SCRIPTED coder outputs (no live agents), pinning the composition of pure cores + I/O hands in CI."
+    },
+    {
+      "id": "integration-critic.role",
+      "kind": "agent-role",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "agents/integration-critic.md",
+      "responsibility": "INTEGRATE seam subagent (mapped integration-critic->plan): reviews the combined_diff + touched exported symbols, RETURNS a critic-schema report persisted as critic_integration.json."
+    },
+    {
+      "id": "leaseclock",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/leaseclock.py",
+      "responsibility": "Injected-clock lease stamp + expiry: stamps a subagent turn with a lease token + wall-clock deadline and reports expired leases for reap_expired."
+    },
+    {
+      "id": "plan.dag.json",
+      "kind": "artifact",
+      "subsystem": "atlas-weave-orchestration",
+      "path": ".atlas/${SESSION}/plan.dag.json",
+      "responsibility": "The persisted single source of truth for the whole run: {meta:{depth_max,node_max,gas_remaining,next_seq}, nodes:{node_id->{kind,depth,deps,scope_paths,success_criteria_subset,verify_cmd,children,parent}}, jobs:[{job_id,node_id,kind,deps,attempts,state,lease}]}."
+    },
+    {
+      "id": "plandag",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/plandag.py",
+      "responsibility": "Pure plan-DAG substrate: acyclicity, scope-disjointness, criteria-conservation, gas/attempt bounds, and the ready/expand/fixpoint graph logic the scheduler marshals but never re-implements."
+    },
+    {
+      "id": "planner.role",
+      "kind": "agent-role",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "agents/planner.md",
+      "responsibility": "Read-only DECOMPOSED subagent (mapped planner->plan): returns ONE JSON file-disjoint plan-DAG + per-node risk features; writes nothing (the orchestrator persists it)."
+    },
+    {
+      "id": "planstage",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/planstage.py",
+      "responsibility": "DECOMPOSED-stage gate: validate a planner's DAG (acyclic, disjoint, every frozen criterion covered) or degrade to the byte-identical 1-node atlas DAG."
+    },
+    {
+      "id": "resume",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/resume.py",
+      "responsibility": "Run-shape-aware graph resume: pick the graph ROOT run among on-disk runs (never a task sub-run) and reset orphaned RUNNING jobs to PENDING for a fresh scheduler start."
+    },
+    {
+      "id": "scheduler",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/scheduler.py",
+      "responsibility": "Pure decision core for the flat-W=3 memory-admissible work-stealing scheduler: plan/charge/dispatch waves, apply receipts, reap expired leases, and fold the final aggregate + run status."
+    },
+    {
+      "id": "uniontree",
+      "kind": "module",
+      "subsystem": "atlas-weave-orchestration",
+      "path": "scripts/uniontree.py",
+      "responsibility": "INTEGRATE I/O hand: create a detached git worktree at baseline_sha, git-apply the union of node diffs in list order, capture the combined diff — the THIRD disjointness net."
+    },
+    {
+      "id": "Makefile",
+      "kind": "config",
+      "subsystem": "build-ci-packaging",
+      "path": "Makefile",
+      "responsibility": "Central build/gate orchestrator; defines the `ci` pipeline plus install/extract/registry targets"
+    },
+    {
+      "id": "ci.workflow",
+      "kind": "config",
+      "subsystem": "build-ci-packaging",
+      "path": ".github/workflows/check.yml",
+      "responsibility": "GitHub Actions CI: run the local pipeline on push/PR to main/master"
+    },
+    {
+      "id": "fixtures",
+      "kind": "config",
+      "subsystem": "build-ci-packaging",
+      "path": "tests/fixtures/*/fixture.json",
+      "responsibility": "Red-team fixture matrix consumed by run_negative_gate: 1 good baseline + 4 bad_* seeded defects"
+    },
+    {
+      "id": "guard-destructive.hook",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "hooks/guard-destructive.sh",
+      "responsibility": "OPT-IN destructive-Bash PreToolUse guard — the only kimi-atlas hook that can BLOCK; ships DISABLED (not in manifest)"
+    },
+    {
+      "id": "install-hooks.sh",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/install-hooks.sh",
+      "responsibility": "Install the opt-in pre-commit hook by pointing core.hooksPath at .githooks"
+    },
+    {
+      "id": "install.sh",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/install.sh",
+      "responsibility": "Install/uninstall kimi-atlas as a native Kimi Code plugin and register it in installed.json"
+    },
+    {
+      "id": "inventory_drift",
+      "kind": "module",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/inventory_drift.py",
+      "responsibility": "Doc inventory-drift gate: fail if the doc set on disk diverges from what references/*.md + README.md link"
+    },
+    {
+      "id": "plugin.json",
+      "kind": "schema",
+      "subsystem": "build-ci-packaging",
+      "path": ".kimi-plugin/plugin.json",
+      "responsibility": "Kimi plugin manifest — identity, skills dir, sessionStart resume skill, telemetry hooks, tool-wiring instructions"
+    },
+    {
+      "id": "plugin_meta",
+      "kind": "module",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/plugin_meta.py",
+      "responsibility": "Pure reader of the plugin manifest version"
+    },
+    {
+      "id": "pre-commit.hook",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": ".githooks/pre-commit",
+      "responsibility": "Opt-in local pre-commit gate that runs `make ci` before each commit"
+    },
+    {
+      "id": "probes",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "probe/*.sh",
+      "responsibility": "Throwaway-runtime probes that RECORD unconfirmed Kimi runtime behaviors (advisory; not a gate)"
+    },
+    {
+      "id": "run_negative_gate",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/run_negative_gate.py",
+      "responsibility": "Single-change red-team gate: prove each judgment critic blocks sub-elite code on exactly its lens, and the SAST floor blocks a mechanical vuln without a critic"
+    },
+    {
+      "id": "run_weave_negative_gate",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/run_weave_negative_gate.py",
+      "responsibility": "Combined-tree red-team gate: prove the ATLAS-WEAVE integration sink cannot ship a broken union of file-disjoint node changes"
+    },
+    {
+      "id": "skillextract",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/skillextract.py",
+      "responsibility": "Extract the vendored Skills/ zips into skills/<name>/ byte-identically and run the sha256 manifest-integrity verify gate"
+    },
+    {
+      "id": "skillpkgs",
+      "kind": "module",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/skillpkgs.py",
+      "responsibility": "Shared skill-package-aware markdown walk used by BOTH doc gates (owns the exemption once)"
+    },
+    {
+      "id": "suiterun",
+      "kind": "module",
+      "subsystem": "build-ci-packaging",
+      "path": "scripts/suiterun.py",
+      "responsibility": "JUnit suite runner for the ATLAS-WEAVE INTEGRATE sink: turn a JUnit XML into {test_id:status} for differential regression detection"
+    },
+    {
+      "id": "telemetry.hook",
+      "kind": "script",
+      "subsystem": "build-ci-packaging",
+      "path": "hooks/telemetry.sh",
+      "responsibility": "Fail-open observe-only telemetry hook wired into the plugin manifest for PostToolUse/SubagentStart/SubagentStop"
+    },
+    {
+      "id": "cfg.skill-overrides",
+      "kind": "config",
+      "subsystem": "docs-and-references",
+      "path": "references/skill-overrides.json",
+      "responsibility": "Optional user-editable selector steering: pin / exclude / boost / categories; absence means no overrides; malformed fields ignored so selection never breaks a run."
+    },
+    {
+      "id": "data.skill-registry-json",
+      "kind": "artifact",
+      "subsystem": "docs-and-references",
+      "path": "references/skill-registry.json",
+      "responsibility": "The compact committed registry (v2, 115 entries {name,category,description,triggers,path}) distilled from the skills/ tree by scripts/skillregistry.py; the input skillselect ranks against."
+    },
+    {
+      "id": "data.skills-manifest",
+      "kind": "artifact",
+      "subsystem": "docs-and-references",
+      "path": "references/skills-manifest.json",
+      "responsibility": "The sha256 integrity anchor for every vendored skill file (117 zips → 115 packages, 712 files); CI re-hashes the whole extracted tree against it zip-free."
+    },
+    {
+      "id": "doc.agents",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "AGENTS.md",
+      "responsibility": "Project memory / fast-resume map: what exists, the daily-five make commands, non-negotiable conventions, the skill system v2, atlas-run workflow, open items (D1-D7), and status."
+    },
+    {
+      "id": "doc.architecture",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/architecture.md",
+      "responsibility": "The atlas single-change design in brief: the compaction/self-grading problem, the no-patch overlay approach (root SKILL state machine, role files, deterministic backbone, 6-lens harness, on-disk ctxstore), why it fits Kimi, and explicit non-goals."
+    },
+    {
+      "id": "doc.atlas-weave",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/atlas-weave.md",
+      "responsibility": "The full ATLAS-WEAVE multi-agent spec: resolved decisions, objective/non-goals, hard runtime physics, outer meta-machine architecture, data model, 3-tier verification, concurrency/memory budget, halting proof, engineering calcs, phased build P6-P12, and honest residuals."
+    },
+    {
+      "id": "doc.kimi-runtime",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/kimi-runtime.md",
+      "responsibility": "The authoritative verified runtime reference for Kimi Code CLI: tech stack, the 27 real tool wire-names, the 3 built-in subagent profiles, the apex custom-agent pattern, plugin manifest, skills, hooks, compaction/session state, E2E testing, extra subsystems, and the probe log."
+    },
+    {
+      "id": "doc.live-validation",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/live-validation.md",
+      "responsibility": "The first end-to-end validation on the live Kimi CLI v0.26.0/k3: runtime compat (Stage 0), atlas single-change (Stage 1), the first live ATLAS-WEAVE multi-agent run (Stage 2), and the Q/T comparison weave-vs-single-shot (Stage 3)."
+    },
+    {
+      "id": "doc.orchestration",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/orchestration.md",
+      "responsibility": "The orchestrator operating contract: persistence conventions, root-only responsibilities, subagent role→built-in mapping, dispatch protocol, immutable task packet, critic output contract, untrusted-content rule, state preservation, gates/conditionals, and the completion invariant."
+    },
+    {
+      "id": "doc.plan",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "PLAN.md",
+      "responsibility": "The original definitive build plan for the single-change atlas core (apex methodology, v2): objective/non-goals, grounded foundation constraints, exact architecture tree, 6-eye harness, deterministic backbone, phases P0-P5, migration mapping, risk register, execution DAG."
+    },
+    {
+      "id": "doc.readme",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "README.md",
+      "responsibility": "Top-level product front door: install, using the 115 skills, automatic selection, atlas quality model, ATLAS-WEAVE overview, honest limits, repo layout, FAQ, and the Documentation link hub."
+    },
+    {
+      "id": "doc.rubric",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/rubric.md",
+      "responsibility": "The 6 falsifiable verification lenses: canonical dimension names, severity mapping, per-lens claim/test/deterministic-floor/judgment-residual, per-critic verdict, the 6-clause PASS bar, and the honest-scope caveats (V3/V5/V6/V7)."
+    },
+    {
+      "id": "doc.skill-registry",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "references/skill-registry.md",
+      "responsibility": "Documents the skill registry & selection subsystem: source-of-truth tree, coalesce policy (117→115), registry schema, trigger extraction (E1), the weighted selection algorithm (E2), manual overrides, and the rebuild/verify commands."
+    },
+    {
+      "id": "plan.hardening",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md",
+      "responsibility": "The residual-defect analysis for the skills era: the D1-D7 LOW defects across registry/selector/extractor/tests, each with location/root-cause/why-LOW/minimal-fix/regression-test, plus dispositioned audit items and an ordered fix plan."
+    },
+    {
+      "id": "plan.p10",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p10-integrate-sink.md",
+      "responsibility": "Test-first plan for P10 — the INTEGRATE sink (integrate.py + differential.py + combined 6-lens + integration-critic seam wave + bounded INTEGRATION_REPAIR)."
+    },
+    {
+      "id": "plan.p11",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p11-resume.md",
+      "responsibility": "Test-first plan for P11 — run-shape-aware graph resume (locate the GRAPH run, rehydrate the frontier by pure projection, requeue expired leases, reset dirty worktrees, atomic dag writes)."
+    },
+    {
+      "id": "plan.p12",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p12-runtime-dogfood.md",
+      "responsibility": "Test-first plan for P12 — fuel/halting caps + negative-gate teeth + the outer SKILL loop + deterministic I/O hands + a real end-to-end dogfood measuring Q/T vs single-shot atlas."
+    },
+    {
+      "id": "plan.p6",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p6-pure-cores.md",
+      "responsibility": "Test-first plan for P6 — the pure cores (plandag + verdict.aggregate + coverage-partition + schema blocks + red-team unit fixtures)."
+    },
+    {
+      "id": "plan.p7",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p7-decompose-budget.md",
+      "responsibility": "Test-first plan for P7 — DECOMPOSED + BUDGETED with degrade-to-atlas proven first (planner.md, budget.py, is_dag/disjoint wiring)."
+    },
+    {
+      "id": "plan.p8",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p8-scheduler.md",
+      "responsibility": "Test-first plan for P8 — the SCHEDULE loop (flat W=3 work-stealing, thin-return, memory discipline, lease + requeue cap, builds-in-pool)."
+    },
+    {
+      "id": "plan.p9",
+      "kind": "doc",
+      "subsystem": "docs-and-references",
+      "path": "docs/superpowers/plans/2026-07-16-atlas-weave-p9-best-of-n.md",
+      "responsibility": "Test-first plan for P9 — risk-funded per-node best-of-N (N∈{1,3}, floor rerank + N→1 collapse, PreToolUse build-block hook)."
+    },
+    {
+      "id": "schema.schemas",
+      "kind": "schema",
+      "subsystem": "docs-and-references",
+      "path": "references/schemas.json",
+      "responsibility": "The machine-readable required/optional field contracts for every persisted artifact and role return: task-packet, context, critic, task-dag, dag-node, job, planner-output, skill-registry, skill-entry, skill-overrides, skills-manifest(+entry)."
+    },
+    {
+      "id": "schemas.skill",
+      "kind": "schema",
+      "subsystem": "skill-system",
+      "path": "references/schemas.json",
+      "responsibility": "skill-registry / skill-entry / skill-overrides JSON schemas the registry validates against."
+    },
+    {
+      "id": "skill-overrides.json",
+      "kind": "config",
+      "subsystem": "skill-system",
+      "path": "references/skill-overrides.json",
+      "responsibility": "Optional user steering: pin / exclude / boost / categories."
+    },
+    {
+      "id": "skill-registry.json",
+      "kind": "artifact",
+      "subsystem": "skill-system",
+      "path": "references/skill-registry.json",
+      "responsibility": "v2 registry: 115 entries {name, category, description, triggers, path}."
+    },
+    {
+      "id": "skill-registry.md",
+      "kind": "doc",
+      "subsystem": "skill-system",
+      "path": "references/skill-registry.md",
+      "responsibility": "Prose spec of the registry schema, trigger extraction (E1), selection algorithm (E2), overrides, and rebuild."
+    },
+    {
+      "id": "skillregistry",
+      "kind": "module",
+      "subsystem": "skill-system",
+      "path": "scripts/skillregistry.py",
+      "responsibility": "Build references/skill-registry.json from the extracted skills/ tree; hand-parse SKILL.md frontmatter (SAFE-2), take category from the manifest, extract E1 triggers; audit-gated write."
+    },
+    {
+      "id": "skills-manifest.json",
+      "kind": "artifact",
+      "subsystem": "skill-system",
+      "path": "references/skills-manifest.json",
+      "responsibility": "sha256 anchor for every vendored file + its category; the source of truth the registry and --verify re-prove."
+    },
+    {
+      "id": "skills-tree",
+      "kind": "artifact",
+      "subsystem": "skill-system",
+      "path": "skills/",
+      "responsibility": "115 vendored official packages (712 files) + 3 first-party orchestrator skill dirs (atlas, atlas-weave, atlas-resume) = 118 dirs."
+    },
+    {
+      "id": "scripts.pkg",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "scripts/__init__.py",
+      "responsibility": "Package marker that makes `from scripts import X` importable when discover runs from repo root."
+    },
+    {
+      "id": "suite.discover",
+      "kind": "config",
+      "subsystem": "tests",
+      "path": "tests/",
+      "responsibility": "The unittest suite: 37 test_*.py files, 714 tests, all green (Ran 714 tests ... OK)."
+    },
+    {
+      "id": "test_audit_findings",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_audit_findings.py",
+      "responsibility": "CROSS-CUTTING regression/red-team suite with NO same-name script — locks fixes across integrate, resume, plandag, scheduler."
+    },
+    {
+      "id": "test_bestofn",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_bestofn.py",
+      "responsibility": "Best-of-N fanout + rank-key (gate-pass primary, then blocking, tokens, index)."
+    },
+    {
+      "id": "test_budget",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_budget.py",
+      "responsibility": "Risk scoring, token-charge purity (ledger not mutated), funding floor."
+    },
+    {
+      "id": "test_check_artifact_naming",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_check_artifact_naming.py",
+      "responsibility": "Doc-naming gate behavior + TestMainRealRepo runs the gate over the real committed tree; TestSkillPackageExemption for vendored payloads."
+    },
+    {
+      "id": "test_ctxstore",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_ctxstore.py",
+      "responsibility": "Context store: canonical stage partition, idempotent immutable intent, ledger-backed refine counter, run isolation."
+    },
+    {
+      "id": "test_ctxstore_atomic",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_ctxstore_atomic.py",
+      "responsibility": "SUPPLEMENTARY ctxstore suite (no same-name script) — atomic write_artifact: roundtrip, full-content overwrite, no tmp-file leak."
+    },
+    {
+      "id": "test_differential",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_differential.py",
+      "responsibility": "Combined-tree differential: a suite green-alone but red-combined is the headline cross-change regression."
+    },
+    {
+      "id": "test_difftool",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_difftool.py",
+      "responsibility": "Diff capture in git and non-git trees; asserts capture does not mutate the index."
+    },
+    {
+      "id": "test_dogfood_weave",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_dogfood_weave.py",
+      "responsibility": "Self-certifying end-to-end weave proof: builds real temp git repos + JUnit-emitting scaffolds and runs 4 scenarios through the machine."
+    },
+    {
+      "id": "test_integrate",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_integrate.py",
+      "responsibility": "Weave integration: touched-files extraction, conflict detection, merge-shaped verdict."
+    },
+    {
+      "id": "test_inventory_drift",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_inventory_drift.py",
+      "responsibility": "Doc/link inventory drift detector + TestMainRealRepo asserts the live repo doc graph is in sync."
+    },
+    {
+      "id": "test_leaseclock",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_leaseclock.py",
+      "responsibility": "Lease stamp/expiry; malformed lease degrades to expired; token omits timestamp (no rotation)."
+    },
+    {
+      "id": "test_others",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/{test_planstage,test_uniontree,test_resume,test_runcaps,test_quality,test_reqcoverage,test_sast,test_suiterun,test_validate,test_skillpkgs}.py",
+      "responsibility": "1:1 behavior+failure+boundary suites for the remaining pure cores (each pins its same-name script)."
+    },
+    {
+      "id": "test_pathcheck",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_pathcheck.py",
+      "responsibility": "Cross-check backticked paths against disk/relevant files; ungrounded path flagged critical."
+    },
+    {
+      "id": "test_plandag",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_plandag.py",
+      "responsibility": "Plan-DAG schema + criteria-conservation with cyclic/self-referential launder guards."
+    },
+    {
+      "id": "test_plugin_meta",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_plugin_meta.py",
+      "responsibility": "Smallest suite (49 lines) — pins the committed .kimi-plugin/plugin.json via parents[1]."
+    },
+    {
+      "id": "test_run_negative_gate",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_run_negative_gate.py",
+      "responsibility": "Largest test file (750 lines): the 6-lens fixture-driven negative-gate harness — lens mapping, deterministic blockers, fixture processing, main()."
+    },
+    {
+      "id": "test_run_weave_negative_gate",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_run_weave_negative_gate.py",
+      "responsibility": "Weave-level negative gate: 5/5 BLOCK scenarios (cyclic-DAG, dropped-requirement, gas-exhausted-partial...)."
+    },
+    {
+      "id": "test_runcheck",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_runcheck.py",
+      "responsibility": "Largest single-module suite (574 lines) pinning the deterministic runcheck floor."
+    },
+    {
+      "id": "test_scheduler",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_scheduler.py",
+      "responsibility": "Weave concurrency scheduler (430 lines) — <=3 concurrent inner runs, gas/lease handling."
+    },
+    {
+      "id": "test_skillextract",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_skillextract.py",
+      "responsibility": "Zip-slip / hostile-name extractor matrix (584 lines) + TestCommittedManifest/TestCommittedNamePolicy pin the committed sha256 manifest."
+    },
+    {
+      "id": "test_skillregistry",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_skillregistry.py",
+      "responsibility": "Pins registry build purity AND TestCommittedRegistry validates the committed references/skill-registry.json against a fresh rebuild."
+    },
+    {
+      "id": "test_skillselect",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_skillselect.py",
+      "responsibility": "Advisory selector ranking behavior (347 lines)."
+    },
+    {
+      "id": "test_verdict",
+      "kind": "module",
+      "subsystem": "tests",
+      "path": "tests/test_verdict.py",
+      "responsibility": "Pins verdict.py pure fns (merge/gate/should_refine/final_status) + PLAN V2 proof that a permanently-blocking critic halts at exactly 2 re-drafts and yields UNVERIFIED."
+    },
+    {
+      "id": "differential",
+      "kind": "module",
+      "subsystem": "verification-harness",
+      "path": "scripts/differential.py",
+      "responsibility": "Differential mutation/regression signal consumed by the harness: computes regressions across a run-pair (referenced by runcheck's revert_red and WEAVE aggregate)."
+    },
+    {
+      "id": "integrate",
+      "kind": "module",
+      "subsystem": "verification-harness",
+      "path": "scripts/integrate.py",
+      "responsibility": "WEAVE combined-tree integration critic: folds per-node defect lists into one integration verdict consumed by verdict.aggregate."
+    },
+    {
+      "id": "rubric.doc",
+      "kind": "doc",
+      "subsystem": "verification-harness",
+      "path": "references/rubric.md",
+      "responsibility": "Canonical spec of the 6 falsifiable lenses, severity mapping, and which lens is deterministic vs judgment-with-floor."
+    },
+    {
+      "id": "runcaps",
+      "kind": "module",
+      "subsystem": "verification-harness",
+      "path": "scripts/runcaps.py",
+      "responsibility": "Pure 'hand' turning a task packet into ATLAS-WEAVE halting caps (depth/node/gas) + a soft token budget, then handed to the scheduler."
+    },
+    {
+      "id": "schemas.json",
+      "kind": "schema",
+      "subsystem": "verification-harness",
+      "path": "references/schemas.json",
+      "responsibility": "Source of truth for artifact schemas (validate.py) and the critic schema shape (quality.enforce_critic_schema)."
+    },
+    {
+      "id": "weave.SKILL",
+      "kind": "skill",
+      "subsystem": "verification-harness",
+      "path": "skills/atlas-weave/SKILL.md",
+      "responsibility": "Multi-agent meta-orchestrator; provisions halting caps via runcaps.seed_caps and folds per-node verdicts with verdict.aggregate + coverage_partition + integrate.integration_verdict + differential.regressions."
+    }
+  ],
+  "edges": [
+    {
+      "from": "Makefile",
+      "to": "check_artifact_naming",
+      "type": "invokes",
+      "note": "check-strict -> python3 scripts/check_artifact_naming.py --strict (part of ci)"
+    },
+    {
+      "from": "Makefile",
+      "to": "install-hooks.sh",
+      "type": "invokes",
+      "note": "target install-hooks -> ./scripts/install-hooks.sh"
+    },
+    {
+      "from": "Makefile",
+      "to": "inventory_drift",
+      "type": "invokes",
+      "note": "inventory-drift -> python3 scripts/inventory_drift.py (part of ci)"
+    },
+    {
+      "from": "Makefile",
+      "to": "run_negative_gate",
+      "type": "invokes",
+      "note": "negative-gate target — deliberately OUTSIDE ci"
+    },
+    {
+      "from": "Makefile",
+      "to": "skillextract",
+      "type": "invokes",
+      "note": "skills-extract -> skillextract.py then --verify; NOT in ci"
+    },
+    {
+      "from": "Makefile",
+      "to": "guard-destructive.hook",
+      "type": "validates",
+      "note": "check-shell runs `sh -n` over hooks/*.sh"
+    },
+    {
+      "from": "Makefile",
+      "to": "pre-commit.hook",
+      "type": "validates",
+      "note": "check-shell runs `sh -n` over .githooks/pre-commit"
+    },
+    {
+      "from": "Makefile",
+      "to": "probes",
+      "type": "validates",
+      "note": "check-shell runs `sh -n` over probe/*.sh"
+    },
+    {
+      "from": "Makefile",
+      "to": "telemetry.hook",
+      "type": "validates",
+      "note": "check-shell runs `sh -n` over hooks/*.sh"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "context-scout",
+      "type": "injects",
+      "note": "strips YAML frontmatter (tools:/model: doc-only), prepends remaining body to packet (SKILL.md:32-37)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "elite-coder",
+      "type": "injects",
+      "note": "TOP-1 skill body ACTIVE + top-3 advisory, SAFE-2 framed"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "code-quality-critic",
+      "type": "invokes",
+      "note": "VERIFIED wave: Agent(subagent_type=plan), temperature 0.5 (SKILL.md:469-497)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "context-scout",
+      "type": "invokes",
+      "note": "GROUNDED: Read agents/context-scout.md, strip frontmatter, prepend body, Agent(subagent_type=explore) (SKILL.md:217-222)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "correctness-critic",
+      "type": "invokes",
+      "note": "VERIFIED wave: Agent(subagent_type=plan), temperature 0.2 per V5 (SKILL.md:469-497)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "difftool",
+      "type": "invokes",
+      "note": "diff = difftool.capture(baseline_sha, scope_paths, review_root) — single diff every lens reads (SKILL L385)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "elite-coder",
+      "type": "invokes",
+      "note": "CODED: read→strip→prepend body + task packet, Agent(subagent_type=coder) (SKILL.md:326-327)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "pathcheck",
+      "type": "invokes",
+      "note": "pathcheck_defects=pathcheck.cross_check(diff,ctx,review_root) (SKILL L441)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "quality",
+      "type": "invokes",
+      "note": "lint_defects=quality.lint_deliverable(changed_files,test_files,config); schema_errors=enforce_critic_schema(merged) (SKILL L435,541)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "reqcoverage",
+      "type": "invokes",
+      "note": "reqcoverage_defects=reqcoverage.coverage(success_criteria,diff,scope_paths) (SKILL L438)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "runcheck",
+      "type": "invokes",
+      "note": "cmd=discover_verify_cmd; rc=runcheck.run(...,timeout_s=1500,mem_limit_mb=2048); runcheck.green(rc) (SKILL L429-431,458,531)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "sast",
+      "type": "invokes",
+      "note": "sast_defects=sast.scan(scope_paths,review_root); HIGH merged into script_defects before verdict.merge (SKILL L353-354,449)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "security-critic",
+      "type": "invokes",
+      "note": "VERIFIED wave: Agent(subagent_type=plan), temperature 0.3; handed sast_defects slice (SKILL.md:483-489)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "verdict",
+      "type": "invokes",
+      "note": "merged=verdict.merge(critics,script_defects); verdict.gate(merged,gate_results); should_refine; final_status (SKILL L540,552,586,619)"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "ctxstore",
+      "type": "reads-artifact",
+      "note": "INIT resume-check scans .atlas/*/state.json for newest non-terminal run"
+    },
+    {
+      "from": "atlas.SKILL",
+      "to": "stage.INIT_INTENT",
+      "type": "transitions",
+      "note": "run starts at INIT→INTENT_CAPTURED"
+    },
+    {
+      "from": "atlas.node",
+      "to": "plan.dag.json",
+      "type": "writes-artifact",
+      "note": "node emits merged_critic.json + diff.patch; orchestrator synthesizes the receipt applied via scheduler.apply_receipt"
+    },
+    {
+      "from": "atlas.stage.CODED",
+      "to": "skill-registry.json",
+      "type": "injects",
+      "note": "TOP-1 SKILL.md body → coder packet (SAFE-2)"
+    },
+    {
+      "from": "atlas.stage.GROUNDED",
+      "to": "skillselect",
+      "type": "invokes",
+      "note": "persists top-3 to skills.json"
+    },
+    {
+      "from": "check_artifact_naming",
+      "to": "skillpkgs",
+      "type": "imports",
+      "note": "shared walk"
+    },
+    {
+      "from": "ci.workflow",
+      "to": "Makefile",
+      "type": "invokes",
+      "note": "`run: make ci` — CI is a thin wrapper over the local pipeline"
+    },
+    {
+      "from": "code-quality-critic",
+      "to": "rubric",
+      "type": "doc-links",
+      "note": "receives CODE-QUALITY lens 2"
+    },
+    {
+      "from": "code-quality-critic",
+      "to": "atlas.SKILL",
+      "type": "reads-artifact",
+      "note": "returns critic JSON; root persists critic_code_quality.json"
+    },
+    {
+      "from": "code-quality-critic",
+      "to": "rubric",
+      "type": "reads-artifact",
+      "note": "handed CODE-QUALITY lens 2 slice"
+    },
+    {
+      "from": "code-quality-critic",
+      "to": "critic.schema",
+      "type": "validates",
+      "note": "same critic schema"
+    },
+    {
+      "from": "code-quality-critic",
+      "to": "atlas.SKILL",
+      "type": "writes-artifact",
+      "note": "returns JSON; root persists as critic_code_quality.json"
+    },
+    {
+      "from": "context-scout",
+      "to": "atlas.SKILL",
+      "type": "reads-artifact",
+      "note": "consumes intent/scope_paths/max-files packet from root"
+    },
+    {
+      "from": "context-scout",
+      "to": "atlas.SKILL",
+      "type": "writes-artifact",
+      "note": "returns grounding digest as final message; root persists as context.json (explore has no Write, F2)"
+    },
+    {
+      "from": "correctness-critic",
+      "to": "rubric",
+      "type": "doc-links",
+      "note": "receives CORRECTNESS lens 1"
+    },
+    {
+      "from": "correctness-critic",
+      "to": "atlas.SKILL",
+      "type": "reads-artifact",
+      "note": "returns critic JSON; root persists critic_correctness.json"
+    },
+    {
+      "from": "correctness-critic",
+      "to": "rubric",
+      "type": "reads-artifact",
+      "note": "handed CORRECTNESS lens 1 slice (+ confirms 4 & 6)"
+    },
+    {
+      "from": "correctness-critic",
+      "to": "critic.schema",
+      "type": "validates",
+      "note": "output must match references/schemas.json → critic; category ∈ rubric dimensions"
+    },
+    {
+      "from": "correctness-critic",
+      "to": "atlas.SKILL",
+      "type": "writes-artifact",
+      "note": "returns critic JSON as final message; root persists as critic_correctness.json"
+    },
+    {
+      "from": "data.skill-registry-json",
+      "to": "data.skills-manifest",
+      "type": "validates",
+      "note": "E4 audit: registry-count must equal manifest skill-count"
+    },
+    {
+      "from": "difftool",
+      "to": "runcheck",
+      "type": "reads-artifact",
+      "note": "both consume the same frozen baseline_sha/scope_paths so the reviewed diff and the executed tree match (atlas SKILL L300,316)"
+    },
+    {
+      "from": "doc.agents",
+      "to": "doc.architecture",
+      "type": "doc-links",
+      "note": "'For depth follow the links to references/'"
+    },
+    {
+      "from": "doc.agents",
+      "to": "doc.atlas-weave",
+      "type": "doc-links",
+      "note": "references depth link"
+    },
+    {
+      "from": "doc.agents",
+      "to": "doc.plan",
+      "type": "doc-links",
+      "note": "open items / conventions cite PLAN.md sections"
+    },
+    {
+      "from": "doc.agents",
+      "to": "doc.rubric",
+      "type": "doc-links",
+      "note": "references depth link"
+    },
+    {
+      "from": "doc.agents",
+      "to": "doc.skill-registry",
+      "type": "doc-links",
+      "note": "references depth link"
+    },
+    {
+      "from": "doc.agents",
+      "to": "plan.hardening",
+      "type": "doc-links",
+      "note": "Open items: D1-D7 fix run"
+    },
+    {
+      "from": "doc.architecture",
+      "to": "doc.kimi-runtime",
+      "type": "doc-links",
+      "note": "grounds the whole approach in the 'verified Node.js SEA runtime' (multiple links)"
+    },
+    {
+      "from": "doc.architecture",
+      "to": "doc.plan",
+      "type": "doc-links",
+      "note": "'See ../PLAN.md §1 for non-goals and §4 for the harness design'"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "doc.architecture",
+      "type": "doc-links",
+      "note": "'the existing architecture'"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "doc.kimi-runtime",
+      "type": "doc-links",
+      "note": "'grounded in the verified Kimi v0.23.5 runtime'; every §2 physics constraint cites it"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "doc.live-validation",
+      "type": "doc-links",
+      "note": "'Full ledgers and the Q/T comparison ... in live-validation.md'"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "doc.plan",
+      "type": "doc-links",
+      "note": "links ../PLAN.md as prior grounding"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "doc.rubric",
+      "type": "doc-links",
+      "note": "inherits the rubric/6-lens harness verbatim per node"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p10",
+      "type": "doc-links",
+      "note": "§9 links the P10 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p11",
+      "type": "doc-links",
+      "note": "§9 links the P11 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p12",
+      "type": "doc-links",
+      "note": "§9 links the P12 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p6",
+      "type": "doc-links",
+      "note": "§9 phased build links the P6 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p7",
+      "type": "doc-links",
+      "note": "§9 links the P7 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p8",
+      "type": "doc-links",
+      "note": "§9 links the P8 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "plan.p9",
+      "type": "doc-links",
+      "note": "§9 links the P9 plan"
+    },
+    {
+      "from": "doc.atlas-weave",
+      "to": "schema.schemas",
+      "type": "doc-links",
+      "note": "'references/schemas.json gains task-dag/dag-node/job blocks'"
+    },
+    {
+      "from": "doc.kimi-runtime",
+      "to": "doc.plan",
+      "type": "doc-links",
+      "note": "cites PLAN.md §9 probes / OPS-2 blast-radius rules"
+    },
+    {
+      "from": "doc.orchestration",
+      "to": "doc.kimi-runtime",
+      "type": "doc-links",
+      "note": "'verified runtime' names replacing fabricated Track A tool names"
+    },
+    {
+      "from": "doc.orchestration",
+      "to": "schema.schemas",
+      "type": "doc-links",
+      "note": "task-packet and critic output contracts point at schemas.json"
+    },
+    {
+      "from": "doc.readme",
+      "to": "cfg.skill-overrides",
+      "type": "doc-links",
+      "note": "override steering + FAQ"
+    },
+    {
+      "from": "doc.readme",
+      "to": "data.skill-registry-json",
+      "type": "doc-links",
+      "note": "automatic-selection section"
+    },
+    {
+      "from": "doc.readme",
+      "to": "data.skills-manifest",
+      "type": "doc-links",
+      "note": "integrity anchor link + repo layout"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.agents",
+      "type": "doc-links",
+      "note": "Documentation hub"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.architecture",
+      "type": "doc-links",
+      "note": "Documentation hub"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.atlas-weave",
+      "type": "doc-links",
+      "note": "Documentation hub + ATLAS-WEAVE section"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.kimi-runtime",
+      "type": "doc-links",
+      "note": "Documentation hub"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.live-validation",
+      "type": "doc-links",
+      "note": "Proven live section"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.orchestration",
+      "type": "doc-links",
+      "note": "Documentation hub"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.rubric",
+      "type": "doc-links",
+      "note": "'the rubric is references/rubric.md'"
+    },
+    {
+      "from": "doc.readme",
+      "to": "doc.skill-registry",
+      "type": "doc-links",
+      "note": "Documentation hub"
+    },
+    {
+      "from": "doc.rubric",
+      "to": "schema.schemas",
+      "type": "doc-links",
+      "note": "critic schema link ./schemas.json"
+    },
+    {
+      "from": "doc.skill-registry",
+      "to": "cfg.skill-overrides",
+      "type": "doc-links",
+      "note": "user steers by editing skill-overrides.json"
+    },
+    {
+      "from": "doc.skill-registry",
+      "to": "data.skill-registry-json",
+      "type": "doc-links",
+      "note": "the compact committed registry skillselect ranks"
+    },
+    {
+      "from": "doc.skill-registry",
+      "to": "data.skills-manifest",
+      "type": "doc-links",
+      "note": "'anchored by the committed sha256 manifest references/skills-manifest.json'"
+    },
+    {
+      "from": "doc.skill-registry",
+      "to": "plan.hardening",
+      "type": "doc-links",
+      "note": "Related: the 7 residual D1-D7 defects"
+    },
+    {
+      "from": "doc.skill-registry",
+      "to": "schema.schemas",
+      "type": "doc-links",
+      "note": "validates against skill-registry/skill-entry schemas"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "differential",
+      "type": "imports",
+      "note": "regressions + integration_defects"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "integrate",
+      "type": "imports",
+      "note": "actual_conflicts + integration_verdict"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "planstage",
+      "type": "imports",
+      "note": "coerce_dag drives the degrade-to-atlas path in the proof"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "runcaps",
+      "type": "imports",
+      "note": "seed_caps provisions halting fuel"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "scheduler",
+      "type": "imports",
+      "note": "seed_jobs/plan_wave/dispatch_wave/apply_receipt/final_aggregate/run_status/is_terminated trampoline"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "suiterun",
+      "type": "imports",
+      "note": "run_suite executes each isolated + the combined suite"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "uniontree",
+      "type": "imports",
+      "note": "apply_union + cleanup for real per-node and union worktrees"
+    },
+    {
+      "from": "dogfood_weave",
+      "to": "verdict",
+      "type": "imports",
+      "note": "merge builds each node's deterministic verdict"
+    },
+    {
+      "from": "elite-coder",
+      "to": "atlas.SKILL",
+      "type": "reads-artifact",
+      "note": "consumes task packet: intent, success_criteria, scope_paths, verify_cmd, debug_tokens, test_glob"
+    },
+    {
+      "from": "guard-destructive.hook",
+      "to": "probes",
+      "type": "doc-links",
+      "note": "stays disabled until probe_hook_block.sh confirms the blocking contract"
+    },
+    {
+      "from": "install-hooks.sh",
+      "to": "pre-commit.hook",
+      "type": "invokes",
+      "note": "sets core.hooksPath=.githooks and chmod +x the hook"
+    },
+    {
+      "from": "install.sh",
+      "to": "install.sh",
+      "type": "validates",
+      "note": "atomic installed.json write via mkstemp + os.replace; timestamped .bak backup"
+    },
+    {
+      "from": "install.sh",
+      "to": "plugin.json",
+      "type": "writes-artifact",
+      "note": "git-archives HEAD (including the manifest) into the plugin dest and registers it in installed.json"
+    },
+    {
+      "from": "integrate",
+      "to": "verdict",
+      "type": "imports",
+      "note": "integration_verdict reuses verdict.merge for the canonical {dimensions,defects,verdict} shape"
+    },
+    {
+      "from": "integrate",
+      "to": "differential",
+      "type": "reads-artifact",
+      "note": "integration_verdict folds differential.integration_defects(regressions) alongside actual_conflicts"
+    },
+    {
+      "from": "integration-critic",
+      "to": "critic.schema",
+      "type": "validates",
+      "note": "same critic schema; consumed by integrate.integration_verdict"
+    },
+    {
+      "from": "integration-critic",
+      "to": "weave.SKILL",
+      "type": "writes-artifact",
+      "note": "returns JSON; root persists as critic_integration.json, folded via integrate.integration_verdict"
+    },
+    {
+      "from": "inventory_drift",
+      "to": "skillpkgs",
+      "type": "imports",
+      "note": "shared walk"
+    },
+    {
+      "from": "plan.hardening",
+      "to": "data.skill-registry-json",
+      "type": "doc-links",
+      "note": "D1/D2 root-cause the registry writer/tokenizer"
+    },
+    {
+      "from": "planner",
+      "to": "weave.SKILL",
+      "type": "writes-artifact",
+      "note": "returns DAG JSON as final message; root persists (validated by planstage.validate_planner_dag)"
+    },
+    {
+      "from": "planstage",
+      "to": "plandag",
+      "type": "imports",
+      "note": "is_dag / disjoint for the DAG validity + scope checks"
+    },
+    {
+      "from": "planstage",
+      "to": "verdict",
+      "type": "imports",
+      "note": "coverage_partition ensures every frozen criterion is covered by some node"
+    },
+    {
+      "from": "plugin.json",
+      "to": "guard-destructive.hook",
+      "type": "doc-links",
+      "note": "guard is documented opt-in — deliberately NOT in hooks[]"
+    },
+    {
+      "from": "plugin.json",
+      "to": "telemetry.hook",
+      "type": "injects",
+      "note": "hooks[] wires telemetry.sh on PostToolUse/SubagentStart/SubagentStop"
+    },
+    {
+      "from": "plugin_meta",
+      "to": "plugin.json",
+      "type": "reads-artifact",
+      "note": "read_version reads the manifest `version` field"
+    },
+    {
+      "from": "pre-commit.hook",
+      "to": "Makefile",
+      "type": "invokes",
+      "note": "runs `make ci` before each commit; guarded by ATLAS_NO_HOOK"
+    },
+    {
+      "from": "quality",
+      "to": "schemas.json",
+      "type": "doc-links",
+      "note": "enforce_critic_schema hard-enforces the critic shape declared in schemas.json/rubric.md (quality docstring L6-9)"
+    },
+    {
+      "from": "quality",
+      "to": "schemas",
+      "type": "validates",
+      "note": "enforce_critic_schema against critic schema"
+    },
+    {
+      "from": "resume",
+      "to": "plan.dag.json",
+      "type": "reads-artifact",
+      "note": "select_graph_run scans on-disk runs; resume() resets orphaned RUNNING jobs in the DAG"
+    },
+    {
+      "from": "rubric.doc",
+      "to": "verdict",
+      "type": "anchors",
+      "note": "rubric.md pins _BLOCKING={CRITICAL,HIGH}, the 6 dimension names, and the merge/gate/should_refine pure-function contract (rubric L14-15,25)"
+    },
+    {
+      "from": "run_negative_gate",
+      "to": "suiterun",
+      "type": "doc-links",
+      "note": "sibling INTEGRATE-sink runner; both feed the pure verdict cores (not a direct import in this gate)"
+    },
+    {
+      "from": "run_negative_gate",
+      "to": "check_artifact_naming",
+      "type": "imports",
+      "note": "_compute_docs_clean reuses check_file for the PASS-bar docs-naming item"
+    },
+    {
+      "from": "run_negative_gate",
+      "to": "fixtures",
+      "type": "reads-artifact",
+      "note": "discover_fixtures / load_manifest read tests/fixtures/*/fixture.json + code"
+    },
+    {
+      "from": "runcaps",
+      "to": "budget",
+      "type": "imports",
+      "note": "seed_caps calls budget.risk_score(features) to size token_budget (runcaps L21,50; budget.py L23)"
+    },
+    {
+      "from": "runcaps",
+      "to": "plandag",
+      "type": "imports",
+      "note": "gas = node_max*MAX_ATTEMPTS + node_max"
+    },
+    {
+      "from": "runcheck",
+      "to": "differential",
+      "type": "reads-artifact",
+      "note": "revert_red (always False in a single run) is the run-pair signal differential.regressions computes across two runcheck.run calls (runcheck L34)"
+    },
+    {
+      "from": "scheduler",
+      "to": "plandag",
+      "type": "imports",
+      "note": "ready_jobs, charge_gas (sole caller), next_job_state, expand, is_fixpoint, MAX_ATTEMPTS, TERMINAL_JOB_STATES, criteria_conservation_defects"
+    },
+    {
+      "from": "scheduler",
+      "to": "verdict",
+      "type": "imports",
+      "note": "merge/aggregate/final_status fold node verdicts + integration into the run verdict"
+    },
+    {
+      "from": "scheduler",
+      "to": "integrate",
+      "type": "reads-artifact",
+      "note": "final_aggregate takes the integration_verdict dict produced by integrate.integration_verdict"
+    },
+    {
+      "from": "scheduler",
+      "to": "plan.dag.json",
+      "type": "reads-artifact",
+      "note": "every scheduler fn is pure over the dag dict (plan.dag.json contents)"
+    },
+    {
+      "from": "scheduler",
+      "to": "leaseclock",
+      "type": "validates",
+      "note": "stamp_lease token f'{job_id}#{attempts}' matches leaseclock.stamp; reap_expired consumes leaseclock.expired ids"
+    },
+    {
+      "from": "security-critic",
+      "to": "rubric",
+      "type": "doc-links",
+      "note": "receives SECURITY lens 3"
+    },
+    {
+      "from": "security-critic",
+      "to": "atlas.SKILL",
+      "type": "reads-artifact",
+      "note": "returns critic JSON; root persists critic_security.json"
+    },
+    {
+      "from": "security-critic",
+      "to": "rubric",
+      "type": "reads-artifact",
+      "note": "handed SECURITY lens 3 slice"
+    },
+    {
+      "from": "security-critic",
+      "to": "critic.schema",
+      "type": "validates",
+      "note": "same critic schema"
+    },
+    {
+      "from": "security-critic",
+      "to": "atlas.SKILL",
+      "type": "writes-artifact",
+      "note": "returns JSON; root persists as critic_security.json"
+    },
+    {
+      "from": "skill-registry.md",
+      "to": "skill-registry.json",
+      "type": "doc-links",
+      "note": ""
+    },
+    {
+      "from": "skill-registry.md",
+      "to": "skills-manifest.json",
+      "type": "doc-links",
+      "note": ""
+    },
+    {
+      "from": "skillextract",
+      "to": "plugin.json",
+      "type": "anchors",
+      "note": "extracts into ./skills/ (the dir plugin.json declares) and verifies against references/skills-manifest.json"
+    },
+    {
+      "from": "skillextract",
+      "to": "skills-manifest.json",
+      "type": "writes-artifact",
+      "note": "sha256 anchor"
+    },
+    {
+      "from": "skillextract",
+      "to": "skills-tree",
+      "type": "writes-artifact",
+      "note": "one-time byte-identical unpack"
+    },
+    {
+      "from": "skillregistry",
+      "to": "skills-manifest.json",
+      "type": "anchors",
+      "note": "category source + count check"
+    },
+    {
+      "from": "skillregistry",
+      "to": "skills-tree",
+      "type": "reads-artifact",
+      "note": "parses each SKILL.md"
+    },
+    {
+      "from": "skillregistry",
+      "to": "schemas.skill",
+      "type": "validates",
+      "note": "registry/entry schemas"
+    },
+    {
+      "from": "skillregistry",
+      "to": "skill-registry.json",
+      "type": "writes-artifact",
+      "note": "audit-gated"
+    },
+    {
+      "from": "skillselect",
+      "to": "reqcoverage",
+      "type": "imports",
+      "note": "shared tokenizer (STOPWORDS, tokenize)"
+    },
+    {
+      "from": "skillselect",
+      "to": "skill-overrides.json",
+      "type": "reads-artifact",
+      "note": "pin/exclude/boost"
+    },
+    {
+      "from": "skillselect",
+      "to": "skill-registry.json",
+      "type": "reads-artifact",
+      "note": "ranking input"
+    },
+    {
+      "from": "stage.CLARIFY",
+      "to": "runcheck",
+      "type": "invokes",
+      "note": "discover_verify_cmd for headless default"
+    },
+    {
+      "from": "stage.CLARIFY",
+      "to": "stage.TRIAGED",
+      "type": "transitions",
+      "note": "after answer/assumption or skip"
+    },
+    {
+      "from": "stage.CLARIFY",
+      "to": "validate",
+      "type": "validates",
+      "note": "task-packet schema + empty-field trigger"
+    },
+    {
+      "from": "stage.CODED",
+      "to": "elite-coder",
+      "type": "invokes",
+      "note": "Agent(coder)"
+    },
+    {
+      "from": "stage.CODED",
+      "to": "ctxstore",
+      "type": "reads-artifact",
+      "note": "read review_root + skills.json"
+    },
+    {
+      "from": "stage.CODED",
+      "to": "stage.VERIFIED",
+      "type": "transitions",
+      "note": "never present diff here"
+    },
+    {
+      "from": "stage.GROUNDED",
+      "to": "context-scout",
+      "type": "invokes",
+      "note": "Agent(explore)"
+    },
+    {
+      "from": "stage.GROUNDED",
+      "to": "skillselect",
+      "type": "invokes",
+      "note": "advisory skill ranking"
+    },
+    {
+      "from": "stage.GROUNDED",
+      "to": "stage.PRE_CODE_GATE",
+      "type": "transitions",
+      "note": ""
+    },
+    {
+      "from": "stage.GROUNDED",
+      "to": "validate",
+      "type": "validates",
+      "note": "state-integrity backstop against context schema"
+    },
+    {
+      "from": "stage.GROUNDED",
+      "to": "ctxstore",
+      "type": "writes-artifact",
+      "note": "context.json, skills.json"
+    },
+    {
+      "from": "stage.INIT_INTENT",
+      "to": "ctxstore",
+      "type": "invokes",
+      "note": "init_run + advance INIT/INTENT_CAPTURED"
+    },
+    {
+      "from": "stage.INIT_INTENT",
+      "to": "stage.CLARIFY",
+      "type": "transitions",
+      "note": "proceed immediately; CLARIFY conditional"
+    },
+    {
+      "from": "stage.OUTPUT",
+      "to": "ctxstore",
+      "type": "invokes",
+      "note": "advance OUTPUT (terminal)"
+    },
+    {
+      "from": "stage.OUTPUT",
+      "to": "verdict",
+      "type": "invokes",
+      "note": "final_status + missing_stages"
+    },
+    {
+      "from": "stage.PRE_CODE_GATE",
+      "to": "stage.CODED",
+      "type": "transitions",
+      "note": "after approval/isolation + review_root persisted"
+    },
+    {
+      "from": "stage.PRE_CODE_GATE",
+      "to": "ctxstore",
+      "type": "writes-artifact",
+      "note": "plan.md, review_root"
+    },
+    {
+      "from": "stage.REFINE",
+      "to": "verdict",
+      "type": "invokes",
+      "note": "should_refine + V7 category scan"
+    },
+    {
+      "from": "stage.REFINE",
+      "to": "ctxstore",
+      "type": "reads-artifact",
+      "note": "get_refine_passes + merged_critic.json"
+    },
+    {
+      "from": "stage.REFINE",
+      "to": "stage.CODED",
+      "type": "transitions",
+      "note": "loop back on True (<=2 passes)"
+    },
+    {
+      "from": "stage.REFINE",
+      "to": "stage.OUTPUT",
+      "type": "transitions",
+      "note": "on False"
+    },
+    {
+      "from": "stage.TRIAGED",
+      "to": "stage.GROUNDED",
+      "type": "transitions",
+      "note": ""
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "check_artifact_naming",
+      "type": "invokes",
+      "note": "docs_clean for changed .md"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "code-quality-critic",
+      "type": "invokes",
+      "note": "Agent(plan) lens 2, isolated packet"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "correctness-critic",
+      "type": "invokes",
+      "note": "Agent(plan) lens 1, isolated packet"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "difftool",
+      "type": "invokes",
+      "note": "capture diff.patch from review_root"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "pathcheck",
+      "type": "invokes",
+      "note": "grounding cross_check"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "quality",
+      "type": "invokes",
+      "note": "lens 4 lint_deliverable + enforce_critic_schema"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "reqcoverage",
+      "type": "invokes",
+      "note": "lens 6 coverage"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "runcheck",
+      "type": "invokes",
+      "note": "lens 5 discover/run/green"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "sast",
+      "type": "invokes",
+      "note": "SECURITY deterministic floor (fail-open)"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "security-critic",
+      "type": "invokes",
+      "note": "Agent(plan) lens 3, isolated packet"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "verdict",
+      "type": "invokes",
+      "note": "merge (PURE) + gate (PURE)"
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "stage.REFINE",
+      "type": "transitions",
+      "note": ""
+    },
+    {
+      "from": "stage.VERIFIED",
+      "to": "ctxstore",
+      "type": "writes-artifact",
+      "note": "diff.patch, det_evidence.json, critic_*.json, merged_critic.json, gate_results.json"
+    },
+    {
+      "from": "suite.discover",
+      "to": "scripts.pkg",
+      "type": "imports",
+      "note": "discover run from repo root puts cwd on sys.path; every test does `from scripts import X` — scripts/__init__.py makes it a package. No conftest/__init__ inside tests/."
+    },
+    {
+      "from": "test_audit_findings",
+      "to": "integrate",
+      "type": "verifies",
+      "note": "CROSS-CUTTING regression suite (no same-name script) — form-feed phantom path, conflict fail-open, rename-touched"
+    },
+    {
+      "from": "test_audit_findings",
+      "to": "plandag",
+      "type": "verifies",
+      "note": "PlandagConservationTests + FinalAggregateFalseGreenTests + SingleNodeDagGasTests"
+    },
+    {
+      "from": "test_audit_findings",
+      "to": "resume",
+      "type": "verifies",
+      "note": "ResumeTieBreakTests"
+    },
+    {
+      "from": "test_audit_findings",
+      "to": "scheduler",
+      "type": "verifies",
+      "note": "RunStatusGasFrozenTests"
+    },
+    {
+      "from": "test_bestofn",
+      "to": "bestofn",
+      "type": "verifies",
+      "note": "fanout + rank-key: gate-pass primary, then blocking/tokens/index"
+    },
+    {
+      "from": "test_budget",
+      "to": "budget",
+      "type": "verifies",
+      "note": "risk score, token charge purity, funding floor"
+    },
+    {
+      "from": "test_check_artifact_naming",
+      "to": "repo-tree",
+      "type": "validates",
+      "note": "TestMainRealRepo.test_valid_files_pass runs the gate over the actual committed tree"
+    },
+    {
+      "from": "test_check_artifact_naming",
+      "to": "check_artifact_naming",
+      "type": "verifies",
+      "note": "doc-naming gate + TestMainRealRepo pins whole repo tree; TestSkillPackageExemption"
+    },
+    {
+      "from": "test_ctxstore",
+      "to": "ctxstore",
+      "type": "verifies",
+      "note": "canonical stage partition, idempotent init, refine counter reads ledger not memory, run isolation"
+    },
+    {
+      "from": "test_ctxstore_atomic",
+      "to": "ctxstore",
+      "type": "verifies",
+      "note": "SUPPLEMENTARY suite (no same-name script) — write_artifact_atomic roundtrip/atomic-overwrite/no-tmp-leak"
+    },
+    {
+      "from": "test_differential",
+      "to": "differential",
+      "type": "verifies",
+      "note": "combined-tree regression: green-alone/red-combined is the headline regression"
+    },
+    {
+      "from": "test_difftool",
+      "to": "difftool",
+      "type": "verifies",
+      "note": "git + non-git new-file diff capture; capture_does_not_mutate_index"
+    },
+    {
+      "from": "test_dogfood_weave",
+      "to": "dogfood_weave",
+      "type": "verifies",
+      "note": "end-to-end weave proof: builds real temp git repos + JUnit scaffolds, 4 scenarios (clean greens / hidden overlap blocks / combined regression blocks / one-node==atlas)"
+    },
+    {
+      "from": "test_integrate",
+      "to": "integrate",
+      "type": "verifies",
+      "note": "touched-files, conflict detection, merge-shaped verdict"
+    },
+    {
+      "from": "test_inventory_drift",
+      "to": "repo-tree",
+      "type": "validates",
+      "note": "TestMainRealRepo.test_repo_tree_is_in_sync asserts the live doc/link graph has zero drift"
+    },
+    {
+      "from": "test_inventory_drift",
+      "to": "inventory_drift",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_leaseclock",
+      "to": "leaseclock",
+      "type": "verifies",
+      "note": "lease stamp/expiry; malformed lease degrades to expired"
+    },
+    {
+      "from": "test_pathcheck",
+      "to": "pathcheck",
+      "type": "verifies",
+      "note": "ungrounded backticked path flagged critical"
+    },
+    {
+      "from": "test_plandag",
+      "to": "plandag",
+      "type": "verifies",
+      "note": "criteria-conservation + cyclic/self-referential launder guards"
+    },
+    {
+      "from": "test_planstage",
+      "to": "plugin.json",
+      "type": "validates",
+      "note": "uses _REPO_ROOT parents[1] to pin committed .kimi-plugin/plugin.json"
+    },
+    {
+      "from": "test_planstage",
+      "to": "planstage",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_plugin_meta",
+      "to": "plugin_meta",
+      "type": "verifies",
+      "note": "pins committed .kimi-plugin/plugin.json via parents[1]"
+    },
+    {
+      "from": "test_quality",
+      "to": "quality",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_reqcoverage",
+      "to": "reqcoverage",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_resume",
+      "to": "resume",
+      "type": "verifies",
+      "note": "deterministic mtime tie-break"
+    },
+    {
+      "from": "test_run_negative_gate",
+      "to": "fixtures",
+      "type": "reads-artifact",
+      "note": "DiscoverFixturesTests + process each fixture.json against expected_verdict/expected_lens"
+    },
+    {
+      "from": "test_run_negative_gate",
+      "to": "run_negative_gate",
+      "type": "verifies",
+      "note": "6-lens negative-gate harness; ProcessFixtureTests/EvaluateOutcomeTests/MainTests + generated AddTests/ShellcmdTests scaffolds"
+    },
+    {
+      "from": "test_run_weave_negative_gate",
+      "to": "run_weave_negative_gate",
+      "type": "verifies",
+      "note": "weave-level negative gate; 5/5 scenarios (cyclic-DAG, dropped-requirement, gas-exhausted-partial...) expect BLOCK"
+    },
+    {
+      "from": "test_runcaps",
+      "to": "runcaps",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_runcheck",
+      "to": "runcheck",
+      "type": "verifies",
+      "note": "largest single-module suite (574 lines) — deterministic run/lint/reqcoverage floor"
+    },
+    {
+      "from": "test_sast",
+      "to": "sast",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_scheduler",
+      "to": "scheduler",
+      "type": "verifies",
+      "note": "430 lines — weave concurrency scheduling"
+    },
+    {
+      "from": "test_skillextract",
+      "to": "skills-manifest.json",
+      "type": "validates",
+      "note": "TestCommittedManifest + TestCommittedNamePolicy pin committed manifest sha256 anchoring"
+    },
+    {
+      "from": "test_skillextract",
+      "to": "skillextract",
+      "type": "verifies",
+      "note": "zip-slip / name-policy hostile-input matrix (584 lines)"
+    },
+    {
+      "from": "test_skillpkgs",
+      "to": "skillpkgs",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_skillregistry",
+      "to": "skill-registry.json",
+      "type": "validates",
+      "note": "TestCommittedRegistry pins the committed references/skill-registry.json against a fresh rebuild"
+    },
+    {
+      "from": "test_skillregistry",
+      "to": "skillregistry",
+      "type": "verifies",
+      "note": "registry build purity"
+    },
+    {
+      "from": "test_skillselect",
+      "to": "skillselect",
+      "type": "verifies",
+      "note": "advisory selector ranking"
+    },
+    {
+      "from": "test_suiterun",
+      "to": "suiterun",
+      "type": "verifies",
+      "note": "shell=True trusted-boundary; degrades to {}"
+    },
+    {
+      "from": "test_uniontree",
+      "to": "uniontree",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_validate",
+      "to": "validate",
+      "type": "verifies",
+      "note": ""
+    },
+    {
+      "from": "test_verdict",
+      "to": "ctxstore",
+      "type": "verifies",
+      "note": "drives the real ledger-backed refine loop through ctxstore"
+    },
+    {
+      "from": "test_verdict",
+      "to": "verdict",
+      "type": "verifies",
+      "note": "merge/gate/should_refine/final_status pure fns + PLAN V2 proof (PermanentlyBlockingLoopTests halts at exactly 2 re-drafts)"
+    },
+    {
+      "from": "validate",
+      "to": "schemas",
+      "type": "reads-artifact",
+      "note": "loads references/schemas.json"
+    },
+    {
+      "from": "validate",
+      "to": "schemas.json",
+      "type": "reads-artifact",
+      "note": "loads references/schemas.json via parents[1] plugin root (validate.py L19,26)"
+    },
+    {
+      "from": "verdict",
+      "to": "rubric",
+      "type": "anchors",
+      "note": "_DIMENSIONS mirrors the 6 rubric lenses"
+    },
+    {
+      "from": "verdict",
+      "to": "ctxstore",
+      "type": "imports",
+      "note": "from scripts.ctxstore import MANDATORY_STAGES, STAGES"
+    },
+    {
+      "from": "verdict",
+      "to": "differential",
+      "type": "reads-artifact",
+      "note": "aggregate folds per-node critics; differential.regressions supplies the combined-tree regression signal in the WEAVE roll-up"
+    },
+    {
+      "from": "verdict",
+      "to": "quality",
+      "type": "validates",
+      "note": "merge/aggregate emit the {dimensions,defects,verdict} shape that quality.enforce_critic_schema validates (verdict L82-83, L169)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "atlas.SKILL",
+      "type": "doc-links",
+      "note": "the OUTER machine wraps the unchanged single-change inner atlas machine; degrades byte-identically to it"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "planner",
+      "type": "injects",
+      "note": "read→strip→prepend body to frozen packet (SKILL.md:34-36)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "atlas.SKILL",
+      "type": "invokes",
+      "note": "Each DAG node runs the inner atlas (its own scout/coder/critics)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "atlas.node",
+      "type": "invokes",
+      "note": "spawn each wave job as an inner atlas run at run_id ${SESSION}/tasks/<node_id> in its own worktree"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "bestofn",
+      "type": "invokes",
+      "note": "funded high-risk node: fanout_n drafts, select collapses N->1 before that node's VERIFIED"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "budget",
+      "type": "invokes",
+      "note": "BUDGETED: risk_score sizes how many drafts a node funds via bestofn.fanout_n"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "ctxstore",
+      "type": "invokes",
+      "note": "init_run freezes packet; write_artifact_atomic persists plan.dag.json; advance records each stage transition"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "differential",
+      "type": "invokes",
+      "note": "regressions(baseline_pass, combined) — cross-tree regression oracle"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "integrate",
+      "type": "invokes",
+      "note": "actual_conflicts re-validates disjointness; integration_verdict folds conflict+differential+critic defects"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "integration-critic",
+      "type": "invokes",
+      "note": "Seam wave over combined_diff; agents/integration-critic.md→plan (SKILL.md:153-166)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "integration-critic.role",
+      "type": "invokes",
+      "note": "INTEGRATE seam wave over combined_diff + exported symbols; report persisted as critic_integration.json"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "leaseclock",
+      "type": "invokes",
+      "note": "stamp(job_id,attempts,now,ttl_s=1800) per RUNNING job; expired(leases,now) feeds reap_expired"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "planner",
+      "type": "invokes",
+      "note": "Dispatch planner agents/planner.md→plan; output → planstage.coerce_dag (SKILL.md:83-89)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "planner.role",
+      "type": "invokes",
+      "note": "dispatch read-only planner (planner->plan) with the frozen packet; returns one JSON DAG"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "planstage",
+      "type": "invokes",
+      "note": "coerce_dag(planner_output,packet,caps) — validate or degrade to 1-node atlas DAG"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "resume",
+      "type": "invokes",
+      "note": "atlas-resume path: select_graph_run picks the root, resume() re-derives the frontier"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "runcaps",
+      "type": "invokes",
+      "note": "DECOMPOSED: caps = seed_caps(packet) sizes gas/depth_max/node_max + soft token_budget"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "scheduler",
+      "type": "invokes",
+      "note": "seed_jobs, plan_wave, dispatch_wave, apply_receipt, reap_expired, final_aggregate, run_status, is_terminated drive SCHEDULE*/AGGREGATE"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "uniontree",
+      "type": "invokes",
+      "note": "INTEGRATE: apply_union(baseline_sha,changes,'.',SESSION) builds the combined tree"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "verdict",
+      "type": "invokes",
+      "note": "verdict.aggregate(node_verdicts,integration_verdict), verdict.coverage_partition(union,frozen), verdict.merge([agg],coverage_partition(...)) (weave SKILL L164-167)"
+    },
+    {
+      "from": "weave.SKILL",
+      "to": "plan.dag.json",
+      "type": "writes-artifact",
+      "note": "persists every transition + the DAG atomically under .atlas/${SESSION}/"
+    }
+  ],
+  "dangling_edge_endpoints": [
+    "atlas.stage.CODED",
+    "atlas.stage.GROUNDED",
+    "repo-tree",
+    "test_planstage",
+    "test_quality",
+    "test_reqcoverage",
+    "test_resume",
+    "test_runcaps",
+    "test_sast",
+    "test_skillpkgs",
+    "test_suiterun",
+    "test_uniontree",
+    "test_validate"
+  ]
+}

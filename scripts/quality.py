@@ -21,20 +21,18 @@ fix}`` shape used across the backbone, so the orchestrator merges them into
 """
 from __future__ import annotations
 
-# Canonical rubric vocabulary — the 6 lenses (references/rubric.md). Every
-# dimension key and every defect category must be one of these exact strings.
-_DIMENSIONS: tuple[str, ...] = (
-    "CORRECTNESS",
-    "CODE-QUALITY",
-    "SECURITY",
-    "TEST-ADEQUACY",
-    "DOES-IT-RUN",
-    "REQUIREMENTS-COVERAGE",
+# Canonical rubric vocabulary — the 6 lenses, severity ladder, blocking subset
+# and critic-schema key sets (references/rubric.md). Single-sourced in
+# ``scripts.rubric`` (F6) so this core and ``verdict``/``run_negative_gate``
+# cannot drift; every dimension key and every defect category is one of the
+# ``_DIMENSIONS`` strings.
+from scripts.rubric import (
+    BLOCKING as _BLOCKING,
+    CRITIC_TOP_KEYS as _CRITIC_TOP_KEYS,
+    DEFECT_KEYS as _DEFECT_KEYS,
+    DIMENSIONS as _DIMENSIONS,
+    SEVERITIES as _SEVERITIES,
 )
-_SEVERITIES: set[str] = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
-_BLOCKING: set[str] = {"CRITICAL", "HIGH"}
-_CRITIC_TOP_KEYS: set[str] = {"dimensions", "defects", "verdict"}
-_DEFECT_KEYS: set[str] = {"id", "category", "severity", "location", "fix"}
 
 # Heuristic defects are gameable both ways (V6), so they are capped here and can
 # never flip the gate on their own.

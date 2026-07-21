@@ -68,7 +68,10 @@ except Exception:
 
 # ── Explicit destructive denylist (tight; extend only with clear catastrophes) ─
 # Each check is intentionally narrow so ordinary commands (e.g. `rm -rf ./build`)
-# are ALLOWED; only whole-system / raw-device catastrophes are denied.
+# are ALLOWED; only whole-system / raw-device catastrophes are denied. This is a
+# BEST-EFFORT denylist and is trivially bypassable (e.g. quoting the target,
+# `rm -rf "/"`) — it is defense-in-depth behind the permission system, never a
+# guarantee. Leading `VAR=val` assignments are treated as command position.
 match() { printf '%s' "$CMD" | grep -Eq "$1"; }
 
 # A command name is only "live" at command position: the start of the string/line
@@ -78,7 +81,7 @@ match() { printf '%s' "$CMD" | grep -Eq "$1"; }
 # `echo running mkfs` or `git commit -m "rm -rf /"` are ALLOWED, while
 # `mkfs /dev/sda` and `foo && rm -rf /` are matched. Concatenated with a
 # single-quoted pattern so the regex metacharacters stay literal.
-CMDPOS='(^|[;&|<>(){}`])[[:space:]]*((sudo|env|command|exec|nohup)[[:space:]]+)*'
+CMDPOS='(^|[;&|<>(){}`])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+)*((sudo|env|command|exec|nohup)[[:space:]]+)*'
 
 REASON=""
 

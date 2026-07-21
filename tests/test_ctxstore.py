@@ -256,5 +256,139 @@ class CtxStoreTests(unittest.TestCase):
             ctxstore.read_artifact(self.base, self.run_id, "absent.json")
 
 
+class RollbackLedgerTests(unittest.TestCase):
+    """Additive two-phase rollback ledger ops — pure persistence, no subprocess.
+
+    Pins the frozen invariants (Part C): log.jsonl append-only + NEVER truncated, the
+    REFINE counter stays monotonic (rollback lines carry stage=="ROLLBACK", never "REFINE"),
+    intent.txt immutable, and get_refine_passes byte-for-byte unaffected by any rollback.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = self._tmp.name
+        self.run_id = "20260720-000000"
+        ctxstore.init_run(self.base, self.run_id, dict(_PACKET))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _log_lines(self) -> list[str]:
+        p = Path(self.base) / self.run_id / "log.jsonl"
+        return p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+
+    # ---- last_green_stage (pure) -----------------------------------------
+
+    def test_last_green_stage_none_when_no_checkpoints(self) -> None:
+        self.assertIsNone(ctxstore.last_green_stage(ctxstore.get_state(self.base, self.run_id)))
+
+    def test_last_green_stage_picks_furthest_along_STAGES(self) -> None:
+        state = {"checkpoints": {"CODED": "sha_coded", "VERIFIED": "sha_verified"}}
+        # VERIFIED is further along STAGES than CODED -> the last STABLE ref, not baseline.
+        self.assertEqual(ctxstore.last_green_stage(state), "VERIFIED")
+
+    def test_last_green_stage_ignores_unknown_stage_keys(self) -> None:
+        state = {"checkpoints": {"CODED": "s1", "NOT_A_STAGE": "s2"}}
+        self.assertEqual(ctxstore.last_green_stage(state), "CODED")
+
+    def test_last_green_stage_is_pure_no_disk(self) -> None:
+        before = sorted(p.name for p in (Path(self.base) / self.run_id).iterdir())
+        ctxstore.last_green_stage({"checkpoints": {"VERIFIED": "x"}})
+        after = sorted(p.name for p in (Path(self.base) / self.run_id).iterdir())
+        self.assertEqual(before, after)  # touched nothing
+
+    # ---- rollback_to (two-phase append) ----------------------------------
+
+    def test_rollback_intent_then_complete_updates_state(self) -> None:
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        st = ctxstore.get_state(self.base, self.run_id)
+        self.assertEqual(st["rollback_pending"], {"target_sha": "sha1", "target_stage": "VERIFIED"})
+        st2 = ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_complete")
+        self.assertNotIn("rollback_pending", st2)
+        self.assertEqual(st2["current_state"], "VERIFIED")
+
+    def test_rollback_to_rejects_unknown_event(self) -> None:
+        with self.assertRaises(ValueError):
+            ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "bogus")
+
+    def test_rollback_lines_carry_ROLLBACK_stage_not_REFINE(self) -> None:
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        rec = json.loads(self._log_lines()[-1])
+        self.assertEqual(rec["stage"], "ROLLBACK")
+        self.assertEqual(rec["event"], "rollback_intent")
+        self.assertEqual(rec["target_sha"], "sha1")
+
+    # ---- FROZEN-invariant pins -------------------------------------------
+
+    def test_rollback_never_inflates_refine_counter(self) -> None:
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        self.assertEqual(ctxstore.get_refine_passes(self.base, self.run_id), 2)
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_complete")
+        self.assertEqual(ctxstore.get_refine_passes(self.base, self.run_id), 2)  # monotonic, untouched
+
+    def test_refine_advance_after_rollback_stays_monotonic(self) -> None:
+        # Task-invariant (2): a rollback_to followed by a REFINE advance never LOWERS the
+        # count — it keeps climbing. Pre-count is nonzero, so this is not a 0==0 vacuous pass.
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        pre = ctxstore.get_refine_passes(self.base, self.run_id)
+        self.assertEqual(pre, 2)
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_complete")
+        # A genuine REFINE after the rollback advances the ledger, never resets it.
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        post = ctxstore.get_refine_passes(self.base, self.run_id)
+        self.assertGreater(post, pre)  # strictly monotonic
+        self.assertEqual(post, 3)
+
+    def test_log_is_only_appended_never_truncated(self) -> None:
+        ctxstore.advance(self.base, self.run_id, "REFINE")
+        n0 = len(self._log_lines())
+        b0 = (Path(self.base) / self.run_id / "log.jsonl").stat().st_size
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_complete")
+        self.assertEqual(len(self._log_lines()), n0 + 2)  # only grew (line count)
+        self.assertGreater((Path(self.base) / self.run_id / "log.jsonl").stat().st_size, b0)  # only grew (bytes)
+
+    def test_intent_txt_untouched_by_rollback(self) -> None:
+        p = Path(self.base) / self.run_id / "intent.txt"
+        before = p.read_text(encoding="utf-8")
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        self.assertEqual(p.read_text(encoding="utf-8"), before)
+
+    # ---- failure path: unknown target stage → sensible error, no partial write ---
+
+    def test_rollback_to_rejects_unknown_target_stage(self) -> None:
+        n0 = len(self._log_lines())
+        st_before = ctxstore.get_state(self.base, self.run_id)
+        with self.assertRaises(ValueError):
+            ctxstore.rollback_to(self.base, self.run_id, "sha1", "NOT_A_STAGE", "rollback_intent")
+        # No partial write: log untouched and no rollback_pending leaked into state.
+        self.assertEqual(len(self._log_lines()), n0)
+        st_after = ctxstore.get_state(self.base, self.run_id)
+        self.assertNotIn("rollback_pending", st_after)
+        self.assertEqual(st_after["current_state"], st_before["current_state"])
+
+    # ---- pending_rollback (ledger-derived, torn-recovery) ----------------
+
+    def test_pending_rollback_none_when_balanced(self) -> None:
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_intent")
+        ctxstore.rollback_to(self.base, self.run_id, "sha1", "VERIFIED", "rollback_complete")
+        self.assertIsNone(ctxstore.pending_rollback(self.base, self.run_id))
+
+    def test_pending_rollback_reports_open_intent(self) -> None:
+        ctxstore.rollback_to(self.base, self.run_id, "sha9", "VERIFIED", "rollback_intent")
+        self.assertEqual(
+            ctxstore.pending_rollback(self.base, self.run_id),
+            {"target_sha": "sha9", "target_stage": "VERIFIED"},
+        )
+
+    def test_pending_rollback_skips_malformed_lines(self) -> None:
+        (Path(self.base) / self.run_id / "log.jsonl").open("a", encoding="utf-8").write("not json\n")
+        self.assertIsNone(ctxstore.pending_rollback(self.base, self.run_id))
+
+
 if __name__ == "__main__":
     unittest.main()

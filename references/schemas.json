@@ -26,6 +26,23 @@
       "clarify_resolution": "str"
     }
   },
+  "context-graph": {
+    "required": {
+      "run_id": "str",
+      "schema": "str",
+      "nodes": "list",
+      "edges": "list",
+      "partial_stages": "list",
+      "used_tools": "str"
+    }
+  },
+  "context-event": {
+    "required": {
+      "kind": "str",
+      "ts": "str",
+      "payload": "dict"
+    }
+  },
   "critic": {
     "required": {
       "dimensions": "dict",

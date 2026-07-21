@@ -3,7 +3,7 @@
 **A many-agent, quality-calibrated orchestrator for Kimi Code — with 115 official skill packages built in. No line ships until a *pure, deterministic* gate says so, and no LLM ever computes pass/fail.**
 
 [![ci](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml/badge.svg)](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml)
-![tests](https://img.shields.io/badge/tests-713%20green-brightgreen)
+![tests](https://img.shields.io/badge/tests-passing-brightgreen)
 ![skills](https://img.shields.io/badge/skill%20packages-115-blue)
 
 kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Kimi Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is three composable capabilities:
@@ -153,7 +153,7 @@ Full spec (halting argument, memory model, risk register): [`references/atlas-we
 ## Proven live
 
 - **Validated end-to-end on the live Kimi CLI v0.26.0 / `k3` (1M context)** — ledgers and numbers in [`references/live-validation.md`](references/live-validation.md): a real 3-file change decomposed into 3 disjoint nodes, each verified `OK`, union suite green, presented at the human gate **without touching the real tree**.
-- **This plugin's own skill system was built *by atlas*.** The registry/selector (commit `0fb699e`) and the vendoring of the 115 packages (commit `115fee7`) each went through the full `INIT → OUTPUT` machine with the 6-lens harness — which caught **39 real defects across the two runs**, including a **critical zip-slip**: a hostile skill's frontmatter `name` could traverse the extractor's output path (`name: ..` → arbitrary file write). It was fixed with strict name validation, first-party collision checks, joined-path/symlink guards, and a hostile-input test matrix — before anything shipped. 713 tests green.
+- **This plugin's own skill system was built *by atlas*.** The registry/selector (commit `0fb699e`) and the vendoring of the 115 packages (commit `115fee7`) each went through the full `INIT → OUTPUT` machine with the 6-lens harness — which caught **39 real defects across the two runs**, including a **critical zip-slip**: a hostile skill's frontmatter `name` could traverse the extractor's output path (`name: ..` → arbitrary file write). It was fixed with strict name validation, first-party collision checks, joined-path/symlink guards, and a hostile-input test matrix — before anything shipped. The full unit-test suite is green (run `make test`).
 - **Q/T, told honestly:** on a small task, single-shot `atlas` beats `atlas-weave` at equal quality — weave's machinery earns its overhead only on *larger, genuinely independent* multi-file work, and degrades to atlas when it wouldn't.
 
 ---
@@ -182,7 +182,7 @@ scripts/skillextract.py     zip → skills/<name>/ extractor + manifest builder 
 scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree
 scripts/skillselect.py      ranks the registry for a task intent (advisory; pin/exclude/boost overrides)
 scripts/skillpkgs.py        shared skill-package-aware markdown walk for the doc gates
-tests/                      713 unit tests + the red-team negative-gate fixtures
+tests/                      the full unit-test suite + the red-team negative-gate fixtures
 references/*.md             the design corpus — architecture, atlas-weave spec, rubric, runtime, live validation
 references/skills-manifest.json  sha256 anchor for the extracted skills/ tree (117 zips → 115 packages)
 references/skill-registry.json   compact registry of all 115 vendored skills (the skills/ tree is source of truth)
@@ -198,7 +198,7 @@ The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + 
 ## Developing
 
 ```bash
-make ci               # the full local gate: strict naming + 713 unit tests + inventory-drift + shell-syntax
+make ci               # the full local gate: strict naming + the unit-test suite + inventory-drift + shell-syntax
 make test             # unit tests only (python3 -m unittest discover -s tests -v)
 make skill-registry   # rebuild references/skill-registry.json from the extracted skills/ tree
 make skills-extract   # re-extract the vendored packages + verify against the sha256 manifest

@@ -7,8 +7,9 @@ No agents, no git, no subprocess — so the whole suite is safe under ``make ci`
 
 Coverage:
 
-* each of the 5 canonical scenarios (hidden same-file overlap, combined-red-while-
-  leaves-green, cyclic DAG, dropped requirement, gas-exhausted partial) → ``matched``;
+* each of the 7 canonical scenarios (hidden same-file overlap, combined-red-while-
+  leaves-green, cyclic DAG, dropped requirement, gas-exhausted partial, illegal
+  canonical stage transition, refused unsanctioned rollback) → ``matched``;
 * ``main()`` returns exit 0 when every scenario matches expectation;
 * a deliberately-broken scenario (expects BLOCK but is fed a CLEAN input) → ``matched
   is False`` — proving the harness can detect a rubber stamp rather than always
@@ -24,9 +25,9 @@ from scripts import run_weave_negative_gate as gate
 class TestCanonicalScenarios(unittest.TestCase):
     """Every canonical scenario must produce the expected BLOCK (matched is True)."""
 
-    def test_there_are_five_scenarios(self):
+    def test_there_are_seven_scenarios(self):
         scns = gate.scenarios()
-        self.assertEqual(len(scns), 5)
+        self.assertEqual(len(scns), 7)
         names = {s["name"] for s in scns}
         self.assertEqual(
             names,
@@ -36,8 +37,22 @@ class TestCanonicalScenarios(unittest.TestCase):
                 "cyclic-DAG",
                 "dropped-requirement",
                 "gas-exhausted-partial",
+                "illegal-transition",
+                "rollback-refused",
             },
         )
+
+    def test_illegal_transition_blocks(self):
+        scn = _by_name("illegal-transition")
+        result = gate.run_scenario(scn)
+        self.assertEqual(result["actual"], "BLOCK")
+        self.assertIs(result["matched"], True)
+
+    def test_rollback_refused_scenario_blocks(self):
+        scn = _by_name("rollback-refused")
+        result = gate.run_scenario(scn)
+        self.assertEqual(result["actual"], "BLOCK")
+        self.assertIs(result["matched"], True)
 
     def test_every_scenario_matches(self):
         for scn in gate.scenarios():
@@ -106,6 +121,40 @@ class TestRubberStampDetection(unittest.TestCase):
                 },
                 "jobs": [],
             },
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
+    def test_legal_transition_does_not_block(self):
+        # Same kind as the illegal-transition scenario, but fed a LEGAL edge
+        # (CODED->VERIFIED). A gate that still "blocked" here would rubber-stamp;
+        # matched must be False (expected BLOCK, actual PASS).
+        broken = {
+            "name": "illegal-transition",
+            "kind": "illegal-transition",
+            "expected": "BLOCK",
+            "from": "CODED",
+            "to": "VERIFIED",
+        }
+        result = gate.run_scenario(broken)
+        self.assertEqual(result["actual"], "PASS")
+        self.assertIs(result["matched"], False)
+
+    def test_sanctioned_rollback_does_not_block(self):
+        # Same kind as the rollback-refused scenario, but fed a SANCTIONED input:
+        # a reset aimed inside an isolated ``.atlas/<run>/worktree`` linked worktree
+        # (git_common_dir != git_dir) with a caller-set token. sanctioned_rollback
+        # holds, so the driver would proceed and the guard does NOT refuse — a gate
+        # that still "blocked" here would rubber-stamp. matched must be False.
+        broken = {
+            "name": "rollback-refused",
+            "kind": "rollback-refused",
+            "expected": "BLOCK",
+            "target": ".atlas/run-1/worktree/src/foo.py",
+            "git_common_dir": "/repo/.git",
+            "git_dir": "/repo/.git/worktrees/run-1",
+            "env_token": "sanctioned",
         }
         result = gate.run_scenario(broken)
         self.assertEqual(result["actual"], "PASS")

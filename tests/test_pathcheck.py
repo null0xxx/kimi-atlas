@@ -1,5 +1,6 @@
 """Unit tests for scripts/pathcheck.py (path-grounding cross-check, paths only)."""
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -9,10 +10,15 @@ from scripts import pathcheck
 class TestCrossCheck(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
+        # addCleanup guards against a setUp that raises before tearDown runs.
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         # A real file on disk under root → grounded by existence.
         os.makedirs(os.path.join(self.root, "scripts"), exist_ok=True)
         with open(os.path.join(self.root, "scripts", "verdict.py"), "w") as f:
             f.write("x = 1\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
 
     # ---- happy ----
     def test_grounded_by_disk(self):
@@ -62,6 +68,18 @@ class TestCrossCheck(unittest.TestCase):
         ctx = {"relevant_files": ["not-a-dict", {"nopath": 1}]}
         defects = pathcheck.cross_check("check `scripts/ghost.py`.", ctx, self.root)
         self.assertEqual(len(defects), 1)
+
+
+class TestCrossCheckCleanup(unittest.TestCase):
+    """Meta-test: TestCrossCheck must not leak its per-test tempdir (F9)."""
+
+    def test_root_removed_after_teardown(self):
+        tc = TestCrossCheck("test_empty_text")
+        tc.setUp()
+        root = tc.root
+        self.assertTrue(os.path.isdir(root))
+        tc.tearDown()
+        self.assertFalse(os.path.exists(root))
 
 
 if __name__ == "__main__":

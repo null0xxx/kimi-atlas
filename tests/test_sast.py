@@ -8,7 +8,9 @@ semgrep run and no network is needed here.
 """
 import json
 import os
+import subprocess
 import unittest
+from unittest import mock
 
 from scripts import sast
 
@@ -225,6 +227,29 @@ class TestSemgrepPathResolution(unittest.TestCase):
     def test_returns_str_or_none(self):
         result = sast.semgrep_path()
         self.assertTrue(result is None or isinstance(result, str))
+
+
+class TestSastMetricsOff(unittest.TestCase):
+    """scan() builds an argv that disables semgrep's default telemetry egress (F3)."""
+
+    def test_scan_argv_disables_metrics(self):
+        captured = {}
+
+        class _Proc:
+            stdout = "{}"
+
+        def _fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return _Proc()
+
+        with mock.patch.object(sast, "semgrep_path", return_value="/usr/bin/semgrep"), \
+                mock.patch.object(subprocess, "run", _fake_run):
+            sast.scan(["a.py"], cwd=".")
+        argv = captured["argv"]
+        self.assertIn("--metrics", argv)
+        self.assertEqual(argv[argv.index("--metrics") + 1], "off")
+        # --metrics off must precede the `--` argv terminator (semgrep options end there).
+        self.assertLess(argv.index("--metrics"), argv.index("--"))
 
 
 if __name__ == "__main__":
