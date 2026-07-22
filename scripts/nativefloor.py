@@ -1,0 +1,341 @@
+"""nativefloor — the hermetic, argv-only, parse-ONLY runner for the SYNTAX floor.
+
+The single execution engine behind ``syntaxlens`` (Task 3). It runs an external
+*parse checker* (``node --check``, ``ruby -cw``, ``php -l``, ``gofmt -e``,
+``bash -n``) over one materialized source file at a time and reports whether the
+tool flagged a genuine syntax error — while making it structurally impossible for
+untrusted repo code to *execute*. It is the security core of the universal
+SYNTAX floor (spec §2.4/§2.6/§2.7); every SECURITY-INVARIANT clause below is
+proven by a test in ``tests/test_nativefloor.py``.
+
+THE SECURITY INVARIANT — parse-only, never executes untrusted repo code:
+
+1. **argv-list only, NEVER ``sh -c`` / ``shell=True``.** No repo string is ever
+   interpolated into a shell script. The workload is a real argv list wrapped by
+   :func:`proccap._build_wrapper_argv` under :func:`_effective_backend` — which is
+   the RSS-based cgroup scope when available, else the *uncapped-but-timeout-
+   bounded* NONE backend (``argv`` verbatim). This path NEVER takes proccap's
+   legacy ``ulimit`` shell backend, so no argv element can reach a ``sh -c`` text.
+2. **Parse flags only** (``ruby -cw`` CHECK, never ``-w``/``-e``; ``node
+   --check``; ``php -l``; ``gofmt -e``; ``bash -n``). The argv is supplied by the
+   caller strictly from :data:`langfloor.SYNTAX_ARGV`; this module chooses only
+   the executable path and the materialized basename — never a flag.
+3. **Child env CONSTRUCTED FROM SCRATCH** by :func:`_hermetic_env` — exactly
+   ``{PATH, HOME, LANG, TMPDIR}``, read from the parent or safe defaults, and
+   passed as ``env=`` to :func:`proccap._launch_and_wait`. It is NOT
+   ``os.environ.copy()`` minus a denylist, so hostile hooks (``NODE_OPTIONS``,
+   ``RUBYOPT``, ``BASH_ENV``, ``LD_PRELOAD``, ``PHP_INI_SCAN_DIR``, …) cannot
+   reach the child at all.
+4. **Each file is materialized to a FRESH empty tempdir used as the cwd** (never
+   the repo tree), under a basename WE choose via :func:`_safe_basename` (no
+   repo-controlled path text touches the filesystem), byte-bounded by
+   ``max_source_bytes``, and the tempdir is ``shutil.rmtree``'d in a ``finally``.
+5. **Tool absent → no-op (fail-open), never a defect.** A syntax DEFECT
+   (``signature_matched``) requires ``exit != 0 AND not timed_out AND
+   _error_references_path(...)`` — the tool's own error text must literally name
+   the path/basename we handed it (plain substring, NO regex → no ReDoS; §2.4).
+   A crash for any other reason (OOM, tool bug) does not name our file and is
+   therefore NOT counted as a defect.
+
+Pure helpers (:func:`_hermetic_env`, :func:`_safe_basename`,
+:func:`_error_references_path`) are unit-testable with no subprocess and no host
+probe; :func:`_effective_backend` is an impure adapter (it consults the memoized
+host probe); :func:`run` performs the one side effect (materialize → launch under
+cap → detect). ``run`` NEVER raises to its caller: any unexpected error on a job
+degrades that job to a fail-open ``ran=False`` result.
+"""
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import tempfile
+import time
+
+from scripts import proccap
+
+# A valid extension for materialization: a dot then one-or-more alphanumerics.
+# Anything else (empty, shell metacharacters, path separators) is rejected so no
+# repo-controlled text can shape the on-disk basename (SECURITY-INVARIANT §4).
+_SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]+$")
+
+# How much of the tool's stderr to retain in the result (diagnostics only).
+_STDERR_TAIL_CHARS = 4000
+
+# The exact, minimal keys of the hermetic child environment (SECURITY-INVARIANT §3).
+_HERMETIC_ENV_KEYS = ("PATH", "HOME", "LANG", "TMPDIR")
+
+# Fail-open (never-a-defect) skip reasons, for readers of the result dict.
+_SKIP_TOOL_ABSENT = "tool-absent"
+_SKIP_BUDGET = "budget-exhausted"
+_SKIP_LAUNCH_FAILED = "launch-failed"
+_SKIP_EMPTY = "empty-text"
+_SKIP_OVERSIZE = "oversize"
+
+
+def tool_path(name: str) -> str | None:
+    """Resolve a tool executable to an absolute path, or ``None`` (fail-open signal).
+
+    Mirrors :func:`sast.semgrep_path`: a ``kimi -p`` run may not carry
+    ``~/.local/bin`` on ``PATH``, so the lookup is deliberately robust — ``PATH``
+    first (``shutil.which``), then the common user/system install sites. Returning
+    ``None`` is the fail-open signal :func:`run` uses to skip the job as
+    ``tool-absent`` (never a defect, SECURITY-INVARIANT §5).
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    for candidate in (
+        os.path.expanduser(f"~/.local/bin/{name}"),
+        f"/usr/local/bin/{name}",
+        f"/usr/bin/{name}",
+    ):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _hermetic_env() -> dict[str, str]:
+    """Return the child environment, BUILT FROM SCRATCH (SECURITY-INVARIANT §3).
+
+    Exactly ``{PATH, HOME, LANG, TMPDIR}`` — each read from the parent when set,
+    else a safe default. This is a fresh dict, NOT ``os.environ.copy()`` with keys
+    removed, so hostile interpreter hooks (``NODE_OPTIONS``, ``RUBYOPT``,
+    ``BASH_ENV``, ``LD_PRELOAD``, ``PHP_INI_SCAN_DIR``, …) simply do not exist in
+    the child. Pure: reads ``os.environ`` but has no side effect.
+    """
+    tmp = tempfile.gettempdir()
+    return {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "HOME": os.environ.get("HOME", tmp),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "TMPDIR": os.environ.get("TMPDIR", tmp),
+    }
+
+
+def _safe_basename(ext: str) -> str:
+    """Return ``"input" + <validated ext>`` — no repo-controlled path text (§4).
+
+    The extension is lowercased and validated against ``^\\.[A-Za-z0-9]+$``; a
+    non-conforming ext (empty, containing ``;`` / backticks / path separators) is
+    dropped entirely, yielding a bare ``"input"``. So the only text that ever
+    reaches the filesystem is a constant stem plus a known-safe extension — never
+    a repo-derived filename. Pure.
+    """
+    lowered = (ext or "").lower()
+    if _SAFE_EXT_RE.match(lowered):
+        return "input" + lowered
+    return "input"
+
+
+def _error_references_path(
+    stderr: str, stdout: str, materialized_path: str, basename: str
+) -> bool:
+    """True iff the tool's output literally names the file we handed it (§2.4).
+
+    A genuine parse error names the file it choked on; a tool that crashed for an
+    unrelated reason (OOM, an internal bug) does not. We therefore only count a
+    non-zero exit as a syntax DEFECT when ``materialized_path`` OR ``basename``
+    appears as a plain substring of ``stderr``/``stdout`` — a plain ``in`` test,
+    NO regex, so there is no ReDoS surface. Pure.
+    """
+    haystack = (stderr or "") + "\n" + (stdout or "")
+    return materialized_path in haystack or basename in haystack
+
+
+def _effective_backend(cgroup_only: bool) -> str:
+    """Choose the proccap memory-cap backend for the syntax floor (IMPURE adapter).
+
+    Consults the memoized host probe :func:`proccap._detect_mem_backend` (which
+    runs a ``systemd-run`` probe on first call). Returns the cgroup RSS backend
+    when the host actually supports it; otherwise, when ``cgroup_only`` (the
+    default for this parse-only path), returns :data:`proccap._BACKEND_NONE` —
+    uncapped but still wall-clock-timeout-bounded. It NEVER returns the legacy
+    ``ulimit`` shell backend, so this path can never route a workload through a
+    ``sh -c`` script (SECURITY-INVARIANT §1). Impure (probes the host), so it is
+    kept out of the pure-helper group and is tested by monkeypatching the probe.
+    """
+    if proccap._detect_mem_backend() == proccap._BACKEND_CGROUP:
+        return proccap._BACKEND_CGROUP
+    # Not cgroup-capable. On this parse-only floor we NEVER fall through to the
+    # legacy ``ulimit`` shell backend (it would route argv through ``sh -c``,
+    # violating SECURITY-INVARIANT §1): degrade to the uncapped-but-timeout-
+    # bounded NONE backend. ``cgroup_only`` is the default and only supported
+    # mode here; it is named to make that contract explicit at the call site.
+    _ = cgroup_only
+    return proccap._BACKEND_NONE
+
+
+def _result(
+    rel: str,
+    tool: str,
+    *,
+    ran: bool,
+    returncode: int | None,
+    timed_out: bool,
+    signature_matched: bool,
+    stderr_tail: str,
+    skipped_reason: str | None,
+) -> dict:
+    """Build one canonical per-job result dict (in input order)."""
+    return {
+        "rel": rel,
+        "tool": tool,
+        "ran": ran,
+        "returncode": returncode,
+        "timed_out": timed_out,
+        "signature_matched": signature_matched,
+        "stderr_tail": stderr_tail,
+        "skipped_reason": skipped_reason,
+    }
+
+
+def _run_one(
+    job: dict,
+    *,
+    cgroup_only: bool,
+    per_file_timeout_s: int,
+    mem_limit_mb: int,
+    max_source_bytes: int,
+) -> tuple[dict, bool]:
+    """Materialize → launch under cap → detect for one job (the side effect).
+
+    Returns ``(result, launched)`` where ``launched`` is True iff a real tool
+    process was actually started (the caller uses it to consume ``file_budget``).
+    A tool-absent / empty / oversize job returns ``launched=False`` and does NOT
+    consume budget. The tempdir is always ``rmtree``'d in a ``finally``; any
+    unexpected exception degrades to a fail-open ``launch-failed`` result rather
+    than propagating (SECURITY-INVARIANT §4, and ``run`` never raises).
+    """
+    rel = job["rel"]
+    argv = job["argv"]
+    tool_name = argv[0] if argv else ""
+    basename = _safe_basename(job["ext"])
+    tempdir = tempfile.mkdtemp(prefix="nativefloor-")
+    try:
+        materialized_path = os.path.join(tempdir, basename)
+
+        text = job["text"]
+        if not text:
+            return _result(
+                rel, tool_name, ran=False, returncode=None, timed_out=False,
+                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_EMPTY,
+            ), False
+        encoded = text.encode("utf-8", errors="replace")
+        if len(encoded) > max_source_bytes:
+            return _result(
+                rel, tool_name, ran=False, returncode=None, timed_out=False,
+                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_OVERSIZE,
+            ), False
+
+        with open(materialized_path, "wb") as fh:
+            fh.write(encoded)
+
+        tool = tool_path(tool_name)
+        if tool is None:
+            return _result(
+                rel, tool_name, ran=False, returncode=None, timed_out=False,
+                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_TOOL_ABSENT,
+            ), False
+
+        # SECURITY-INVARIANT §1/§2: argv-list only; the basename (not a repo path)
+        # is the final positional; wrapped under cgroup-or-NONE (never ulimit sh).
+        real_argv = [tool, *argv[1:], basename]
+        wrapped = proccap._build_wrapper_argv(
+            real_argv, mem_limit_mb, _effective_backend(cgroup_only)
+        )
+        res = proccap._launch_and_wait(
+            wrapped, cwd=tempdir, timeout_s=per_file_timeout_s, env=_hermetic_env()
+        )
+        # A launch happened (or was attempted): this consumes the file budget.
+        if res["launched"] is False:
+            return _result(
+                rel, tool_name, ran=False, returncode=None, timed_out=False,
+                signature_matched=False, stderr_tail=_coerce_tail(res.get("stderr", "")),
+                skipped_reason=_SKIP_LAUNCH_FAILED,
+            ), True
+
+        timed_out = bool(res["timed_out"])
+        returncode = res["returncode"]
+        signature_matched = (
+            (not timed_out)
+            and returncode != 0
+            and _error_references_path(
+                res.get("stderr", ""), res.get("stdout", ""), materialized_path, basename
+            )
+        )
+        return _result(
+            rel, tool_name, ran=True, returncode=returncode, timed_out=timed_out,
+            signature_matched=signature_matched,
+            stderr_tail=_coerce_tail(res.get("stderr", "")), skipped_reason=None,
+        ), True
+    except Exception:  # noqa: BLE001 — fail-open: an unexpected error is never a defect.
+        return _result(
+            rel, tool_name, ran=False, returncode=None, timed_out=False,
+            signature_matched=False, stderr_tail="", skipped_reason=_SKIP_LAUNCH_FAILED,
+        ), False
+    finally:
+        shutil.rmtree(tempdir, ignore_errors=True)
+
+
+def _coerce_tail(stderr: object) -> str:
+    """Return the last ``_STDERR_TAIL_CHARS`` chars of ``stderr`` as a str (pure)."""
+    if not stderr:
+        return ""
+    text = stderr if isinstance(stderr, str) else str(stderr)
+    return text[-_STDERR_TAIL_CHARS:]
+
+
+def run(
+    jobs: list[dict],
+    *,
+    cgroup_only: bool = True,
+    file_budget: int = 40,
+    wall_budget_s: float = 60.0,
+    per_file_timeout_s: int = 10,
+    mem_limit_mb: int = 2048,
+    max_source_bytes: int = 1_000_000,
+) -> list[dict]:
+    """Run each job's parse checker hermetically → one result per job, in order.
+
+    ``jobs`` is a list of ``{"rel", "text", "argv", "ext"}`` (``argv`` is the tool
+    invocation WITHOUT the filename, from :data:`langfloor.SYNTAX_ARGV`; ``ext`` is
+    the caller-chosen extension to materialize under). Returns one result dict per
+    job in input order:
+    ``{"rel", "tool", "ran", "returncode", "timed_out", "signature_matched",
+    "stderr_tail", "skipped_reason"}``.
+
+    Budget bounds LAUNCHES (SECURITY-INVARIANT §4, spec §2.7): the budget is
+    checked FIRST, before any tool resolution / materialization, so exactly
+    ``file_budget`` jobs ever launch and the wall-clock ``wall_budget_s`` caps the
+    whole batch. A tool-absent / empty / oversize job is a fail-open no-op that
+    does NOT consume the budget. ``ran=False`` with a ``skipped_reason`` is ALWAYS
+    fail-open — never a defect; a genuine syntax error is ``ran=True,
+    returncode!=0, timed_out=False, signature_matched=True``. Never raises.
+    """
+    results: list[dict] = []
+    ran_count = 0
+    start = time.monotonic()
+    for job in jobs:
+        argv = job.get("argv") or []
+        tool_name = argv[0] if argv else ""
+        # SECURITY-INVARIANT §4 / spec §2.7: budget check FIRST — no tool
+        # resolution, no launch, no tempdir when the batch budget is spent.
+        if ran_count >= file_budget or (time.monotonic() - start) > wall_budget_s:
+            results.append(_result(
+                job.get("rel", ""), tool_name, ran=False, returncode=None,
+                timed_out=False, signature_matched=False, stderr_tail="",
+                skipped_reason=_SKIP_BUDGET,
+            ))
+            continue
+        result, launched = _run_one(
+            job,
+            cgroup_only=cgroup_only,
+            per_file_timeout_s=per_file_timeout_s,
+            mem_limit_mb=mem_limit_mb,
+            max_source_bytes=max_source_bytes,
+        )
+        if launched:
+            ran_count += 1
+        results.append(result)
+    return results

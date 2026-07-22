@@ -1,0 +1,217 @@
+"""Acceptance tests for :mod:`scripts.nativefloor` — the hermetic argv-only parse runner.
+
+Every SECURITY-INVARIANT clause of the syntax floor (spec §2.4/§2.6/§2.7) has a
+proof here. Two tiers:
+
+* **Tool-independent security proofs (ALWAYS run)** — the env-from-scratch,
+  safe-basename, parse-only-argv-pin, and budget/signature-gating mechanics are
+  proven with NO real tool: an executable ``sh`` stub stands in for the language
+  binary (monkeypatched onto ``nativefloor.tool_path``), so the security contract
+  is asserted unconditionally on every host.
+* **Live-tool proofs (``skipUnless``)** — node/php/bash exercise the real binaries
+  end to end, including the non-execution (parse-only) sentinel using an ABSOLUTE
+  path OUTSIDE any materialized tempdir. ruby/gofmt skip cleanly when absent.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import stat
+import tempfile
+import unittest
+from unittest import mock
+
+from scripts import nativefloor, proccap, langfloor
+
+
+def _write_stub(d: str, exit_code: int, echo_args: bool, fixed_msg: str = "") -> str:
+    """An executable sh stub standing in for a real tool (tool-INDEPENDENT).
+    echo_args=True prints its args (which include the materialized basename) to stderr —
+    so _error_references_path matches; echo_args=False prints a fixed message with NO path."""
+    p = os.path.join(d, "stub.sh")
+    with open(p, "w") as f:
+        f.write("#!/bin/sh\n")
+        f.write('echo "err: $@" 1>&2\n' if echo_args else ('echo %r 1>&2\n' % (fixed_msg or "generic failure")))
+        f.write("exit %d\n" % exit_code)
+    os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return p
+
+
+class TestHermeticEnv(unittest.TestCase):
+    def test_env_is_exactly_the_four_keys(self):
+        hostiles = ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV")
+        for h in hostiles:
+            os.environ[h] = "/evil"
+        try:
+            env = nativefloor._hermetic_env()
+            self.assertEqual(set(env), {"PATH", "HOME", "LANG", "TMPDIR"})
+            for h in hostiles:
+                self.assertNotIn(h, env)
+        finally:
+            for h in hostiles:
+                del os.environ[h]
+
+
+class TestSafeBasename(unittest.TestCase):
+    def test_ext_validated_no_repo_text(self):
+        self.assertEqual(nativefloor._safe_basename(".rb"), "input.rb")
+        self.assertEqual(nativefloor._safe_basename(".mjs"), "input.mjs")
+        self.assertEqual(nativefloor._safe_basename(""), "input")
+        self.assertEqual(nativefloor._safe_basename(".we;rd`"), "input")   # invalid ext rejected
+
+
+class TestParseOnlyArgvPins(unittest.TestCase):
+    """Static proof that EVERY tool argv is parse-only — never an execute flag (the RCE guard)."""
+    def test_all_syntax_argv_are_parse_only(self):
+        self.assertEqual(langfloor.SYNTAX_ARGV[".rb"], ["ruby", "-cw"])   # -cw, NEVER -w/-e
+        self.assertEqual(langfloor.SYNTAX_ARGV[".js"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".cjs"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".mjs"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".php"], ["php", "-l"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".go"], ["gofmt", "-e"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".sh"], ["bash", "-n"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".bash"], ["bash", "-n"])
+
+    def test_argv_is_never_sh_c_on_none_backend(self):
+        wrapped = proccap._build_wrapper_argv(["ruby", "-cw", "input.rb"], 2048, proccap._BACKEND_NONE)
+        self.assertEqual(wrapped, ["ruby", "-cw", "input.rb"])   # verbatim, no shell interposed
+
+    def test_tool_absent_is_failopen_no_defect(self):
+        jobs = [{"rel": "x.rb", "text": "puts 1", "argv": ["definitely-no-such-tool-xyz", "-cw"], "ext": ".rb"}]
+        [res] = nativefloor.run(jobs)
+        self.assertFalse(res["ran"]); self.assertEqual(res["skipped_reason"], "tool-absent")
+
+
+class TestStubMechanics(unittest.TestCase):
+    """Budget + signature-gating proven WITHOUT any real tool, via a monkeypatched tool_path stub."""
+    def test_signature_positive_when_error_names_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=1, echo_args=True)   # prints "err: input.rb"
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertTrue(res["signature_matched"])   # -> caller will emit a defect
+
+    def test_signature_NEGATIVE_when_error_omits_path(self):
+        # The false-block guard (§2.4): a non-zero exit that does NOT name our path -> NO defect.
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=2, echo_args=False, fixed_msg="out of memory")
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])   # -> caller emits NOTHING (fail-open)
+
+    def test_ok_exit_is_no_defect(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])
+
+    def test_file_budget_is_exact(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [{"rel": f"f{i}.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"} for i in range(5)]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs, file_budget=2)
+        self.assertEqual(sum(1 for r in results if r["ran"]), 2)   # EXACTLY file_budget ran
+        for r in results[2:]:
+            self.assertFalse(r["ran"])
+            self.assertEqual(r["skipped_reason"], "budget-exhausted")   # unconditional
+
+    def test_no_tempdir_leak(self):
+        before = set(os.listdir(tempfile.gettempdir()))
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        # nativefloor's own mkdtemp dirs are all rmtree'd; only our own `d` may remain (removed by the CM)
+        leaked = set(os.listdir(tempfile.gettempdir())) - before
+        self.assertEqual([x for x in leaked if x != os.path.basename(d)], [])
+
+
+class TestEffectiveBackend(unittest.TestCase):
+    def test_cgroup_only_falls_to_none_when_not_cgroup(self):
+        with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_ULIMIT):
+            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_NONE)
+        with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_CGROUP):
+            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_CGROUP)
+
+
+# ---- Live-tool proofs (skipUnless). node/php/bash present here; ruby/gofmt skip. ----
+@unittest.skipUnless(shutil.which("node"), "node not installed")
+class TestNodeLive(unittest.TestCase):
+    def test_valid_js_no_error(self):
+        [res] = nativefloor.run([{"rel": "ok.js", "text": "const x = 1;\n", "argv": ["node", "--check"], "ext": ".js"}])
+        self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])
+
+    def test_syntax_error_signature_matches(self):
+        [res] = nativefloor.run([{"rel": "bad.js", "text": "const = ;\n", "argv": ["node", "--check"], "ext": ".js"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertTrue(res["signature_matched"])
+
+    def test_non_execution_no_side_effect(self):
+        # Sentinel is an ABSOLUTE path OUTSIDE any materialized tempdir. If --check EXECUTED the
+        # file it would create the sentinel; parse-only must NOT. (Mandate for bash/php/ruby too.)
+        with tempfile.TemporaryDirectory() as outside:
+            sentinel = os.path.join(outside, "PWNED")
+            src = "require('fs').writeFileSync(%r, 'x');\n" % sentinel
+            nativefloor.run([{"rel": "eval.js", "text": src, "argv": ["node", "--check"], "ext": ".js"}])
+            self.assertFalse(os.path.exists(sentinel))   # code never ran
+
+    def test_node_options_env_has_no_effect(self):
+        os.environ["NODE_OPTIONS"] = "--require /nonexistent/evil.js"
+        try:
+            [res] = nativefloor.run([{"rel": "ok.js", "text": "const x=1;\n", "argv": ["node", "--check"], "ext": ".js"}])
+            self.assertEqual(res["returncode"], 0)   # NODE_OPTIONS did NOT leak into the hermetic child
+        finally:
+            del os.environ["NODE_OPTIONS"]
+
+
+@unittest.skipUnless(shutil.which("bash"), "bash not installed")
+class TestBashLive(unittest.TestCase):
+    def test_valid_sh_no_error(self):
+        [res] = nativefloor.run([{"rel": "ok.sh", "text": "echo hi\n", "argv": ["bash", "-n"], "ext": ".sh"}])
+        self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])
+
+    def test_syntax_error_signature_matches(self):
+        # `if` with no `fi` -> bash -n reports "syntax error: unexpected end of file" naming the file.
+        [res] = nativefloor.run([{"rel": "bad.sh", "text": "if [ 1 -eq 1 ]; then\n", "argv": ["bash", "-n"], "ext": ".sh"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertTrue(res["signature_matched"])
+
+    def test_non_execution_no_side_effect(self):
+        # A `.sh` that would `touch` an ABSOLUTE sentinel OUTSIDE the tempdir. `bash -n` parses only.
+        with tempfile.TemporaryDirectory() as outside:
+            sentinel = os.path.join(outside, "PWNED")
+            src = "touch %s\n" % sentinel
+            nativefloor.run([{"rel": "evil.sh", "text": src, "argv": ["bash", "-n"], "ext": ".sh"}])
+            self.assertFalse(os.path.exists(sentinel))   # -n never ran the touch
+
+
+@unittest.skipUnless(shutil.which("php"), "php not installed")
+class TestPhpLive(unittest.TestCase):
+    def test_valid_php_no_error(self):
+        [res] = nativefloor.run([{"rel": "ok.php", "text": "<?php $x = 1;\n", "argv": ["php", "-l"], "ext": ".php"}])
+        self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])
+
+    def test_syntax_error_signature_matches(self):
+        [res] = nativefloor.run([{"rel": "bad.php", "text": "<?php $x = ;\n", "argv": ["php", "-l"], "ext": ".php"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertTrue(res["signature_matched"])
+
+    def test_non_execution_no_side_effect(self):
+        # `<?php file_put_contents(...)` targeting an ABSOLUTE sentinel OUTSIDE the tempdir. `php -l` lints only.
+        with tempfile.TemporaryDirectory() as outside:
+            sentinel = os.path.join(outside, "PWNED")
+            src = "<?php file_put_contents(%r, 'x');\n" % sentinel
+            nativefloor.run([{"rel": "evil.php", "text": src, "argv": ["php", "-l"], "ext": ".php"}])
+            self.assertFalse(os.path.exists(sentinel))   # -l never ran the write
+
+
+if __name__ == "__main__":
+    unittest.main()
