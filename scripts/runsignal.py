@@ -37,16 +37,36 @@ from __future__ import annotations
 import json
 import re
 
+# Shared PASS/FAIL tally extractors — ONE ``(\\d+) passed`` / ``(\\d+) failed``
+# each, reused by the pytest summary line, the jest/vitest ``Tests`` line and
+# every cargo ``test result:`` line. CQ-1 collapses the former duplicate
+# ``_PY_PASSED_RE``/``_PASSED_NUM_RE`` (and ``_PY_FAILED_RE``/``_FAILED_NUM_RE``)
+# pairs into these single constants.
+_PASSED_RE = re.compile(r"(\d+) passed")
+_FAILED_RE = re.compile(r"(\d+) failed")
+
 # --- pytest -----------------------------------------------------------------
 _PY_COLLECTED_RE = re.compile(r"collected (\d+) items?")     # collection line
 _PY_PLATFORM_RE = re.compile(r"platform .* -- Python")       # verbose header
-_PY_RULE_RE = re.compile(r"^=+.*=+\s*$", re.MULTILINE)       # `===== … =====` rule
-_PY_PASSED_RE = re.compile(r"(\d+) passed")
-_PY_FAILED_RE = re.compile(r"(\d+) failed")
 _PY_ERRORS_RE = re.compile(r"(\d+) errors?")
 _PY_NO_TESTS_RE = re.compile(r"no tests ran")
 # A tally token identifies pytest's summary line when there is no `=+…=+` rule.
 _PY_SUMMARY_TOKEN_RE = re.compile(r"passed|failed|error|no tests ran")
+
+
+def _is_pytest_rule_line(line: str) -> bool:
+    """True iff ``line`` is pytest's ``=+…=+`` summary rule — LINEAR, no regex.
+
+    The rule is simply "starts and ends with ``=``" (``===== 5 passed in 0.1s
+    =====``). This O(len) ``startswith``/``endswith`` check REPLACES the former
+    ``^=+.*=+\\s*$`` regex, whose two ``=+`` groups straddling ``.*`` backtrack
+    catastrophically on a hostile ``'='*3000 + 'x'`` line an untrusted repo's
+    test can print to stdout (SEC-1 ReDoS — a multi-second hang inside the verify
+    timeout); a plain scan cannot backtrack. Trailing whitespace is tolerated
+    (the old ``\\s*$``); a leading ``=`` at column 0 is still required (old ``^``).
+    """
+    stripped = line.rstrip()
+    return len(stripped) >= 2 and stripped[0] == "=" and stripped[-1] == "="
 
 # --- unittest ---------------------------------------------------------------
 _UT_RAN_RE = re.compile(r"Ran (\d+) tests? in")
@@ -61,9 +81,21 @@ _GO_FAIL_LINE_RE = re.compile(r"^--- FAIL:", re.MULTILINE)
 # `FAIL` summary and/or `[build failed]`; either forces fail>0 in the fallback.
 _GO_FAIL_SUMMARY_RE = re.compile(r"^FAIL\b", re.MULTILINE)
 _GO_BUILD_FAILED_RE = re.compile(r"\[build failed\]")
+# Plain `go test ./...` (no -v/-json) prints ONLY a per-package `ok <pkg> <t>`
+# pass line — no `--- PASS:` events. Counted as passes ONLY when no `--- PASS:`
+# line is present, so `go test -v` output (which prints BOTH) is never
+# double-counted (COR-2).
+_GO_OK_PKG_RE = re.compile(r"^ok\s+\S+", re.MULTILINE)
 
 # --- cargo ------------------------------------------------------------------
-_CARGO_RESULT_RE = re.compile(r"test result:[^\n]*?(\d+) passed[^\n]*?(\d+) failed")
+# A crate's tally lives on one `test result: ok. N passed; M failed; …` line,
+# read PER-LINE with the shared linear `_PASSED_RE`/`_FAILED_RE`. The former
+# `test result:[^\n]*?(\d+) passed[^\n]*?(\d+) failed` used two lazy `[^\n]*?`
+# scanners that backtrack quadratically on a crafted `test result: 1 passed 1
+# passed …` line carrying NO `failed` (SEC-2 ReDoS); a per-line scan with a
+# length guard cannot (each single-group extractor is linear).
+_CARGO_RESULT_TOKEN = "test result:"
+_CARGO_LINE_MAX = 2000       # a real `test result:` line is short; cap the scan.
 # A crate that fails to compile / whose harness aborts prints NO `test result:`
 # line — only a compiler/cargo error; any of these forces fail>0 so a passing
 # crate beside it cannot carry the run to green.
@@ -74,6 +106,16 @@ _CARGO_ERROR_RE = re.compile(
 # --- jest -------------------------------------------------------------------
 _JEST_TESTS_LINE_RE = re.compile(r"^Tests:.*$", re.MULTILINE)
 _JEST_SUITES_LINE_RE = re.compile(r"^Test Suites:.*$", re.MULTILINE)
+
+# --- vitest -----------------------------------------------------------------
+# Vitest's default reporter prints a SPACE-separated summary (NO colon), which
+# is what distinguishes it from jest's `Tests:`/`Test Suites:` colon form:
+#          Test Files  1 passed (1)
+#               Tests  5 passed (5)     (or `1 failed | 4 passed (5)`)
+# `Tests\s+` cannot match jest's `Tests:` (a colon — not whitespace — follows
+# `Tests`), so the two counters never collide (RC-1 keeps tags↔counters 1:1).
+_VITEST_TESTS_LINE_RE = re.compile(r"^\s*Tests\s+.*$", re.MULTILINE)
+_VITEST_FILES_LINE_RE = re.compile(r"^\s*Test Files\s+.*$", re.MULTILINE)
 
 # --- mocha ------------------------------------------------------------------
 _MOCHA_PASSING_RE = re.compile(r"(\d+) passing")
@@ -89,10 +131,6 @@ _PHPUNIT_FAIL_RE = re.compile(r"^FAILURES!", re.MULTILINE)
 _PHPUNIT_TESTS_RE = re.compile(r"Tests: (\d+)")
 _PHPUNIT_FAILURES_RE = re.compile(r"Failures: (\d+)")
 _PHPUNIT_ERRORS_RE = re.compile(r"Errors: (\d+)")
-
-# Shared field extractors for a single jest/other summary LINE.
-_PASSED_NUM_RE = re.compile(r"(\d+) passed")
-_FAILED_NUM_RE = re.compile(r"(\d+) failed")
 
 
 def _last_int(regex: re.Pattern[str], text: str) -> int:
@@ -116,7 +154,7 @@ def _pytest_summary_line(output: str) -> str:
     Scoping the tally to this ONE line stops an incidental ``…found 2 errors…``
     elsewhere in the log from flipping a genuinely-green run to red (I1).
     """
-    rules = _PY_RULE_RE.findall(output)
+    rules = [ln for ln in output.splitlines() if _is_pytest_rule_line(ln)]
     if rules:
         return rules[-1]
     for line in reversed(output.splitlines()):
@@ -140,12 +178,12 @@ def _count_pytest(output: str) -> tuple[int, int]:
     if not (
         _PY_COLLECTED_RE.search(output)
         or _PY_PLATFORM_RE.search(output)
-        or _PY_RULE_RE.search(output)
+        or any(_is_pytest_rule_line(ln) for ln in output.splitlines())
     ):
         return (0, 0)
     summary = _pytest_summary_line(output)
-    passed = _last_int(_PY_PASSED_RE, summary)
-    fail = _last_int(_PY_FAILED_RE, summary) + _last_int(_PY_ERRORS_RE, summary)
+    passed = _last_int(_PASSED_RE, summary)
+    fail = _last_int(_FAILED_RE, summary) + _last_int(_PY_ERRORS_RE, summary)
     if _PY_NO_TESTS_RE.search(summary):
         fail = max(fail, 1)
     return (passed, fail)
@@ -205,6 +243,12 @@ def _count_go(output: str) -> tuple[int, int]:
         return (passed, fail)
     p = len(_GO_PASS_LINE_RE.findall(output))
     f = len(_GO_FAIL_LINE_RE.findall(output))
+    # Plain `go test ./...` prints no `--- PASS:` line — only `ok <pkg>` per
+    # green package; count those so a green Go repo run without -v/-json is not
+    # false-degraded to UNVERIFIED (COR-2). Skipped when `--- PASS:` events exist
+    # so `go test -v` (which prints BOTH) is never double-counted.
+    if p == 0:
+        p = len(_GO_OK_PKG_RE.findall(output))
     if _GO_FAIL_SUMMARY_RE.search(output) or _GO_BUILD_FAILED_RE.search(output):
         f = max(f, 1)
     return (p, f)
@@ -225,9 +269,14 @@ def _count_cargo(output: str) -> tuple[int, int]:
     carry the run to green (C1).
     """
     passed = fail = 0
-    for p, f in _CARGO_RESULT_RE.findall(output):
-        passed += int(p)
-        fail += int(f)
+    for line in output.splitlines():
+        if _CARGO_RESULT_TOKEN not in line or len(line) > _CARGO_LINE_MAX:
+            continue
+        p = _PASSED_RE.search(line)
+        f = _FAILED_RE.search(line)
+        if p is not None and f is not None:
+            passed += int(p.group(1))
+            fail += int(f.group(1))
     if _CARGO_ERROR_RE.search(output):
         fail = max(fail, 1)
     return (passed, fail)
@@ -245,11 +294,34 @@ def _count_jest(output: str) -> tuple[int, int]:
     if tests_line is None:
         return (0, 0)
     text = tests_line.group()
-    passed = _last_int(_PASSED_NUM_RE, text)
-    fail = _last_int(_FAILED_NUM_RE, text)
+    passed = _last_int(_PASSED_RE, text)
+    fail = _last_int(_FAILED_RE, text)
     suites_line = _JEST_SUITES_LINE_RE.search(output)
     if suites_line is not None:
-        fail += _last_int(_FAILED_NUM_RE, suites_line.group())
+        fail += _last_int(_FAILED_RE, suites_line.group())
+    return (passed, fail)
+
+
+def _count_vitest(output: str) -> tuple[int, int]:
+    """``(passed, fail)`` for vitest — gated on its space-separated ``Tests`` line.
+
+    Vitest's default reporter prints ``Tests  N passed (M)`` (and ``K failed`` on
+    failure) with NO colon, distinct from jest's ``Tests:`` — so this is a SEPARATE
+    counter, kept strictly 1:1 with the ``vitest`` resolver tag (RC-1: the tag was
+    positively identified upstream yet had no counter, so a ``vitest run`` repo was
+    silently un-verifiable). A failed test FILE (a broken import) can leave the
+    ``Tests`` line at ``0 failed`` while ``Test Files`` reads ``1 failed``; that
+    failed-file count joins ``fail`` so the run fails closed (mirrors jest suites).
+    """
+    tests_line = _VITEST_TESTS_LINE_RE.search(output)
+    if tests_line is None:
+        return (0, 0)
+    text = tests_line.group()
+    passed = _last_int(_PASSED_RE, text)
+    fail = _last_int(_FAILED_RE, text)
+    files_line = _VITEST_FILES_LINE_RE.search(output)
+    if files_line is not None:
+        fail += _last_int(_FAILED_RE, files_line.group())
     return (passed, fail)
 
 
@@ -302,6 +374,7 @@ _COUNTERS = {
     "go test": _count_go,
     "cargo test": _count_cargo,
     "jest": _count_jest,
+    "vitest": _count_vitest,
     "mocha": _count_mocha,
     "rspec": _count_rspec,
     "phpunit": _count_phpunit,

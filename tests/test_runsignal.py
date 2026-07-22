@@ -17,9 +17,10 @@ The rules under test (spec §2.1):
   * **Polyglot fold** — ``test_count = Σ passed``; ``collected := any tag
     passed>0 AND NO tag has fail_count>0`` (AND over tags, NEVER OR).
 """
+import time
 import unittest
 
-from scripts import runsignal
+from scripts import langfloor, runsignal
 
 
 # --- Real captured tool-output fixtures ------------------------------------
@@ -197,6 +198,32 @@ JEST_CLEAN = (
     "Time:        0.9s"
 )
 
+# vitest default reporter: SPACE-separated `Tests`/`Test Files` (no colon).
+VITEST_PASS = (
+    " Test Files  1 passed (1)\n"
+    "      Tests  5 passed (5)\n"
+    "   Start at  10:00:00\n"
+    "   Duration  1.00s\n"
+)
+# A vitest run with a failed test: the `Tests` line carries `1 failed | 4 passed`.
+VITEST_FAIL = (
+    " Test Files  1 failed (1)\n"
+    "      Tests  1 failed | 4 passed (5)\n"
+    "   Duration  1.10s\n"
+)
+# A vitest run whose test FILE fails to load (broken import): `Tests` reads
+# `0 failed` but `Test Files  1 failed` is the sole fail signal — must NOT pass.
+VITEST_FILE_FAILED = (
+    " Test Files  1 failed (1)\n"
+    "      Tests  0 passed (0)\n"
+)
+
+# Plain `go test ./...` (no -v/-json): only `ok <pkg> <t>` package-pass lines.
+GO_PLAIN_OK_PKGS = "ok  \texample/foo\t0.002s\nok  \texample/bar\t0.003s"
+# Plain `go test ./...` where one package builds-fails: an `ok` beside a bare
+# `FAIL … [build failed]` (no `--- PASS:`/`--- FAIL:`) — the FAIL must veto (COR-2).
+GO_PLAIN_OK_PLUS_BUILD_FAIL = "ok example/a\nFAIL example/b [build failed]"
+
 MOCHA_PASS = "  5 passing (20ms)"
 MOCHA_FAIL = "  4 passing (18ms)\n  1 failing"
 RSPEC_PASS = "Finished in 0.02 seconds\n5 examples, 0 failures"
@@ -314,6 +341,17 @@ class TestGo(unittest.TestCase):
         _, collected = runsignal.count(GO_PLAIN_BUILD_FAILED, ("go test",))
         self.assertFalse(collected)
 
+    def test_plain_ok_pkg_lines_count_as_passes(self):
+        # COR-2: plain `go test ./...` (no -v/-json) prints only `ok <pkg>` per
+        # green package; those must count so a green Go repo is not UNVERIFIED.
+        self.assertEqual(runsignal.count(GO_PLAIN_OK_PKGS, ("go test",)), (2, True))
+
+    def test_plain_ok_pkg_with_build_fail_vetoes(self):
+        # COR-2: an `ok` package beside a `FAIL … [build failed]` stays RED.
+        count, collected = runsignal.count(GO_PLAIN_OK_PLUS_BUILD_FAIL, ("go test",))
+        self.assertEqual(count, 1)
+        self.assertFalse(collected)
+
 
 class TestCargo(unittest.TestCase):
     def test_two_crate_sum_empty_last(self):
@@ -389,6 +427,79 @@ class TestPolyglotFold(unittest.TestCase):
         count, collected = runsignal.count(POLYGLOT_PYTEST_GO_PASS, ("pytest", "go test"))
         self.assertEqual(count, 8)  # 5 pytest + 3 go
         self.assertTrue(collected)
+
+
+class TestVitest(unittest.TestCase):
+    """RC-1: the `vitest` resolver tag now has a matching PASS-only counter."""
+
+    def test_pass(self):
+        self.assertEqual(runsignal.count(VITEST_PASS, ("vitest",)), (5, True))
+
+    def test_failed_test_is_not_collected(self):
+        count, collected = runsignal.count(VITEST_FAIL, ("vitest",))
+        self.assertEqual(count, 4)
+        self.assertFalse(collected)
+
+    def test_failed_test_file_masks_zero_failed_tests(self):
+        # `Test Files  1 failed` is the sole fail signal (Tests line reads 0).
+        _, collected = runsignal.count(VITEST_FILE_FAILED, ("vitest",))
+        self.assertFalse(collected)
+
+    def test_jest_summary_is_not_read_as_vitest(self):
+        # jest's `Tests:` colon form must NOT satisfy vitest's space-only marker.
+        self.assertEqual(runsignal.count(JEST_CLEAN, ("vitest",)), (0, False))
+
+
+class TestResolverCounterParity(unittest.TestCase):
+    """RC-1: resolver tags and runsignal counters are kept in STRICT 1:1."""
+
+    def test_every_resolvable_tag_has_a_counter_and_vice_versa(self):
+        resolver_tags = {tag for _pat, tag in langfloor._DIRECT_TAG_PATTERNS}
+        self.assertEqual(resolver_tags, set(runsignal._COUNTERS))
+
+
+class TestSharedTallyExtractors(unittest.TestCase):
+    """CQ-1: the duplicate `(\\d+) passed`/`(\\d+) failed` compiles are collapsed."""
+
+    def test_single_source_constants_exist_and_duplicates_are_gone(self):
+        self.assertTrue(hasattr(runsignal, "_PASSED_RE"))
+        self.assertTrue(hasattr(runsignal, "_FAILED_RE"))
+        # The former duplicate names must not reappear.
+        self.assertFalse(hasattr(runsignal, "_PY_PASSED_RE"))
+        self.assertFalse(hasattr(runsignal, "_PY_FAILED_RE"))
+        self.assertFalse(hasattr(runsignal, "_PASSED_NUM_RE"))
+        self.assertFalse(hasattr(runsignal, "_FAILED_NUM_RE"))
+
+
+class TestReDoSHardening(unittest.TestCase):
+    """SEC-1/SEC-2: hostile runner output must parse in linear time, not hang.
+
+    An untrusted repo's test can print an adversarial line to stdout that a
+    backtracking regex scans in seconds — a DoS inside the verify timeout. The
+    per-line linear recognizers must dispatch these in well under 0.5s.
+    """
+
+    _BUDGET_S = 0.5
+
+    def test_pytest_rule_redos_line_is_linear(self):
+        # `'='*3000 + 'x'`: the old `^=+.*=+\s*$` backtracks catastrophically.
+        hostile = "collected 1 items\n" + ("=" * 3000 + "x")
+        start = time.perf_counter()
+        result = runsignal.count(hostile, ("pytest",))
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"pytest ReDoS: {elapsed:.3f}s")
+        # The line is NOT a `=+…=+` rule (ends in `x`) → not a fabricated pass.
+        self.assertEqual(result, (0, False))
+
+    def test_cargo_result_redos_line_is_linear(self):
+        # `'test result: ' + '1 passed '*10000` (no `failed`): the old two lazy
+        # `[^\n]*?` scanners backtrack quadratically hunting a `failed` that
+        # never comes.
+        hostile = "test result: " + "1 passed " * 10000
+        start = time.perf_counter()
+        runsignal.count(hostile, ("cargo test",))
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"cargo ReDoS: {elapsed:.3f}s")
 
 
 class TestDegradeToUnverified(unittest.TestCase):

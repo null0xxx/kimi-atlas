@@ -86,6 +86,26 @@ _DIRECT_TAG_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bphpunit\b"), "phpunit"),
 )
 
+# Runner-shaped invocations we have NO runsignal counter for. Their presence in
+# a resolved command/recipe means we cannot faithfully judge the run, so the
+# WHOLE thing is treated as UNRESOLVED (``()``) rather than trusting the
+# recognized subset — a ``pytest\n./gradlew test || true`` recipe must NOT
+# fabricate a pass off the recognized ``pytest`` while gradle's ``|| true``-masked
+# failure stays invisible to us (COR-1, the cardinal sin).
+_UNSUPPORTED_RUNNER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bgradlew?\b"),      # ./gradlew, gradle
+    re.compile(r"\bmvn\b"),           # maven
+    re.compile(r"\bdotnet\b"),        # dotnet test
+    re.compile(r"\bant\b"),           # apache ant
+    re.compile(r"\bbazel\b"),         # bazel test
+    re.compile(r"\bsbt\b"),           # scala build tool
+)
+# A residual ``<word> test`` sub-invocation (e.g. ``gradle test``, ``dotnet
+# test``) left over AFTER the known ``go test``/``cargo test`` spans are blanked
+# out. ``test`` must be a standalone argument (a following space / end / command
+# separator), so ``bash test.sh`` or ``pytest tests/`` does NOT trip it.
+_RESIDUAL_TEST_SUBCMD_RE = re.compile(r"\S+[ \t]+test(?=[ \t]|$|[;&|)])")
+
 # Wrapper commands whose real runner lives in an on-disk recipe (the only I/O).
 _MAKE_TEST_RE = re.compile(r"\bmake\s+test\b")
 _NPM_TEST_RE = re.compile(r"\bnpm\s+(?:run\s+)?test\b")
@@ -115,6 +135,25 @@ def _is_pruned_dir(name: str) -> bool:
     return name.startswith(".") or name in _PYTEST_PRUNE_DIRS
 
 
+def _has_unsupported_runner(cmd: str) -> bool:
+    """True iff ``cmd`` invokes a runner we cannot count (→ UNRESOLVED, COR-1).
+
+    Every KNOWN runner-tag span is blanked first so a supported ``go test`` /
+    ``cargo test`` is never mistaken for a residual ``<word> test``; the remainder
+    is scanned for an unsupported build tool (gradle/mvn/dotnet/ant/bazel/sbt) or
+    any leftover ``<word> test`` sub-invocation. A single un-countable runner in
+    the recipe makes the whole recipe unresolved rather than trusting the
+    recognized subset — which would fabricate a pass when the unknown runner's
+    failure is exit-masked (``|| true``). Pure over ``cmd``.
+    """
+    residue = cmd
+    for pattern, _tag in _DIRECT_TAG_PATTERNS:
+        residue = pattern.sub(" ", residue)
+    if any(pattern.search(residue) for pattern in _UNSUPPORTED_RUNNER_PATTERNS):
+        return True
+    return _RESIDUAL_TEST_SUBCMD_RE.search(residue) is not None
+
+
 def _tags_from_command(cmd: str) -> tuple[str, ...]:
     """Return the ordered, deduped runner tags directly present in ``cmd`` (pure).
 
@@ -122,6 +161,11 @@ def _tags_from_command(cmd: str) -> tuple[str, ...]:
     first-appearance position so a polyglot line (``pytest && go test ./...``)
     yields ``("pytest", "go test")``. No I/O and no wrapper expansion — this is
     the bounded leaf that a Makefile/npm recipe is fed into.
+
+    Fail-CLOSED on a mixed recipe: if a residual runner we have NO counter for
+    (``./gradlew test``, ``dotnet test``, …) survives beside the recognized tags,
+    the WHOLE command is unresolved (``()``) so the recognized subset cannot
+    fabricate a pass while the unknown runner's masked failure hides (COR-1).
     """
     if not cmd:
         return ()
@@ -135,6 +179,8 @@ def _tags_from_command(cmd: str) -> tuple[str, ...]:
     for _, tag in hits:
         if tag not in ordered:
             ordered.append(tag)
+    if _has_unsupported_runner(cmd):
+        return ()
     return tuple(ordered)
 
 

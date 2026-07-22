@@ -182,6 +182,25 @@ class TestResolveRunnerTagDirect(unittest.TestCase):
         self.assertEqual(langfloor.resolve_runner_tag("mocha", "."), ("mocha",))
         self.assertEqual(langfloor.resolve_runner_tag("phpunit", "."), ("phpunit",))
 
+    def test_pure_supported_polyglot_still_resolves(self):
+        # COR-1 guard (no over-reach): an all-SUPPORTED polyglot — `go test` is a
+        # known tag, not a residual `<word> test` — must still resolve to both.
+        self.assertEqual(
+            langfloor.resolve_runner_tag("pytest && go test -json ./...", "."),
+            ("pytest", "go test"),
+        )
+
+    def test_supported_runner_beside_shell_script_arg_still_resolves(self):
+        # `bash test.sh` is a shell SCRIPT, not a `<word> test` subcommand — the
+        # residual detector must not trip on it and drop the real pytest tag.
+        self.assertEqual(
+            langfloor.resolve_runner_tag("pytest && bash test.sh", "."), ("pytest",)
+        )
+
+    def test_unsupported_runner_alone_is_empty(self):
+        # A bare unsupported runner resolves to () just as an unknown token does.
+        self.assertEqual(langfloor.resolve_runner_tag("./gradlew test", "."), ())
+
     def test_unknown_runner_is_empty(self):
         self.assertEqual(langfloor.resolve_runner_tag("tox", "."), ())
 
@@ -227,6 +246,25 @@ class TestResolveRunnerTagWrapper(unittest.TestCase):
     def test_make_test_unrecognized_recipe_is_empty(self):
         with tempfile.TemporaryDirectory() as d:
             _write(Path(d), "Makefile", "test:\n\ttox -e py312\n")
+            self.assertEqual(langfloor.resolve_runner_tag("make test", d), ())
+
+    def test_make_test_recipe_with_residual_gradle_is_unresolved(self):
+        # COR-1 (cardinal sin): a recipe that runs `pytest` AND an uncountable
+        # `./gradlew test` must NOT resolve to the recognized `('pytest',)` subset
+        # — gradle's `|| true`-masked failure is invisible, so a green pytest would
+        # fabricate a pass. The whole recipe is UNRESOLVED (() → UNVERIFIED).
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\tpytest\n\t./gradlew test || true\n")
+            self.assertEqual(langfloor.resolve_runner_tag("make test", d), ())
+
+    def test_make_test_recipe_with_bare_gradle_is_unresolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\tpytest && gradle check\n")
+            self.assertEqual(langfloor.resolve_runner_tag("make test", d), ())
+
+    def test_make_test_recipe_with_dotnet_test_is_unresolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\tdotnet test\n")
             self.assertEqual(langfloor.resolve_runner_tag("make test", d), ())
 
     def test_npm_test_script_jest(self):

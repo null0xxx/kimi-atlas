@@ -172,6 +172,26 @@ class TestDiscoverVerifyCmd(unittest.TestCase):
         self.assertTrue(runcheck._makefile_has_test_target("test :\n\techo hi\n"))
         self.assertFalse(runcheck._makefile_has_test_target("build:\n\techo hi\n"))
 
+    def test_makefile_read_oserror_degrades_to_next_probe(self):
+        # CQ-2: a Makefile that stats OK but raises on read (TOCTOU / permission)
+        # must degrade to the next probe via the fail-safe reader, NOT crash
+        # discover with an uncaught OSError.
+        (self.root / "Makefile").write_text("test:\n\tpytest\n", encoding="utf-8")
+        (self.root / "package.json").write_text("{}", encoding="utf-8")
+        orig_read_text = Path.read_text
+
+        def boom(path_self, *args, **kwargs):
+            if path_self.name == "Makefile":
+                raise PermissionError("simulated unreadable Makefile")
+            return orig_read_text(path_self, *args, **kwargs)
+
+        Path.read_text = boom
+        try:
+            cmd = runcheck.discover_verify_cmd("", str(self.root))
+        finally:
+            Path.read_text = orig_read_text
+        self.assertEqual(cmd, "npm test")
+
 
 class TestWrapCommand(unittest.TestCase):
     """Legacy ulimit-based wrapper shim (kept for back-compat callers)."""

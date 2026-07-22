@@ -102,10 +102,12 @@ def discover_verify_cmd(explicit_cmd: str, cwd: str) -> str:
     if explicit_cmd and explicit_cmd.strip():
         return explicit_cmd.strip()
     root = pathlib.Path(cwd)
-    makefile = root / "Makefile"
-    if makefile.is_file() and _makefile_has_test_target(
-        makefile.read_text(encoding="utf-8", errors="replace")
-    ):
+    # Fail-safe read (TOCTOU / permission): a Makefile that vanishes or becomes
+    # unreadable between the stat and the read must degrade to the next probe,
+    # never crash discover with an uncaught OSError (CQ-2). Reuse langfloor's one
+    # safe reader so the read discipline lives in a single place.
+    makefile_text = langfloor._safe_read(root / "Makefile")
+    if makefile_text is not None and _makefile_has_test_target(makefile_text):
         return "make test"
     if (root / "package.json").is_file():
         return "npm test"
