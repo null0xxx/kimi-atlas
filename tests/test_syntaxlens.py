@@ -58,6 +58,25 @@ class TestConfigParse(unittest.TestCase):
         bom_config = "﻿" + json.dumps({"name": "x"})
         self.assertEqual(syntaxlens.check({"package.json": bom_config}, cwd="."), [])
 
+    def test_bom_prefixed_valid_toml_BLOCKS_deliberate_json_vs_toml_asymmetry(self):
+        # The JSON-vs-TOML BOM decision, pinned as an EXPLICIT, GUARDED asymmetry.
+        #   * JSON: npm/node STRIP a leading BOM and accept the file, so a BOM'd valid
+        #     package.json must NOT false-block -> _loads_json_bom strips it (asserted above).
+        #   * TOML: cargo and tomllib REJECT a BOM'd document (cargo issue #2031: a BOM'd
+        #     Cargo.toml "could not parse input as TOML"; tomllib raises TOMLDecodeError),
+        #     so the build genuinely cannot read it -> BLOCKING is correct, NOT a false-block.
+        # _config_defect deliberately does NOT strip the BOM on the TOML branch, so a
+        # BOM-prefixed valid pyproject.toml surfaces a HIGH DOES-IT-RUN defect. This test
+        # pins that intended decision so the asymmetry can't silently flip either way.
+        valid_toml = "[tool.poetry]\nname = \"x\"\n"
+        # Control: the SAME TOML WITHOUT a BOM is valid and must NOT block.
+        self.assertEqual(syntaxlens.check({"pyproject.toml": valid_toml}, cwd="."), [])
+        # With a leading BOM it BLOCKS (matches cargo/tomllib; the build can't parse it).
+        d = syntaxlens.check({"pyproject.toml": "﻿" + valid_toml}, cwd=".")
+        self.assertTrue(_blocking(d))
+        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+        self.assertEqual(d[0]["severity"], "HIGH")
+
     def test_same_named_broken_configs_report_distinct_locations(self):
         # Two same-named broken configs in different dirs must yield two defects with
         # distinct real-path locations (not the bare basename). Ids are now per-file

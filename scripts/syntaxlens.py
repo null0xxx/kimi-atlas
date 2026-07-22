@@ -197,7 +197,9 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
         for job, result in zip(source_jobs, results):
             if result.get("signature_matched"):
                 rel = job["rel"]
-                src_ext = os.path.splitext(os.path.basename(rel))[1].lower().lstrip(".")
+                # job["ext"] already holds os.path.splitext(basename)[1].lower();
+                # reuse it instead of recomputing (byte-identical, behavior unchanged).
+                src_ext = job["ext"].lstrip(".")
                 tool = (job["argv"] or [""])[0]
                 defects.append(_d(
                     f"syntax-{src_ext}", _DOES_IT_RUN, "HIGH", rel,

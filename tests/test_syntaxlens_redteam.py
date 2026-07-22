@@ -122,6 +122,25 @@ class TestHermeticEnvIsReallyApplied(unittest.TestCase):
             self.assertNotIn(key, captured["env"])
 
 
+class TestSourcePathNeverFalseBlocks(unittest.TestCase):
+    """Tool-INDEPENDENT proof the source path never false-blocks a valid file (Fix #1).
+
+    The per-tool valid-source controls (``ok.sh``/``ok.php`` above, ``ok.rb`` below)
+    only RUN when their tool is present, so on a host missing ruby/gofmt the source
+    ``if result.get("signature_matched")`` guard could be broken by an always-emit
+    mutation (``if True or result.get("signature_matched")``) and still ship green.
+    This pins that guard on EVERY host: ``nativefloor.run`` is mocked to return a
+    ``signature_matched=False`` result for a dispatched ``.rb`` job, and ``check`` must
+    emit ``[]`` — no real binary required. Under the always-emit mutation this FAILS."""
+
+    def test_non_matching_result_yields_no_defect_without_any_tool(self):
+        fake = [{"ran": True, "signature_matched": False, "timed_out": False}]
+        with mock.patch.object(nativefloor, "run", return_value=fake) as run_mock:
+            out = syntaxlens.check({"clean.rb": "x = 1\n"}, ".")
+        run_mock.assert_called_once()   # the source path WAS exercised (non-vacuous)
+        self.assertEqual(out, [])        # a non-matching source result is never a defect
+
+
 # NOTE: a `TestNodeEndToEnd` class was REMOVED here. It exercised
 # `syntaxlens.check` on `.js` inputs (non-execution sentinel, NODE_OPTIONS leak,
 # broken-js teeth), but JS was dropped from the syntax floor — `node --check`
@@ -146,10 +165,13 @@ class TestBashEndToEnd(unittest.TestCase):
     # by TestHermeticEnvIsReallyApplied.test_launch_receives_exactly_the_hermetic_env
     # (spies the `env=`) + the NODE_OPTIONS test above.
 
-    def test_broken_sh_has_teeth(self):
-        d = syntaxlens.check({"bad.sh": "if [ 1 -eq 1 ]; then\n"}, ".")
-        self.assertTrue(_blocking(d))
-        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+    def test_valid_sh_is_never_a_defect(self):
+        # NEVER-FALSE-BLOCK control (Fix #1). A VALID dispatched source file must yield NO
+        # defect on THIS host — the mirror image of the "has teeth" arm. Without a control
+        # that RUNS on this host, an always-emit mutation (`if True or signature_matched`)
+        # ships green (the only such control, ok.rb, is ruby-skipped here). `bash -n` on a
+        # valid script exits 0 -> no signature match -> [].
+        self.assertEqual(syntaxlens.check({"ok.sh": "echo hi\n"}, "."), [])
 
 
 @unittest.skipUnless(shutil.which("php"), "php not installed")
@@ -167,10 +189,10 @@ class TestPhpEndToEnd(unittest.TestCase):
     # invariant (§3) is proven non-vacuously by
     # TestHermeticEnvIsReallyApplied.test_launch_receives_exactly_the_hermetic_env.
 
-    def test_broken_php_has_teeth(self):
-        d = syntaxlens.check({"bad.php": "<?php $x = ;\n"}, ".")
-        self.assertTrue(_blocking(d))
-        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+    def test_valid_php_is_never_a_defect(self):
+        # NEVER-FALSE-BLOCK control (Fix #1), php variant — see TestBashEndToEnd. `php -l`
+        # on valid source prints "No syntax errors detected" and exits 0 -> no match -> [].
+        self.assertEqual(syntaxlens.check({"ok.php": "<?php $x=1;\n"}, "."), [])
 
 
 @unittest.skipUnless(shutil.which("ruby"), "ruby not installed")

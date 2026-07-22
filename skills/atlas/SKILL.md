@@ -392,7 +392,7 @@ Then branch on the run mode:
 
 ### VERIFIED  — the full 6-lens verification harness
 The 6 named lenses are scored here (rubric `${KIMI_SKILL_DIR}/../../references/rubric.md`): **3 fully-/advisory-deterministic
-lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck` **+ `astlens.lint` Python syntax/parse floor + `syntaxlens.check` universal syntax floor** for non-Python source (JS/Ruby/PHP/Go/shell + strict config), hermetic/argv-only/parse-ONLY; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
+lenses** run at root `Bash` (5 DOES-IT-RUN = `runcheck` **+ `astlens.lint` Python syntax/parse floor + `syntaxlens.check` universal syntax floor** for non-Python source (Ruby/PHP/Go/shell + strict JSON/TOML config), hermetic/argv-only/parse-ONLY; 4 TEST-ADEQUACY = `quality.lint_deliverable`;
 6 REQUIREMENTS-COVERAGE = `reqcoverage.coverage`; plus `pathcheck.cross_check` grounding), and **3
 judgment lenses** run as isolated `Agent(subagent_type="plan")` critics (1 CORRECTNESS, 2
 CODE-QUALITY, 3 SECURITY). `verdict.merge` normalizes the 3 critic JSONs + the deterministic
@@ -490,12 +490,15 @@ lint_defects = quality.lint_deliverable(changed_files, test_files, config)
 astlens_defects = astlens.lint(changed_files)
 
 # Lens 5c DOES-IT-RUN — the universal SYNTAX floor for NON-Python source (astlens's non-.py peer):
-# syntaxlens.check runs each changed .js/.mjs/.cjs/.rb/.php/.go/.sh/.bash file through a hermetic,
-# argv-only, parse-ONLY native checker (node --check / ruby -cw / php -l / gofmt -e / bash -n via
-# nativefloor) and parses STRICT config (package.json / *.toml lock) in-process. A confirmed syntax
-# error is a HIGH DOES-IT-RUN defect (blocking). FAIL-OPEN: a tool that is absent/errors/times out is
-# a no-op (never a defect); .jsx/.ts/.tsx and non-strict .json/.toml are advisory-only (never blocked).
-# cwd=review_root is used ONLY to resolve node's nearest-package.json ESM/CJS mode.
+# syntaxlens.check dispatches each changed .rb/.php/.go/.sh/.bash file through a hermetic, argv-only,
+# parse-ONLY native checker (ruby -cw / php -l / gofmt -e / bash -n via nativefloor) and parses STRICT
+# config (package.json / composer.json / *.lock / pyproject.toml / Cargo.toml) in-process. A confirmed
+# syntax error is a HIGH DOES-IT-RUN defect (blocking). FAIL-OPEN: a tool that is absent/errors/times
+# out is a no-op (never a defect); non-strict .json/.toml (tsconfig.json / opaque *.lock / data) are
+# advisory-only (never blocked). JS (.js/.mjs/.cjs) and .jsx/.ts/.tsx are NOT dispatched — node --check
+# cannot distinguish valid JSX/Flow from invalid JS, so it would false-block valid React/Flow .js; JS is
+# verified via the run-signal floor instead. cwd=review_root is currently UNUSED by syntaxlens.check
+# (node's nearest-package.json ESM/CJS resolution was removed with JS) but is kept for call-site stability.
 syntaxlens_defects = syntaxlens.check(changed_files, review_root)
 
 # Lens 6 REQUIREMENTS-COVERAGE — FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
@@ -599,8 +602,8 @@ script_defects += ev.get("sast_defects", [])
 # for older evidence files via .get. This is a syntax/parse floor, never a type-check.
 script_defects += ev.get("astlens_defects", [])
 # Universal SYNTAX floor for non-Python source (syntaxlens, Lens 5c). A confirmed native
-# parse error (node --check / ruby -cw / php -l / gofmt -e / bash -n, hermetic + argv-only) or a
-# broken STRICT config is a HIGH DOES-IT-RUN defect, so merging it here makes it BLOCKING for
+# parse error (ruby -cw / php -l / gofmt -e / bash -n, hermetic + argv-only; JS is NOT dispatched)
+# or a broken STRICT config is a HIGH DOES-IT-RUN defect, so merging it here makes it BLOCKING for
 # gate()/should_refine() exactly like astlens. Fail-open + fail-safe: [] when the tool is absent,
 # and .get tolerates an older evidence file with no syntaxlens_defects key.
 script_defects += ev.get("syntaxlens_defects", [])

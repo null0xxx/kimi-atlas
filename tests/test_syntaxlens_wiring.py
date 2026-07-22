@@ -103,6 +103,20 @@ class TestSkillWiringPin(unittest.TestCase):
         text = _SKILL.read_text(encoding="utf-8")
         self.assertIn("syntaxlens.check", text)
 
+    def test_skill_does_not_claim_node_js_is_syntax_checked(self):
+        # Doc-sync pin (R5): JS was dropped from the syntax floor because `node --check`
+        # false-blocks valid JSX/Flow inside .js. The SKILL prose must NOT claim node/.js
+        # is syntax-checked (it drifted before — the R4 node-removal missed SKILL.md), and
+        # the dispatched-ext prose must list the real ruby/php/go/bash set. This catches the
+        # drift next time WITHOUT reintroducing the false claim.
+        text = _SKILL.read_text(encoding="utf-8")
+        # The drift signature is node listed AS a parse checker in the `/`-delimited
+        # checker list (`node --check / ruby -cw / ...`); an explanatory mention of WHY
+        # node is NOT used is allowed, so this targets the list form, not any occurrence.
+        self.assertNotRegex(text, r"node --check\s*/")             # node not listed among the parse checkers
+        self.assertNotRegex(text, r"\.js/\.mjs/\.cjs/\.rb")        # the stale dispatched-ext string is gone
+        self.assertRegex(text, r"\.rb/\.php/\.go/\.sh/\.bash")     # the real dispatched-ext set is named
+
 
 if __name__ == "__main__":
     unittest.main()
