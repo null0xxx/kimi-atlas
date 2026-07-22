@@ -16,6 +16,7 @@ no ``SYNTAX_ARGV`` entry and is never dispatched — proven below with no node.
 """
 import json
 import unittest
+from unittest import mock
 
 from scripts import syntaxlens
 
@@ -105,6 +106,20 @@ class TestConfigParse(unittest.TestCase):
         deep = "[" * 100000 + "]" * 100000
         self.assertLess(len(deep.encode("utf-8")), syntaxlens._CONFIG_MAX_BYTES)
         d = syntaxlens.check({"package.json": deep}, cwd=".")   # must NOT raise
+        self.assertTrue(_blocking(d))
+        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+        self.assertEqual(d[0]["severity"], "HIGH")
+
+    def test_memoryerror_parse_is_graceful_defect_not_raise(self):
+        # The MemoryError arm of _config_defect's `except (ValueError, RecursionError,
+        # MemoryError)` guard (docstring claims all three) is otherwise untested — only
+        # ValueError + RecursionError have proofs, so narrowing the guard to drop
+        # MemoryError would ship green. A MemoryError from the underlying parse (a
+        # genuinely possible outcome on a pathological under-cap config) must degrade to
+        # a GRACEFUL HIGH DOES-IT-RUN defect, NOT propagate and abort the VERIFIED lens.
+        # Patch the shared JSON entry point to raise it; check() must NOT raise.
+        with mock.patch.object(syntaxlens, "_loads_json_bom", side_effect=MemoryError("boom")):
+            d = syntaxlens.check({"package.json": '{"name": "x"}'}, cwd=".")   # must NOT raise
         self.assertTrue(_blocking(d))
         self.assertEqual(d[0]["category"], "DOES-IT-RUN")
         self.assertEqual(d[0]["severity"], "HIGH")

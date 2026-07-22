@@ -17,11 +17,36 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
 from scripts import nativefloor, proccap, langfloor
+
+
+def _certify_payload_is_live(interp_argv: list, src: str, ext: str, sentinel: str) -> None:
+    """SELF-CERTIFY a non-execution sentinel payload has TEETH, then clear it.
+
+    Asserting only ``not os.path.exists(sentinel)`` AFTER the parse-only floor run
+    is VACUOUS: a subtly-broken payload (wrong path, a syntax error preventing the
+    write) would leave the sentinel absent for the wrong reason and pass silently,
+    gutting the parse-only guarantee's proof. So FIRST run ``src`` under the REAL
+    interpreter (``interp_argv`` + the written script) in a scratch dir and assert
+    the sentinel IS created — proving the payload would actually fire if executed —
+    then remove it so the caller's subsequent parse-only run proves NON-execution
+    non-vacuously. Raises AssertionError if the payload is inert."""
+    with tempfile.TemporaryDirectory() as scratch:
+        script = os.path.join(scratch, "payload" + ext)
+        with open(script, "w") as fh:
+            fh.write(src)
+        subprocess.run([*interp_argv, script], cwd=scratch, capture_output=True, timeout=30)
+    if not os.path.exists(sentinel):
+        raise AssertionError(
+            "sentinel payload is INERT under direct execution; the non-execution "
+            "proof would be vacuous — fix the payload before trusting the parse-only assert"
+        )
+    os.remove(sentinel)
 
 
 def _write_stub(d: str, exit_code: int, echo_args: bool, fixed_msg: str = "") -> str:
@@ -248,6 +273,23 @@ class TestEmptyAndOversizeSkip(unittest.TestCase):
         self.assertFalse(res["ran"])
         self.assertEqual(res["skipped_reason"], "oversize")
 
+    def test_encoded_multibyte_oversize_bites_where_charcount_would_not(self):
+        # The SECOND, byte-exact guard (`len(encoded) > max_source_bytes`, after the
+        # UTF-8 encode) must bite for a string whose CHAR count is under the bound but
+        # whose BYTE count is over it. Every other oversize test uses ASCII where
+        # char-count == byte-count, so this is the only proof the encode-then-measure
+        # path differs from a naive `len(text)` check. '✓' (U+2713) is 3 bytes in
+        # UTF-8: 5 chars = 5 <= 10 (would PASS a char-count check) but 15 bytes > 10.
+        text = "✓" * 5
+        self.assertLessEqual(len(text), 10)                       # a char-count check would NOT trip
+        self.assertGreater(len(text.encode("utf-8")), 10)         # but the byte count exceeds the bound
+        [res] = nativefloor.run(
+            [{"rel": "multi.rb", "text": text, "argv": ["ruby", "-cw"], "ext": ".rb"}],
+            max_source_bytes=10,
+        )
+        self.assertFalse(res["ran"])
+        self.assertEqual(res["skipped_reason"], "oversize")       # byte-exact guard bit
+
     def test_empty_and_oversize_do_not_consume_budget(self):
         # Neither an empty nor an oversize job is a real launch, so with a REAL job
         # after them, file_budget=1 still lets the real job run (the no-ops did not
@@ -311,6 +353,38 @@ class TestFailOpen(unittest.TestCase):
         self.assertEqual(results[0]["skipped_reason"], "launch-failed")
         self.assertEqual(results[0]["rel"], "a.rb")
 
+    def test_non_list_argv_is_failopen_and_does_not_raise(self):
+        # A job whose ``argv`` is a TRUTHY non-list (int/dict/float/bool) must NOT
+        # raise out of run() at the pre-loop ``argv[0]`` read — which sits OUTSIDE
+        # _run_one's per-job guard (``5 or []`` -> ``5`` -> ``5[0]`` -> TypeError
+        # would abort the whole batch, violating "run NEVER raises"). Each degrades
+        # to a fail-open launch-failed result and the batch continues (§4). Without
+        # the isinstance coercion in run() this test RAISES.
+        for bad_argv in (5, {"k": "v"}, 3.2, True):
+            with self.subTest(argv=bad_argv):
+                jobs = [{"rel": "x.rb", "text": "y", "argv": bad_argv, "ext": ".rb"}]
+                results = nativefloor.run(jobs)  # must NOT raise
+                self.assertEqual(len(results), 1)
+                self.assertFalse(results[0]["ran"])
+                self.assertEqual(results[0]["skipped_reason"], "launch-failed")
+                self.assertEqual(results[0]["rel"], "x.rb")   # best-effort identity kept
+
+    def test_non_list_argv_does_not_abort_a_wellformed_job(self):
+        # A malformed non-list-argv job must not prevent a well-formed job later in
+        # the SAME batch from processing (the batch continues past the bad job).
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [
+                {"rel": "bad.rb", "text": "y", "argv": {"k": "v"}, "ext": ".rb"},   # non-list argv
+                {"rel": "ok.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"},  # well-formed
+            ]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs)  # must NOT raise on the non-list argv
+        self.assertEqual(len(results), 2)
+        self.assertFalse(results[0]["ran"])
+        self.assertEqual(results[0]["skipped_reason"], "launch-failed")
+        self.assertTrue(results[1]["ran"])   # batch continued past the bad job
+
 
 class TestSignatureTokenStrength(unittest.TestCase):
     """Minor #2: the bare fallback stem ("input") is too weak to gate a defect on."""
@@ -368,13 +442,17 @@ class TestNodeLive(unittest.TestCase):
         self.assertTrue(res["signature_matched"])
 
     def test_non_execution_no_side_effect(self):
-        # Sentinel is an ABSOLUTE path OUTSIDE any materialized tempdir. If --check EXECUTED the
-        # file it would create the sentinel; parse-only must NOT. (Mandate for bash/php/ruby too.)
+        # SELF-CERTIFYING (the headline parse-only proof). Sentinel is an ABSOLUTE path
+        # OUTSIDE any materialized tempdir. FIRST prove the payload has teeth: `node
+        # eval.js` (real execution) MUST create the sentinel; then run the SAME source
+        # through the floor and prove `node --check` (parse-only) does NOT. Asserting
+        # only "sentinel absent" after the floor would pass VACUOUSLY for an inert payload.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = "require('fs').writeFileSync(%r, 'x');\n" % sentinel
+            _certify_payload_is_live(["node"], src, ".js", sentinel)   # teeth: direct run writes it
             nativefloor.run([{"rel": "eval.js", "text": src, "argv": ["node", "--check"], "ext": ".js"}])
-            self.assertFalse(os.path.exists(sentinel))   # code never ran
+            self.assertFalse(os.path.exists(sentinel))   # parse-only --check never ran the write
 
     def test_node_options_env_has_no_effect(self):
         os.environ["NODE_OPTIONS"] = "--require /nonexistent/evil.js"
@@ -399,12 +477,15 @@ class TestBashLive(unittest.TestCase):
         self.assertTrue(res["signature_matched"])
 
     def test_non_execution_no_side_effect(self):
-        # A `.sh` that would `touch` an ABSOLUTE sentinel OUTSIDE the tempdir. `bash -n` parses only.
+        # SELF-CERTIFYING. A `.sh` that would `touch` an ABSOLUTE sentinel OUTSIDE the
+        # tempdir. FIRST prove teeth: `bash evil.sh` (plain execution) runs the touch
+        # and creates the sentinel; then `bash -n` (parse-only) must NOT.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = "touch %s\n" % sentinel
+            _certify_payload_is_live(["bash"], src, ".sh", sentinel)   # `bash evil.sh` runs the touch
             nativefloor.run([{"rel": "evil.sh", "text": src, "argv": ["bash", "-n"], "ext": ".sh"}])
-            self.assertFalse(os.path.exists(sentinel))   # -n never ran the touch
+            self.assertFalse(os.path.exists(sentinel))   # `bash -n` parsed only, never ran the touch
 
 
 @unittest.skipUnless(shutil.which("php"), "php not installed")
@@ -420,12 +501,15 @@ class TestPhpLive(unittest.TestCase):
         self.assertTrue(res["signature_matched"])
 
     def test_non_execution_no_side_effect(self):
-        # `<?php file_put_contents(...)` targeting an ABSOLUTE sentinel OUTSIDE the tempdir. `php -l` lints only.
+        # SELF-CERTIFYING. `<?php file_put_contents(...)` targeting an ABSOLUTE sentinel
+        # OUTSIDE the tempdir. FIRST prove teeth: `php evil.php` (plain execution) runs
+        # the write and creates the sentinel; then `php -l` (lint-only) must NOT.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = "<?php file_put_contents(%r, 'x');\n" % sentinel
+            _certify_payload_is_live(["php"], src, ".php", sentinel)   # `php evil.php` runs the write
             nativefloor.run([{"rel": "evil.php", "text": src, "argv": ["php", "-l"], "ext": ".php"}])
-            self.assertFalse(os.path.exists(sentinel))   # -l never ran the write
+            self.assertFalse(os.path.exists(sentinel))   # `php -l` linted only, never ran the write
 
 
 if __name__ == "__main__":

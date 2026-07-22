@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -39,6 +40,30 @@ from scripts import langfloor, nativefloor, proccap, syntaxlens
 
 def _blocking(defects):
     return [d for d in defects if d["severity"] in ("HIGH", "CRITICAL")]
+
+
+def _certify_payload_is_live(interp_argv: list, src: str, ext: str, sentinel: str) -> None:
+    """SELF-CERTIFY a non-execution sentinel payload has TEETH, then clear it.
+
+    Asserting only ``not os.path.exists(sentinel)`` AFTER ``syntaxlens.check`` is
+    VACUOUS: a subtly-broken payload (wrong path, a syntax error preventing even the
+    write) would leave the sentinel absent for the wrong reason and pass silently,
+    gutting this headline parse-only proof. So FIRST run ``src`` under the REAL
+    interpreter (``interp_argv`` + the written script) in a scratch dir and assert the
+    sentinel IS created — proving the payload would fire if executed — then remove it
+    so the caller's ``syntaxlens.check`` (parse-only) proves NON-execution
+    non-vacuously. Raises AssertionError if the payload is inert."""
+    with tempfile.TemporaryDirectory() as scratch:
+        script = os.path.join(scratch, "payload" + ext)
+        with open(script, "w") as fh:
+            fh.write(src)
+        subprocess.run([*interp_argv, script], cwd=scratch, capture_output=True, timeout=30)
+    if not os.path.exists(sentinel):
+        raise AssertionError(
+            "sentinel payload is INERT under direct execution; the non-execution "
+            "proof would be vacuous — fix the payload before trusting the parse-only assert"
+        )
+    os.remove(sentinel)
 
 
 class TestParseOnlyArgvPins(unittest.TestCase):
@@ -154,9 +179,14 @@ class TestSourcePathNeverFalseBlocks(unittest.TestCase):
 @unittest.skipUnless(shutil.which("bash"), "bash not installed")
 class TestBashEndToEnd(unittest.TestCase):
     def test_non_execution_sentinel(self):
+        # SELF-CERTIFYING end-to-end through the real consumer. FIRST prove teeth:
+        # `bash evil.sh` (plain execution) runs the touch and creates the sentinel;
+        # then `syntaxlens.check` (which dispatches `bash -n`) must NOT.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
-            syntaxlens.check({"evil.sh": "touch %s\n" % sentinel}, outside)
+            src = "touch %s\n" % sentinel
+            _certify_payload_is_live(["bash"], src, ".sh", sentinel)   # `bash evil.sh` runs the touch
+            syntaxlens.check({"evil.sh": src}, outside)
             self.assertFalse(os.path.exists(sentinel))  # bash -n parsed, never ran the touch
 
     # NOTE: a `test_bash_env_hook_does_not_leak` was DELETED here — it was vacuous
@@ -177,9 +207,13 @@ class TestBashEndToEnd(unittest.TestCase):
 @unittest.skipUnless(shutil.which("php"), "php not installed")
 class TestPhpEndToEnd(unittest.TestCase):
     def test_non_execution_sentinel(self):
+        # SELF-CERTIFYING. FIRST prove teeth: `php evil.php` (plain execution) runs the
+        # write and creates the sentinel; then `syntaxlens.check` (which dispatches
+        # `php -l`) must NOT.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = "<?php file_put_contents(%r, 'x');\n" % sentinel
+            _certify_payload_is_live(["php"], src, ".php", sentinel)   # `php evil.php` runs the write
             syntaxlens.check({"evil.php": src}, outside)
             self.assertFalse(os.path.exists(sentinel))  # php -l linted, never ran the write
 
@@ -198,9 +232,13 @@ class TestPhpEndToEnd(unittest.TestCase):
 @unittest.skipUnless(shutil.which("ruby"), "ruby not installed")
 class TestRubyEndToEnd(unittest.TestCase):
     def test_non_execution_sentinel(self):
+        # SELF-CERTIFYING. FIRST prove teeth: `ruby evil.rb` (plain execution) runs the
+        # write and creates the sentinel; then `syntaxlens.check` (which dispatches
+        # `ruby -cw`, a SYNTAX CHECK) must NOT.
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = "File.write(%r, 'x')\n" % sentinel
+            _certify_payload_is_live(["ruby"], src, ".rb", sentinel)   # `ruby evil.rb` runs the write
             syntaxlens.check({"evil.rb": src}, outside)
             self.assertFalse(os.path.exists(sentinel))  # ruby -cw checked, never ran the write
 
@@ -220,14 +258,20 @@ class TestRubyEndToEnd(unittest.TestCase):
 @unittest.skipUnless(shutil.which("gofmt"), "gofmt not installed")
 class TestGofmtEndToEnd(unittest.TestCase):
     def test_non_execution_sentinel(self):
-        # gofmt only formats/parses; even a well-formed program that WOULD write a
-        # sentinel on execution is never executed by ``gofmt -e``.
+        # SELF-CERTIFYING. gofmt only formats/parses; even a well-formed program that
+        # WOULD write a sentinel on execution is never executed by ``gofmt -e``. gofmt
+        # is a FORMATTER, not an interpreter, so proving the payload has teeth needs the
+        # go toolchain (`go run`); if it is absent we cannot self-certify liveness, so we
+        # skip rather than pass VACUOUSLY.
+        if not shutil.which("go"):
+            self.skipTest("go toolchain needed to self-certify the .go payload has teeth")
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
             src = ('package main\nimport "os"\nfunc main() { os.WriteFile(%r, []byte("x"), 0644) }\n'
                    % sentinel)
+            _certify_payload_is_live(["go", "run"], src, ".go", sentinel)   # `go run` compiles+writes
             syntaxlens.check({"evil.go": src}, outside)
-            self.assertFalse(os.path.exists(sentinel))
+            self.assertFalse(os.path.exists(sentinel))  # gofmt -e only formats, never ran it
 
     def test_broken_go_has_teeth(self):
         d = syntaxlens.check({"bad.go": "package main\nfunc {\n"}, ".")

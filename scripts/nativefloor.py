@@ -372,7 +372,15 @@ def run(
         # and the batch continues (SECURITY-INVARIANT §4 / run never raises).
         if not isinstance(job, dict):
             job = {}
-        argv = job.get("argv") or []
+        # A truthy non-list ``argv`` (``{'argv': 5}``, ``{'argv': {'k':'v'}}``,
+        # ``{'argv': 3.2}``, ``{'argv': True}``) would make ``argv[0]`` raise
+        # TypeError/KeyError at these pre-loop reads — which sit OUTSIDE _run_one's
+        # per-job guard — aborting the whole batch and violating "run NEVER raises".
+        # Coerce anything that is not a list to an empty (unusable) argv so the job
+        # degrades to a fail-open skip and the batch continues (mirrors the non-dict
+        # job coercion above; SECURITY-INVARIANT §4 / run never raises).
+        argv = job.get("argv")
+        argv = argv if isinstance(argv, list) else []
         tool_name = argv[0] if argv else ""
         # SECURITY-INVARIANT §4 / spec §2.7: budget check FIRST — no tool
         # resolution, no launch, no tempdir when the batch budget is spent.
