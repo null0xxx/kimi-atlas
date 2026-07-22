@@ -52,10 +52,17 @@ RUNNERS: tuple[dict, ...] = (
 
 # ext → argv for the P2 syntax floor (parse-ONLY, argv-only, hermetic — §2.6).
 # Declared here as the one registry; no execution happens in P1.
+#
+# JS (``.js``/``.mjs``/``.cjs``) is DELIBERATELY ABSENT. ``node --check`` cannot
+# parse JSX or Flow type annotations, and both ship pervasively INSIDE ordinary
+# ``.js`` files (Create React App, most React repos, Flow-typed source) — a VALID
+# component like ``const B = () => <button/>;`` in a ``.js`` makes ``node --check``
+# exit non-zero ("Unexpected token '<'"), which the signature gate would confirm as
+# a real error and FALSE-BLOCK a valid repo — breaking THE ONE GUARANTEE. node
+# cannot reliably distinguish valid JSX/Flow from invalid JS (the JS ecosystem is
+# transpile-pervasive), so JS is not syntax-checked here at all; it is still verified
+# via the P1 run-signal floor (test-running: jest/vitest/mocha via ``npm test``).
 SYNTAX_ARGV: dict[str, list[str]] = {
-    ".js": ["node", "--check"],
-    ".cjs": ["node", "--check"],
-    ".mjs": ["node", "--check"],
     ".rb": ["ruby", "-cw"],
     ".php": ["php", "-l"],
     ".go": ["gofmt", "-e"],

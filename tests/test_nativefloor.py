@@ -83,18 +83,26 @@ class TestSafeBasename(unittest.TestCase):
         self.assertEqual(nativefloor._safe_basename(""), "input")
         self.assertEqual(nativefloor._safe_basename(".we;rd`"), "input")   # invalid ext rejected
 
+    def test_trailing_newline_ext_is_rejected(self):
+        # SECURITY: the ext validator must anchor with \Z, not $ — `$` also matches
+        # BEFORE a trailing newline, so `".php\n"` would pass and put a newline in the
+        # on-disk basename. `\Z` rejects it, yielding the bare `input` stem.
+        self.assertEqual(nativefloor._safe_basename(".php\n"), "input")
+        self.assertEqual(nativefloor._safe_basename(".rb\n"), "input")
+
 
 class TestParseOnlyArgvPins(unittest.TestCase):
     """Static proof that EVERY tool argv is parse-only — never an execute flag (the RCE guard)."""
     def test_all_syntax_argv_are_parse_only(self):
+        # JS (.js/.mjs/.cjs) is NOT on the floor — node --check false-blocks valid
+        # JSX/Flow in .js — so those exts are absent from SYNTAX_ARGV entirely.
         self.assertEqual(langfloor.SYNTAX_ARGV[".rb"], ["ruby", "-cw"])   # -cw, NEVER -w/-e
-        self.assertEqual(langfloor.SYNTAX_ARGV[".js"], ["node", "--check"])
-        self.assertEqual(langfloor.SYNTAX_ARGV[".cjs"], ["node", "--check"])
-        self.assertEqual(langfloor.SYNTAX_ARGV[".mjs"], ["node", "--check"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".php"], ["php", "-l"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".go"], ["gofmt", "-e"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".sh"], ["bash", "-n"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".bash"], ["bash", "-n"])
+        for ext in (".js", ".mjs", ".cjs"):
+            self.assertNotIn(ext, langfloor.SYNTAX_ARGV, ext)
 
     def test_argv_is_never_sh_c_on_none_backend(self):
         wrapped = proccap._build_wrapper_argv(["ruby", "-cw", "input.rb"], 2048, proccap._BACKEND_NONE)
@@ -218,6 +226,44 @@ class TestStubMechanics(unittest.TestCase):
                 finally:
                     tempfile.tempdir = saved
         self.assertEqual(leaked, [])
+
+
+class TestEmptyAndOversizeSkip(unittest.TestCase):
+    """Empty/oversize jobs are fail-open no-ops that skip BEFORE any tempdir/tool
+    (no tool needed to prove this) and do NOT consume the file budget."""
+
+    def test_empty_text_skips_without_running(self):
+        # An empty-text job never launches a tool: ran=False, reason 'empty-text'.
+        # No tool_path patch needed — the empty check precedes tool resolution.
+        [res] = nativefloor.run([{"rel": "e.rb", "text": "", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertFalse(res["ran"])
+        self.assertEqual(res["skipped_reason"], "empty-text")
+
+    def test_oversize_text_skips_without_running(self):
+        # A job whose text exceeds max_source_bytes is skipped as 'oversize', ran=False.
+        [res] = nativefloor.run(
+            [{"rel": "big.rb", "text": "x" * 100, "argv": ["ruby", "-cw"], "ext": ".rb"}],
+            max_source_bytes=10,
+        )
+        self.assertFalse(res["ran"])
+        self.assertEqual(res["skipped_reason"], "oversize")
+
+    def test_empty_and_oversize_do_not_consume_budget(self):
+        # Neither an empty nor an oversize job is a real launch, so with a REAL job
+        # after them, file_budget=1 still lets the real job run (the no-ops did not
+        # burn the single slot).
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [
+                {"rel": "e.rb", "text": "", "argv": ["ruby", "-cw"], "ext": ".rb"},        # empty
+                {"rel": "big.rb", "text": "x" * 100, "argv": ["ruby", "-cw"], "ext": ".rb"},  # oversize
+                {"rel": "real.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"},    # real launch
+            ]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs, file_budget=1, max_source_bytes=10)
+        self.assertEqual(results[0]["skipped_reason"], "empty-text")
+        self.assertEqual(results[1]["skipped_reason"], "oversize")
+        self.assertTrue(results[2]["ran"])   # real job still ran under file_budget=1
 
 
 class TestFailOpen(unittest.TestCase):

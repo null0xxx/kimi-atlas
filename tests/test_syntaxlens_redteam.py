@@ -10,16 +10,21 @@ is reproduced against the REAL interpreter in the run, never asserted only in pr
 Two tiers:
 
 * **Static argv pins (ALWAYS run).** Every :data:`langfloor.SYNTAX_ARGV` entry is a
-  parse-/check-ONLY flag — ``node --check``, ``ruby -cw`` (never ``-w``/``-e``),
-  ``php -l``, ``gofmt -e``, ``bash -n``. This is the RCE guard: no argv can execute
-  repo code. No subprocess needed.
+  parse-/check-ONLY flag — ``ruby -cw`` (never ``-w``/``-e``), ``php -l``,
+  ``gofmt -e``, ``bash -n``. This is the RCE guard: no argv can execute repo code.
+  No subprocess needed. (JS is intentionally NOT on the floor: ``node --check``
+  cannot distinguish valid JSX/Flow from invalid JS and would false-block valid
+  React/Flow ``.js`` — so ``syntaxlens`` never dispatches node.)
 * **Live non-execution proofs (``skipUnless`` per tool).** For every PRESENT tool
-  (node/php/bash here; ruby/gofmt skip when absent) a source file that WOULD write an
+  (php/bash here; ruby/gofmt skip when absent) a source file that WOULD write an
   ABSOLUTE sentinel OUTSIDE the materialized tempdir is run through ``syntaxlens.check``;
   the sentinel must NOT appear (parse-only never executed it). Hostile interpreter
-  hooks (``NODE_OPTIONS``/``BASH_ENV``/``RUBYOPT``/``PHP_INI_SCAN_DIR``) set in the
-  parent must NOT leak into the hermetic child (a valid file stays clean). And a truly
-  broken file must surface a HIGH ``DOES-IT-RUN`` defect — the floor has teeth.
+  hooks (``BASH_ENV``/``RUBYOPT``/``PHP_INI_SCAN_DIR``) set in the parent must NOT
+  leak into the hermetic child (a valid file stays clean). And a truly broken file
+  must surface a HIGH ``DOES-IT-RUN`` defect — the floor has teeth. The
+  env-from-scratch invariant (§3) is additionally proven non-vacuously against a
+  node-argv job fed DIRECTLY to the generic ``nativefloor`` runner (a mocked
+  launcher spies the ``env=``), below.
 """
 from __future__ import annotations
 
@@ -40,14 +45,16 @@ class TestParseOnlyArgvPins(unittest.TestCase):
     """Static proof the whole floor is parse-only — the RCE guard, host-independent."""
 
     def test_every_syntax_argv_is_parse_only(self):
-        self.assertEqual(langfloor.SYNTAX_ARGV[".js"], ["node", "--check"])
-        self.assertEqual(langfloor.SYNTAX_ARGV[".cjs"], ["node", "--check"])
-        self.assertEqual(langfloor.SYNTAX_ARGV[".mjs"], ["node", "--check"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".rb"], ["ruby", "-cw"])  # -cw CHECK, never -w/-e
         self.assertEqual(langfloor.SYNTAX_ARGV[".php"], ["php", "-l"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".go"], ["gofmt", "-e"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".sh"], ["bash", "-n"])
         self.assertEqual(langfloor.SYNTAX_ARGV[".bash"], ["bash", "-n"])
+
+    def test_js_is_not_on_the_syntax_floor(self):
+        # JS is intentionally absent — node --check false-blocks valid JSX/Flow in .js.
+        for ext in (".js", ".mjs", ".cjs"):
+            self.assertNotIn(ext, langfloor.SYNTAX_ARGV, ext)
 
     def test_ruby_flag_is_check_not_execute(self):
         # An explicit anti-RCE pin: the R-round bug was ``ruby -w`` (which EXECUTES).
@@ -57,8 +64,16 @@ class TestParseOnlyArgvPins(unittest.TestCase):
         self.assertNotIn("-e", langfloor.SYNTAX_ARGV[".rb"])
 
     def test_advisory_exts_never_dispatched(self):
-        # .jsx/.ts/.tsx have no SYNTAX_ARGV entry → never run, never a defect (advisory).
-        for name, src in (("c.jsx", "<App/>;"), ("a.ts", "let x: number ="), ("b.tsx", "<X/>")):
+        # JS (.js/.mjs/.cjs) and .jsx/.ts/.tsx have no SYNTAX_ARGV entry → never run,
+        # never a defect. A valid React component in a .js is the headline case: node
+        # --check would false-block it, so JS is not on the floor at all.
+        cases = (
+            ("Button.js", "const B = () => <button/>;\n"),   # valid React JSX in .js
+            ("m.mjs", "export const y = () => <X/>;\n"),
+            ("c.cjs", "const z = () => <Y/>;\n"),
+            ("c.jsx", "<App/>;"), ("a.ts", "let x: number ="), ("b.tsx", "<X/>"),
+        )
+        for name, src in cases:
             self.assertEqual(syntaxlens.check({name: src}, "."), [], name)
 
 
@@ -107,27 +122,14 @@ class TestHermeticEnvIsReallyApplied(unittest.TestCase):
             self.assertNotIn(key, captured["env"])
 
 
-@unittest.skipUnless(shutil.which("node"), "node not installed")
-class TestNodeEndToEnd(unittest.TestCase):
-    def test_non_execution_sentinel(self):
-        with tempfile.TemporaryDirectory() as outside:
-            sentinel = os.path.join(outside, "PWNED")
-            src = "require('fs').writeFileSync(%r, 'x');\n" % sentinel
-            syntaxlens.check({"eval.js": src}, outside)
-            self.assertFalse(os.path.exists(sentinel))  # node --check parsed, never ran the write
-
-    def test_node_options_hook_does_not_leak(self):
-        os.environ["NODE_OPTIONS"] = "--require /nonexistent/evil.js"
-        try:
-            # A valid file must stay clean: the hostile hook cannot reach the hermetic child.
-            self.assertEqual(syntaxlens.check({"ok.js": "const x = 1;\n"}, "."), [])
-        finally:
-            del os.environ["NODE_OPTIONS"]
-
-    def test_broken_js_has_teeth(self):
-        d = syntaxlens.check({"bad.js": "const = ;\n"}, ".")
-        self.assertTrue(_blocking(d))
-        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+# NOTE: a `TestNodeEndToEnd` class was REMOVED here. It exercised
+# `syntaxlens.check` on `.js` inputs (non-execution sentinel, NODE_OPTIONS leak,
+# broken-js teeth), but JS was dropped from the syntax floor — `node --check`
+# false-blocks valid JSX/Flow inside `.js` — so `syntaxlens` no longer dispatches
+# node. The sentinel/hook arms would be vacuous (node never runs) and the
+# broken-js-teeth arm is intentionally no longer true (a broken `.js` is not a
+# defect; JS is verified via run-signal). The node-argv env-from-scratch proof
+# survives non-vacuously in `TestHermeticEnvIsReallyApplied` (nativefloor, mocked).
 
 
 @unittest.skipUnless(shutil.which("bash"), "bash not installed")

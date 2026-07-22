@@ -56,8 +56,11 @@ from scripts import proccap
 
 # A valid extension for materialization: a dot then one-or-more alphanumerics.
 # Anything else (empty, shell metacharacters, path separators) is rejected so no
-# repo-controlled text can shape the on-disk basename (SECURITY-INVARIANT §4).
-_SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]+$")
+# repo-controlled text can shape the on-disk basename (SECURITY-INVARIANT §4). The
+# tail anchor is ``\Z`` (end of string), NOT ``$``: ``$`` also matches just BEFORE
+# a trailing newline, so ``".php\n"`` would (wrongly) pass and put a newline in the
+# on-disk basename; ``\Z`` rejects it → the bare ``input`` stem.
+_SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]+\Z")
 
 # The constant filename stem WE choose (never repo-derived). A rejected/empty ext
 # yields this bare stem alone; it is too weak a token to gate a defect on, so
@@ -256,9 +259,12 @@ def _run_one(
         tool_name = argv[0] if argv else ""
         basename = _safe_basename(job["ext"])
         text = job["text"]
-        tempdir = tempfile.mkdtemp(prefix="nativefloor-")
-        materialized_path = os.path.join(tempdir, basename)
 
+        # CQ: empty/oversize jobs are fail-open no-ops that never launch a tool, so
+        # skip them BEFORE creating a tempdir — no dir is created and rmtree'd for a
+        # job that was never going to run. Both return ``launched=False`` so neither
+        # consumes ``file_budget`` (budget accounting preserved); ``tempdir`` is still
+        # None here, so the ``finally`` rmtree is correctly a no-op.
         if not text:
             return _skip(rel, tool_name, _SKIP_EMPTY), False
         # Minor #3: cheap pre-filter before encoding. UTF-8 is >=1 byte/char, so
@@ -271,6 +277,8 @@ def _run_one(
         if len(encoded) > max_source_bytes:
             return _skip(rel, tool_name, _SKIP_OVERSIZE), False
 
+        tempdir = tempfile.mkdtemp(prefix="nativefloor-")
+        materialized_path = os.path.join(tempdir, basename)
         with open(materialized_path, "wb") as fh:
             fh.write(encoded)
 

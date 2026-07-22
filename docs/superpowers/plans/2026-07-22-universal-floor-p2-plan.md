@@ -3,6 +3,18 @@
 > **For agentic workers:** REQUIRED SUB-SKILL — execute via superpowers:subagent-driven-development, TDD per task.
 > **Spec:** `docs/superpowers/specs/2026-07-22-universal-floor-blueprint.md` (v7, 7-round 6-lens-hardened) — §2.4–2.9, §3, §4, §6, §7, §8.
 > **Builds on P1** (merged `main`, `051b6a5`): `proccap` (cap/subprocess backend, `_build_wrapper_argv`, `_launch_and_wait`), `langfloor` (`SYNTAX_ARGV`, `CONFIG_ALLOWLIST` — declared in P1, consumed here).
+>
+> **⚠ AS-BUILT (R4 — supersedes the node/JS parts of this plan):** JS (`.js`/`.mjs`/`.cjs`) was **dropped
+> from the syntax floor entirely.** `node --check` cannot distinguish valid JSX or Flow type annotations —
+> which ship pervasively *inside* ordinary `.js` files (Create React App, most React repos, Flow-typed
+> source) — from invalid JS, so a VALID `const B = () => <button/>;` in a `.js` makes `node --check` exit
+> non-zero and would be confirmed as a HIGH DOES-IT-RUN block → **false-block on a valid repo** (breaks the
+> one guarantee). `.js`/`.mjs`/`.cjs` were removed from `SYNTAX_ARGV`; `syntaxlens` no longer dispatches
+> node, and the node ESM/CJS resolution machinery below (`_read_package_type`/`_nearest_package_type`/
+> `_materialize_ext`, design-decision #2, and the `.js`-ext tests) was **removed** (this also retired the
+> unbounded-`package.json`-read DoS surface). JS is still verified via the P1 run-signal floor
+> (test-running: jest/vitest/mocha via `npm test`). The `_STRICT_CONFIG` config policy is UNCHANGED. The
+> node-related pseudo-code and tests transcribed below are kept only as the historical plan record.
 
 **Goal (P2):** a **hermetic, argv-only, FAIL-OPEN syntax floor** — parse-only external tools
 (`node --check` / `ruby -cw` / `php -l` / `gofmt -e` / `bash -n`) driven through a locked-down runner
@@ -568,7 +580,8 @@ is already linked — see the plan commit); update `AGENTS.md` tracked-doc count
   local build shell — state this in the PR.)*
 
 - [ ] **Step 5 — Disclosure + map:** append the P2 residuals to blueprint §8 (Go/Ruby syntax uncovered
-  in the default toolchain-less runtime; cgroup-less → uncapped-but-timeout-bounded; `.jsx`/`.ts`
+  in the default toolchain-less runtime; cgroup-less → uncapped-but-timeout-bounded; **JS `.js`/`.mjs`/`.cjs`
+  uncovered by design — node --check false-blocks JSX/Flow, R4**; `.jsx`/`.ts`/`.tsx`
   advisory-only), and add a `references/system-map.md` recent-changes note (nativefloor/syntaxlens folded
   into VERIFIED as Lens 5c; `sast` untouched). If any new tracked `.md` was added, bump `AGENTS.md`
   "N tracked docs" and add its `references/*.md`/`README.md` link so `inventory_drift` stays green.

@@ -62,10 +62,14 @@ SKILL Python defaults. Gate C2 stays PURE; the fix is upstream, feeding both fie
    `ran_the_build('2 passed, 3 failed in 1s') == True`.
 4. Syntax floor fail-open; defect only on `exit!=0` AND the tool's error signature that **also references
    the materialized input path** *(R6 SEC-D1)* (e.g. node stderr contains `SyntaxError` and the temp path).
-5. `node --check` package-`type`-aware (`.mjs`; `.js`/`.cjs` iff nearest `package.json` commonjs/absent-and-
-   no-top-level-import; ESM-mode for `type:module`; `.jsx`/`.ts`/`.tsx`/ambiguous → advisory).
-6. **Parse-only, argv-ONLY, hermetic** *(R5 SEC-1, R6 SEC-D2/D3/D4)*: `node --check`/`ruby -cw`/`php -l`/
-   `gofmt -e`/`bash -n`. `nativefloor.run` = argv list (never `sh -c`); each file materialized to a
+5. **AS-BUILT (R4):** JS (`.js`/`.mjs`/`.cjs`) is **NOT syntax-checked** — the earlier
+   `node --check` type-awareness design was dropped. `node --check` cannot distinguish valid JSX/Flow
+   (which ship pervasively INSIDE `.js` — CRA, most React repos, Flow-typed source) from invalid JS, so
+   checking a valid `const B = () => <button/>;` in a `.js` exits non-zero → would FALSE-BLOCK the
+   React/Flow ecosystem (breaking the one guarantee). JS is verified via the run-signal floor
+   (test-running) only. `.jsx`/`.ts`/`.tsx` were already advisory (no `SYNTAX_ARGV` entry).
+6. **Parse-only, argv-ONLY, hermetic** *(R5 SEC-1, R6 SEC-D2/D3/D4)*: `ruby -cw`/`php -l`/
+   `gofmt -e`/`bash -n` (node dropped, see 5). `nativefloor.run` = argv list (never `sh -c`); each file materialized to a
    **tempfile basename WE control** in a **fresh empty tempdir used as cwd (never the repo)**; child env
    **constructed from scratch = exactly `{PATH,HOME,LANG,TMPDIR}`** (not derived-then-stripped); a
    **hard per-pass file-count cap + aggregate wall-clock budget** (degrade the remainder to advisory);
@@ -101,7 +105,8 @@ markers ONLY**; the JUnit Tier-0 path is `suiterun`/weave-only *(R6 CQ-4)*. `pro
 | Python | pytest/unittest (ID+structural+PASS-only) | in-process `ast` (blocking) | ✅ |
 | JSON/TOML (allowlist) | — | `json`/`tomllib` (blocking) | ✅ |
 | Shell | — | `bash -n` (iff `bash` present) | ✅ (bash ships) |
-| Go·Ruby·PHP·JS | ID+structural+PASS-only (else UNVERIFIED) | `gofmt`/`ruby -cw`/`php -l`/`node --check` | ❌ (toolchain absent → no-op) |
+| Go·Ruby·PHP | ID+structural+PASS-only (else UNVERIFIED) | `gofmt`/`ruby -cw`/`php -l` | ❌ (toolchain absent → no-op) |
+| JS (.js/.mjs/.cjs) | ID+structural+PASS-only (jest/vitest/mocha) | **uncovered** — `node --check` false-blocks valid JSX/Flow in `.js`, so JS is NOT syntax-checked (R4) | ❌ |
 | Rust·TS·.jsx·Java·C/C++·C# | ID run-signal only | uncovered (TS: `tsc` is a type-checker, advisory-only) | ❌ |
 
 ## 5. Phases
@@ -124,15 +129,19 @@ positive-signal) **AND the POSITIVE recognition path against each real tool** *(
 (fail-safe UNVERIFIED only). Offline goldens: pytest `-q`/verbose/`addopts=-q`/stray-`passed`; direct +
 `make`-wrapped unittest; go plain+`-json` (0-Test→UNVERIFIED; **`go test||true` all-fail→UNVERIFIED**,
 COR-4); cargo two-crate; jest/mocha/rspec/phpunit; per-runner **lone-marker→0** and **all-failed→
-collected=False**; resolver matrix (Python+Cargo.toml→pytest; tox/gradle→UNVERIFIED; `.js`+commonjs→
-checked, `.js`+`type:module`→ESM, `.jsx`→advisory) *(R6 TA-5)*; `Summary: 5 passed in 3.2s`→0;
+collected=False**; resolver matrix (Python+Cargo.toml→pytest; tox/gradle→UNVERIFIED; **JS
+`.js`/`.mjs`/`.cjs` NOT syntax-dispatched — node --check false-blocks JSX/Flow, R4**; `.jsx`/`.ts`/`.tsx`→
+advisory) *(R6 TA-5)*; `Summary: 5 passed in 3.2s`→0;
 `ran_the_build('2 passed, 3 failed in 1s')==True`; full-guard `_is_cap_start_failure` (dangerous branch +
 `not launched→True`); **re-baselined `test_default_pytest`: empty dir → `''`/UNVERIFIED (contract change
 stated)** *(R6 TA-1)*; config invalid→BLOCK / data invalid→advisory; symlink/`../`→reject; `sast`
 unchanged; `proccap._build_wrapper` byte-equivalence.
 
 ## 8. Residual (disclosed)
-**In the default runtime, Go/Ruby/PHP/JS syntax is ALSO uncovered** (their tools are absent → no-op);
+**JS syntax (`.js`/`.mjs`/`.cjs`) is uncovered BY DESIGN (R4)** — `node --check` cannot distinguish valid
+JSX/Flow (pervasive inside `.js`) from invalid JS, so syntax-checking it would false-block valid
+React/Flow repos; JS is dropped from the syntax floor entirely and verified via run-signal (test-running)
+instead. **In the default runtime, Go/Ruby/PHP syntax is ALSO uncovered** (their tools are absent → no-op);
 the default strict floor is Python + shell + config JSON/TOML. Rust/TS/.jsx/Java/C/C++/C# uncovered
 everywhere. cargo/go run-signal best-effort under the 2048 MB cap. Bare-pytest repos with no
 `collectable_pytest` signal → UNVERIFIED. Polyglot `make test` recipes verify if any identified tag
@@ -142,13 +151,19 @@ passes. Deny-network is fetch-denial only. cgroup-less → tools uncapped-but-ti
 repo's default toolchain-less runtime **`node`/`php`/`bash` are present but `ruby`/`gofmt` are
 absent**, so **Go and Ruby syntax are uncovered here** (fail-open no-op — never a false red); the
 `.github/workflows/native-floor.yml` lane is where those two are hard-asserted and actually
-exercised. The hermetic runner is **cgroup-less on the default host → parse checks run
+exercised. **JS is NOT syntax-checked even though `node` is present (R4):** `node --check` cannot
+distinguish valid JSX/Flow (which ship inside `.js`) from invalid JS, so `syntaxlens` never dispatches
+node — dropping `.js`/`.mjs`/`.cjs` from `SYNTAX_ARGV` was the fix for a HIGH DOES-IT-RUN false-block
+of valid React/Flow `.js`; the node ESM/CJS `package.json`-resolution machinery
+(`_read_package_type`/`_nearest_package_type`/`_materialize_ext`) was removed with it (also retiring the
+unbounded-`package.json`-read DoS surface). JS remains verified via run-signal (test-running). The hermetic runner is **cgroup-less on the default host → parse checks run
 uncapped-but-wall-clock-timeout-bounded** (`_effective_backend` never falls to the `ulimit` shell
 backend, preserving argv-only). **AS-BUILT:** the earlier "cgroup-or-uncapped mode (a param)"
 `cgroup_only` knob (§2.7) was **removed** during the shipped-6-lens hardening — `_effective_backend()`
 takes no argument and unconditionally returns cgroup-or-`NONE`; the behaviour above is unchanged, only
-the dead param is gone. **`.jsx`/`.ts`/`.tsx` are advisory-only** (no `SYNTAX_ARGV` entry —
-`node --check` cannot parse JSX/TS, so they are never dispatched and never a defect). **Config
+the dead param is gone. **JS (`.js`/`.mjs`/`.cjs`) and `.jsx`/`.ts`/`.tsx` are advisory-only** (no
+`SYNTAX_ARGV` entry — `node --check` cannot distinguish valid JSX/Flow from invalid JS, so they are
+never dispatched and never a defect; R4). **Config
 blocking is scoped to the corrected `syntaxlens._STRICT_CONFIG` map** (guaranteed-strict
 `package.json`/`composer.json`/`*-lock.json`/`pyproject.toml`/`Cargo.toml`/`Cargo.lock`/
 `poetry.lock`/`composer.lock` only); every OTHER `.json`/`.toml` — JSONC `tsconfig.json`, opaque

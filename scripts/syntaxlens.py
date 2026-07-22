@@ -5,9 +5,8 @@ universal SYNTAX floor (spec §2.5/§2.9). It turns the reviewed ``{path: text}`
 map into the canonical ``{id, category, severity, location, fix}`` defect shape
 the backbone merges identically to an ``astlens``/``sast`` defect. A thin I/O
 "hand": the ONE side effect (running a real parse checker) is delegated to
-``nativefloor``; the only other I/O is a fail-safe read of the nearest
-``package.json`` to resolve node's ESM/CJS ``type``. Every classification below is
-a pure decision over the file's basename/extension.
+``nativefloor``. Every classification below is a pure decision over the file's
+basename/extension.
 
 Two dispositions, decided per changed file (config is checked FIRST — a
 ``.json``/``.toml`` is config, not source):
@@ -25,16 +24,19 @@ Two dispositions, decided per changed file (config is checked FIRST — a
    ``tsconfig.json`` + bare ``*.lock`` false-rejects valid repos.
 
 2. **Source (ext in :data:`langfloor.SYNTAX_ARGV`).** One ``nativefloor`` job is
-   built and dispatched. A ``signature_matched=True`` result → HIGH
-   ``DOES-IT-RUN`` blocking defect; ``ran=False`` or ``signature_matched=False``
-   → no defect (fail-open, per nativefloor's contract). node ESM/CJS mode is
-   carried by the MATERIALIZED extension (the hermetic tempdir has no
-   ``package.json``): ``.mjs``/``.cjs`` materialize as themselves; a ``.js`` file
-   materializes as ``.mjs`` iff :func:`_nearest_package_type` resolves to
-   ``"module"`` (making the resolved type load-bearing — it picks the ext), else
-   ``.js`` (CJS default). ``.jsx``/``.ts``/``.tsx`` have NO ``SYNTAX_ARGV`` entry
-   (``node --check`` cannot parse JSX/TS) so they are never dispatched and never a
-   defect.
+   built and dispatched, materialized under the file's OWN extension. A
+   ``signature_matched=True`` result → HIGH ``DOES-IT-RUN`` blocking defect;
+   ``ran=False`` or ``signature_matched=False`` → no defect (fail-open, per
+   nativefloor's contract). The covered exts are ``.rb``/``.php``/``.go``/``.sh``/
+   ``.bash`` — the exact keys of ``SYNTAX_ARGV``.
+
+   **JS (``.js``/``.mjs``/``.cjs``) is NOT dispatched here** — it has no
+   ``SYNTAX_ARGV`` entry. ``node --check`` cannot distinguish valid JSX/Flow (which
+   ship pervasively inside ``.js`` — Create React App, most React repos, Flow-typed
+   source) from invalid JS, so checking it would FALSE-BLOCK the React/Flow
+   ecosystem (a valid ``const B = () => <button/>;`` in a ``.js`` exits non-zero) —
+   breaking THE ONE GUARANTEE. JS is verified via the run-signal floor (test-running)
+   instead. ``.jsx``/``.ts``/``.tsx`` are likewise never dispatched.
 
 A file is EITHER config (strict basename, or a non-strict ``.json``/``.toml`` →
 skip) OR source (ext in ``SYNTAX_ARGV``). ``SYNTAX_ARGV`` has no ``.json``/
@@ -83,118 +85,13 @@ _BOM = "﻿"
 def _loads_json_bom(text: str):
     """``json.loads`` after stripping a single leading UTF-8 BOM (npm/node parity).
 
-    The ONE JSON-parse entry point BOTH config paths share — ``_read_package_type``
-    (the on-disk ``package.json`` ``type``) and :func:`_config_defect` (a strict
-    JSON config) — so their BOM handling can never drift again. npm/node strip a
-    leading BOM and accept the file, so a valid BOM-prefixed ``package.json`` must
-    never be misread as type-absent (which would degrade ESM→CJS and latently
-    false-block on node 18/20) nor blocked as invalid config. Raises ``ValueError``
-    (``json.JSONDecodeError``) exactly like ``json.loads`` on malformed input; each
-    caller guards/interprets that raise. Pure.
+    The ONE JSON-parse entry point :func:`_config_defect` uses for a strict JSON
+    config. npm/node strip a leading BOM and accept the file, so a valid
+    BOM-prefixed ``package.json`` must never be blocked as invalid config. Raises
+    ``ValueError`` (``json.JSONDecodeError``) exactly like ``json.loads`` on
+    malformed input; the caller guards/interprets that raise. Pure.
     """
     return json.loads(text[1:] if text.startswith(_BOM) else text)
-
-
-def _read_package_type(path: str) -> str | None:
-    """Return the ``"type"`` string of the ``package.json`` at ``path``, else None.
-
-    Fail-safe AND bounded, because ``path`` is read straight from the UNTRUSTED
-    repo tree (reached via :func:`_nearest_package_type` for any changed ``.js``):
-
-    * ``os.path.isfile(path)`` is checked FIRST. It follows the ``package.json``
-      symlink to its target, so a link that points at ``/dev/zero`` (a character
-      device — an unbounded read that would HANG ``check()``), a FIFO, a directory,
-      or a dangling link is all rejected up front → ``None``. Only a real regular
-      file is ever opened.
-    * The read is capped at :data:`_CONFIG_MAX_BYTES` (the same byte cap the config
-      parse uses), so a genuinely huge regular ``package.json`` can never exhaust
-      memory — at most the cap is read (an over-cap file is then almost always
-      invalid-truncated JSON → treated as absent, never a raise).
-
-    A single leading UTF-8 BOM is stripped before parsing (npm/node parity, via
-    :func:`_loads_json_bom`) so a BOM-prefixed ``{"type":"module"}`` still resolves
-    to ``"module"`` (ESM) rather than being misread as type-absent.
-
-    A missing/unreadable file (``OSError``), malformed JSON (``ValueError``), or a
-    pathological input (``MemoryError``/``RecursionError``) is treated as absent, as
-    is a non-object root or a non-string (or absent) ``type``. This is what makes
-    the guarantee "``check()`` NEVER hangs or raises on any repo input" hold along
-    the ESM/CJS resolution path. Pure-ish: reads one file (bounded), no other effect.
-    """
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "rb") as fh:
-            raw = fh.read(_CONFIG_MAX_BYTES)
-        data = _loads_json_bom(raw.decode("utf-8", errors="replace"))
-    except (OSError, ValueError, MemoryError, RecursionError):
-        return None
-    if isinstance(data, dict):
-        value = data.get("type")
-        if isinstance(value, str):
-            return value
-    return None
-
-
-def _nearest_package_type(rel: str, cwd: str) -> str | None:
-    """Walk up from ``dirname(rel)`` for the NEAREST ``package.json``, mirroring node.
-
-    Resolves node's ESM/CJS mode EXACTLY the way node itself does: resolution stops
-    at the nearest enclosing ``package.json`` — that file is authoritative and the
-    walk NEVER inherits an ancestor's ``type``. At each directory:
-
-    * ``package.json`` PRESENT (``os.path.isfile``) → its type decides and the walk
-      STOPS here. ``"type":"module"`` → return ``"module"`` (ESM); a present file
-      that is type-less, ``"type":"commonjs"``, malformed, or unreadable →
-      :func:`_read_package_type` returns ``None`` and we return that ``None`` (CJS,
-      node's default) — crucially WITHOUT climbing to an ancestor.
-    * ``package.json`` ABSENT → continue to the parent directory.
-
-    This ``os.path.isfile`` presence check in the CALLER is what distinguishes
-    "present-but-type-less" (stop → CJS) from "absent" (keep climbing); the old code
-    conflated both as ``_read_package_type``'s ``None`` and wrongly kept climbing,
-    inheriting an ancestor ``type:module`` and false-blocking valid sloppy-CJS
-    ``.js`` (e.g. ``var x = 0777;``) materialized as ``.mjs``. ``os.path.isfile``
-    follows a symlink to its target, so a ``package.json`` pointing at ``/dev/zero``
-    (a char device) reads as absent and is skipped — no hang. Terminates at ``cwd``
-    (never reads above it for an in-tree ``rel``) and is bounded at the filesystem
-    root, so it never loops. Returns ``None`` (→ CJS default) when no enclosing
-    ``package.json`` selects ESM.
-    """
-    cwd_abs = os.path.abspath(cwd)
-    cur = os.path.abspath(os.path.join(cwd_abs, os.path.dirname(rel)))
-    while True:
-        pkg = os.path.join(cur, "package.json")
-        if os.path.isfile(pkg):
-            # NEAREST package.json is authoritative: its type decides and the walk
-            # STOPS — "module" → ESM; type-less/commonjs/unreadable (None) → CJS.
-            return _read_package_type(pkg)
-        if cur == cwd_abs:
-            return None
-        parent = os.path.dirname(cur)
-        if parent == cur:  # filesystem root — stop (bounds a pathological ``../`` rel)
-            return None
-        cur = parent
-
-
-def _materialize_ext(ext: str, rel: str, cwd: str) -> str:
-    """Choose the extension ``nativefloor`` materializes a source file under (pure-ish).
-
-    node mode MUST be carried by the on-disk extension (the hermetic tempdir has
-    no ``package.json``): ``.mjs``/``.cjs`` keep their explicit mode; a bare
-    ``.js`` becomes ``.mjs`` iff the nearest ``package.json`` ``type`` is
-    ``"module"`` (ESM), else ``.js`` (CJS default). Every non-node source ext
-    (``.rb``/``.php``/``.go``/``.sh``/``.bash``) materializes under its own ext.
-    Resolving the ``.js`` case is the one place ``_nearest_package_type`` becomes
-    load-bearing — it literally picks the extension.
-    """
-    if ext == ".mjs":
-        return ".mjs"
-    if ext == ".cjs":
-        return ".cjs"
-    if ext == ".js":
-        return ".mjs" if _nearest_package_type(rel, cwd) == "module" else ".js"
-    return ext
 
 
 def _config_defect(basename: str, location: str, parser: str, text: str) -> dict | None:
@@ -224,8 +121,9 @@ def _config_defect(basename: str, location: str, parser: str, text: str) -> dict
         return None
     try:
         if parser == "json":
-            # npm/node strip a single leading BOM and accept the file; the shared
-            # helper does it so this path and _read_package_type cannot drift.
+            # npm/node strip a single leading BOM and accept the file, so a valid
+            # BOM-prefixed strict JSON config must NOT be blocked; the helper strips
+            # it before json.loads.
             _loads_json_bom(text)
         else:  # "toml"
             tomllib.loads(text)
@@ -247,7 +145,10 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
     :func:`nativefloor.run` as one batch — the single side effect — and a
     ``signature_matched`` result becomes a HIGH ``DOES-IT-RUN`` defect;
     ``ran=False``/``signature_matched=False`` is fail-open (no defect). ``cwd`` is
-    the review root, used only to resolve node's nearest-``package.json`` ``type``.
+    the review root; it is currently unused (node ESM/CJS ``package.json``
+    resolution was removed when JS was dropped from the floor) but is retained in
+    the signature for call-site stability — the VERIFIED heredoc calls
+    ``syntaxlens.check(changed_files, review_root)``.
     """
     defects: list[dict] = []
     source_jobs: list[dict] = []
@@ -275,9 +176,11 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
         if ext in (".json", ".toml"):
             continue
 
-        # 2) Source — dispatch only exts nativefloor has a parse checker for. Every
-        # other ext (.jsx/.ts/.tsx and any non-source file) has no SYNTAX_ARGV
-        # entry -> never dispatched, never a defect.
+        # 2) Source — dispatch only exts nativefloor has a parse checker for
+        # (.rb/.php/.go/.sh/.bash). Every other ext — JS (.js/.mjs/.cjs, dropped
+        # because node --check false-blocks valid JSX/Flow), .jsx/.ts/.tsx, and any
+        # non-source file — has no SYNTAX_ARGV entry -> never dispatched, never a
+        # defect. The file is materialized under its OWN extension.
         argv = langfloor.SYNTAX_ARGV.get(ext)
         if argv is None:
             continue
@@ -285,7 +188,7 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
             "rel": rel,
             "text": text,
             "argv": argv,
-            "ext": _materialize_ext(ext, rel, cwd),
+            "ext": ext,
         })
 
     # The one side effect: run every source job hermetically in a single batch.
@@ -302,13 +205,14 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
                     f"it cannot be imported or run — fix the syntax error.",
                 ))
 
-    # Per-file-unique, DETERMINISTIC ids (parity with astlens's ``AST<n>-*``).
-    # Defects are already sorted by their unique ``location`` above (each changed
-    # file yields at most one defect, so locations never collide), so a 1-based
-    # index over the sorted list mints a stable ``SYN<n>-*`` id. This is what makes
-    # two same-named broken configs in different dirs — both ``config-package.json``
-    # — report DISTINCT ids instead of colliding into one. The descriptive suffix
-    # (``config-<basename>`` / ``syntax-<ext>``) is preserved after the prefix.
+    # Per-file-unique, DETERMINISTIC ids (parity with astlens's ``AST<n>-*``). The
+    # sort below ESTABLISHES the order that the ``SYN<n>-`` id minting is load-bearing
+    # on: each changed file yields at most one defect, so ``location`` values never
+    # collide and a 1-based index over the location-sorted list mints a stable
+    # ``SYN<n>-*`` id. This is what makes two same-named broken configs in different
+    # dirs — both ``config-package.json`` — report DISTINCT ids instead of colliding
+    # into one. The descriptive suffix (``config-<basename>`` / ``syntax-<ext>``) is
+    # preserved after the prefix.
     defects.sort(key=lambda defect: defect["location"])
     for index, defect in enumerate(defects, start=1):
         defect["id"] = f"SYN{index}-{defect['id']}"

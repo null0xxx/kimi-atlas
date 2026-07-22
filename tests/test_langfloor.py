@@ -373,8 +373,16 @@ class TestSyntaxArgv(unittest.TestCase):
             self.assertTrue(all(isinstance(tok, str) for tok in argv))
 
     def test_covers_the_documented_extensions(self):
-        for ext in (".js", ".mjs", ".cjs", ".rb", ".php", ".go", ".sh"):
+        for ext in (".rb", ".php", ".go", ".sh", ".bash"):
             self.assertIn(ext, langfloor.SYNTAX_ARGV)
+
+    def test_js_extensions_are_not_on_the_syntax_floor(self):
+        # JS (.js/.mjs/.cjs) is intentionally excluded: node --check cannot
+        # distinguish valid JSX/Flow (pervasive inside .js) from invalid JS, so
+        # checking it would false-block valid React/Flow repos. JS is verified via
+        # the run-signal floor (jest/vitest via `npm test`) instead.
+        for ext in (".js", ".mjs", ".cjs"):
+            self.assertNotIn(ext, langfloor.SYNTAX_ARGV, ext)
 
 
 class TestConfigAllowlist(unittest.TestCase):
