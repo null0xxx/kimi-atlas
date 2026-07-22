@@ -69,6 +69,18 @@ PYTEST_INCIDENTAL_ERRORS = (
 # The masked `5 passed, 2 errors` veto — the errors ARE on the summary/tally line,
 # so it must STILL fail closed even after summary-scoping (I1 guard).
 PYTEST_ERRORS_ON_SUMMARY = "collected 5 items\n5 passed, 2 errors in 0.5s"
+# Multi-invocation recipe `pytest tests/unit; pytest tests/integration` where the
+# FIRST run FAILED (`1 failed, 3 passed`) and the LAST passed (`3 passed`). Reading
+# fail from the LAST `=…=` rule alone reports GREEN for a repo whose unit tests are
+# RED (the `;` exit is the last passing command's 0) — the cardinal sin (blueprint
+# §0). fail MUST be OR-ed across ALL pytest rule lines; passed stays the last rule.
+PYTEST_TWO_RULES_FIRST_FAILED = (
+    "===== 1 failed, 3 passed in 0.2s =====\n"
+    "===== 3 passed in 0.1s ====="
+)
+# A single `=…=` rule carrying an exit-masked `5 passed, 2 errors` — the errors are
+# ON the rule line, so the multi-rule fold must STILL fail closed on it.
+PYTEST_RULE_ERRORS_MASKED = "===== 5 passed, 2 errors in 0.5s ====="
 
 # unittest -v summary lines.
 UNITTEST_OK = "Ran 7 tests in 0.2s\nOK"
@@ -218,6 +230,13 @@ VITEST_FILE_FAILED = (
     "      Tests  0 passed (0)\n"
 )
 
+# A crafted deeply-nested JSON line passes the `{…}` filter but overflows the JSON
+# decoder's recursion limit: `json.loads` raises RecursionError (NOT ValueError),
+# which — caught only by `except ValueError` — would propagate uncaught out of
+# count()/runcheck.run() and CRASH the deterministic DOES-IT-RUN lens on an
+# untrusted go repo (SEC). The widened except must swallow it and continue.
+GO_JSON_RECURSION_BOMB = "benign go log\n" + '{"a":' * 100000 + "1" + "}" * 100000
+
 # Plain `go test ./...` (no -v/-json): only `ok <pkg> <t>` package-pass lines.
 GO_PLAIN_OK_PKGS = "ok  \texample/foo\t0.002s\nok  \texample/bar\t0.003s"
 # Plain `go test ./...` where one package builds-fails: an `ok` beside a bare
@@ -302,6 +321,20 @@ class TestPytest(unittest.TestCase):
         _, collected = runsignal.count(PYTEST_ERRORS_ON_SUMMARY, ("pytest",))
         self.assertFalse(collected)
 
+    def test_multi_rule_first_run_failed_vetoes(self):
+        # Regression guard (blueprint §0): a `pytest unit; pytest integration`
+        # capture whose FIRST `=…=` rule FAILED and whose LAST rule PASSED must NOT
+        # report GREEN — fail is OR-ed across EVERY rule line, passed is the last.
+        self.assertEqual(
+            runsignal.count(PYTEST_TWO_RULES_FIRST_FAILED, ("pytest",)), (3, False)
+        )
+
+    def test_single_rule_masked_errors_still_veto(self):
+        # The multi-rule fold must not regress the single masked rule: a lone
+        # `=… 5 passed, 2 errors …=` rule still fails closed.
+        _, collected = runsignal.count(PYTEST_RULE_ERRORS_MASKED, ("pytest",))
+        self.assertFalse(collected)
+
 
 class TestUnittest(unittest.TestCase):
     def test_ok(self):
@@ -351,6 +384,13 @@ class TestGo(unittest.TestCase):
         count, collected = runsignal.count(GO_PLAIN_OK_PLUS_BUILD_FAIL, ("go test",))
         self.assertEqual(count, 1)
         self.assertFalse(collected)
+
+    def test_deeply_nested_json_line_does_not_crash(self):
+        # SEC: a recursion-bomb JSON line must be swallowed (RecursionError is not
+        # a ValueError) so the lens degrades to UNVERIFIED instead of crashing.
+        self.assertEqual(
+            runsignal.count(GO_JSON_RECURSION_BOMB + "\n", ("go test",)), (0, False)
+        )
 
 
 class TestCargo(unittest.TestCase):

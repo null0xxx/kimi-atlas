@@ -168,12 +168,21 @@ def _count_pytest(output: str) -> tuple[int, int]:
 
     Requires a pytest structural marker (``collected N items`` / ``platform …
     -- Python`` header / an ``=+…=+`` rule line); absent → ``(0, 0)`` so a smoke
-    log echoing ``5 passed`` cannot pass. The pass/fail/error tally is read ONLY
-    from the summary line (:func:`_pytest_summary_line`), never the whole capture,
-    so a stray ``N failed``/``N errors`` in incidental output cannot flip a green
-    run to red (I1). ``fail`` = ``failed + errors`` and is forced ``> 0`` on ``no
-    tests ran`` — an exit-masked ``5 passed, 2 errors`` (the errors ARE on the
-    summary line, 0 ``failed``) therefore still fails closed.
+    log echoing ``5 passed`` cannot pass.
+
+    The **passed** count is read from the trailing summary line
+    (:func:`_pytest_summary_line`), so a stray ``N passed`` in incidental output
+    cannot inflate it. The **fail** signal, however, is OR-ed across *every*
+    ``=+…=+`` summary rule (falling back to that same summary line only when a
+    ``-q``/truncated capture prints no rule): a multi-invocation recipe like
+    ``pytest tests/unit; pytest tests/integration`` whose FIRST run failed (an
+    earlier ``1 failed, 3 passed`` rule) but whose LAST run passed must NOT report
+    green — the ``;`` exit is the last passing command's 0, and reading fail from
+    the last rule alone would fabricate a pass for a RED repo (the cardinal sin,
+    blueprint §0). ``fail`` folds ``failed + errors`` per rule and is forced
+    ``> 0`` on ``no tests ran``, so an exit-masked ``5 passed, 2 errors`` still
+    fails closed. A stray ``…found 2 errors…`` that is NOT an ``=+…=+`` rule line
+    is ignored (I1).
     """
     if not (
         _PY_COLLECTED_RE.search(output)
@@ -183,9 +192,12 @@ def _count_pytest(output: str) -> tuple[int, int]:
         return (0, 0)
     summary = _pytest_summary_line(output)
     passed = _last_int(_PASSED_RE, summary)
-    fail = _last_int(_FAILED_RE, summary) + _last_int(_PY_ERRORS_RE, summary)
-    if _PY_NO_TESTS_RE.search(summary):
-        fail = max(fail, 1)
+    rule_lines = [ln for ln in output.splitlines() if _is_pytest_rule_line(ln)]
+    fail = 0
+    for line in (rule_lines or [summary]):
+        fail += _last_int(_FAILED_RE, line) + _last_int(_PY_ERRORS_RE, line)
+        if _PY_NO_TESTS_RE.search(line):
+            fail = max(fail, 1)
     return (passed, fail)
 
 
@@ -219,6 +231,13 @@ def _count_go(output: str) -> tuple[int, int]:
     event is seen, falls back to plain ``go test -v``'s ``^--- PASS:`` /
     ``^--- FAIL:`` lines, plus a bare ``FAIL`` summary / ``[build failed]`` (a
     build failure prints no ``--- FAIL:`` line). Malformed JSON lines are ignored.
+
+    ``json.loads`` is guarded against more than ``ValueError``: an untrusted repo's
+    test can print a crafted deeply-nested JSON line that passes the ``{…}`` filter
+    yet overflows the decoder's recursion limit (``RecursionError``) or exhausts
+    memory (``MemoryError``) — neither is a ``ValueError``, so catching only that
+    would let the exception crash the deterministic DOES-IT-RUN lens on hostile
+    input. All three are swallowed (mirrors ``langfloor._npm_test_script``).
     """
     passed = fail = 0
     saw_event = False
@@ -228,7 +247,7 @@ def _count_go(output: str) -> tuple[int, int]:
             continue
         try:
             obj = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError, MemoryError):
             continue
         if not isinstance(obj, dict):
             continue
