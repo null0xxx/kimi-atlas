@@ -242,5 +242,35 @@ class TestDetectMemBackend(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
 
 
+import os, sys, textwrap
+class TestLaunchEnv(unittest.TestCase):
+    def _py(self, body):
+        # a tiny python program that prints selected env keys; argv-only, no shell
+        return [sys.executable, "-c", body]
+
+    def test_env_none_inherits_parent(self):
+        os.environ["PROCCAP_MARKER"] = "inherited"
+        try:
+            res = proccap._launch_and_wait(
+                self._py("import os,sys;sys.stdout.write(os.environ.get('PROCCAP_MARKER',''))"),
+                cwd=os.getcwd(), timeout_s=30)   # env omitted -> None -> inherit
+            self.assertEqual(res["returncode"], 0)
+            self.assertEqual(res["stdout"], "inherited")
+        finally:
+            del os.environ["PROCCAP_MARKER"]
+
+    def test_env_dict_replaces_parent(self):
+        os.environ["PROCCAP_MARKER"] = "inherited"
+        try:
+            res = proccap._launch_and_wait(
+                self._py("import os,sys;sys.stdout.write('M='+os.environ.get('PROCCAP_MARKER','<none>'))"),
+                cwd=os.getcwd(), timeout_s=30,
+                env={"PATH": os.environ.get("PATH", "")})   # explicit env WITHOUT the marker
+            self.assertEqual(res["returncode"], 0)
+            self.assertEqual(res["stdout"], "M=<none>")   # marker did NOT leak into the child
+        finally:
+            del os.environ["PROCCAP_MARKER"]
+
+
 if __name__ == "__main__":
     unittest.main()

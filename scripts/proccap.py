@@ -269,7 +269,9 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pass
 
 
-def _launch_and_wait(argv: list[str], cwd: str, timeout_s: int) -> dict:
+def _launch_and_wait(
+    argv: list[str], cwd: str, timeout_s: int, env: dict[str, str] | None = None
+) -> dict:
     """Run ``argv`` to completion under a wall-clock timeout (the one side effect).
 
     Returns ``{stdout, stderr, returncode, timed_out, launched}``. ``launched`` is
@@ -279,11 +281,19 @@ def _launch_and_wait(argv: list[str], cwd: str, timeout_s: int) -> dict:
     grandchildren (test workers, compilers) that a single-child kill would orphan;
     the group's pipe write-ends are then closed, so the post-kill drain returns
     promptly instead of hanging on orphans.
+
+    ``env`` controls the child's environment. When ``None`` (every existing caller,
+    e.g. ``runcheck.run``) it is passed straight through to ``Popen(env=None)``,
+    which inherits the parent env exactly as before — byte-equivalent to omitting
+    it. A dict gives the child *exactly* that environment and nothing else, the
+    hermetic path a future ``nativefloor`` uses to run a workload under an env it
+    fully controls.
     """
     try:
         proc = subprocess.Popen(
             argv,
             cwd=cwd,
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
