@@ -280,6 +280,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 - [`references/rubric.md`](references/rubric.md) — the 6 falsifiable verification lenses and the PASS bar
 - [`references/system-map.md`](references/system-map.md) · [`references/system-graph.json`](references/system-graph.json) — the whole-system map (every subsystem, node, and edge)
 - [`docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md`](docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md) — the Graph+Loop+Verification design, hardened through six rounds of the plugin's own 6-lens harness
+- [`docs/superpowers/specs/2026-07-22-universal-floor-blueprint.md`](docs/superpowers/specs/2026-07-22-universal-floor-blueprint.md) — the plan to make the deterministic floor strict for **every language**, not just Python (run-signal, syntax floor, fail-open native tools)
 - [`docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md`](docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md) — the 31-task TDD build plan · [`docs/superpowers/plans/2026-07-20-flaw-register.md`](docs/superpowers/plans/2026-07-20-flaw-register.md) — the verified flaw register (all fixed)
 - [`references/skill-registry.md`](references/skill-registry.md) — registry schema, selection algorithm, override semantics, rebuild
 - [`references/live-validation.md`](references/live-validation.md) — the live-on-Kimi-3 validation reports
