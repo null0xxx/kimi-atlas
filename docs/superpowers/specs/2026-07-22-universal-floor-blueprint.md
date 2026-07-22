@@ -138,6 +138,20 @@ everywhere. cargo/go run-signal best-effort under the 2048 MB cap. Bare-pytest r
 `collectable_pytest` signal → UNVERIFIED. Polyglot `make test` recipes verify if any identified tag
 passes. Deny-network is fetch-denial only. cgroup-less → tools uncapped-but-timeout-bounded.
 
+**P2 as-shipped (`syntaxlens` folded into VERIFIED as Lens 5c, mirroring `astlens`).** In THIS
+repo's default toolchain-less runtime **`node`/`php`/`bash` are present but `ruby`/`gofmt` are
+absent**, so **Go and Ruby syntax are uncovered here** (fail-open no-op — never a false red); the
+`.github/workflows/native-floor.yml` lane is where those two are hard-asserted and actually
+exercised. The hermetic runner is **cgroup-less on the default host → parse checks run
+uncapped-but-wall-clock-timeout-bounded** (`_effective_backend` never falls to the `ulimit` shell
+backend, preserving argv-only). **`.jsx`/`.ts`/`.tsx` are advisory-only** (no `SYNTAX_ARGV` entry —
+`node --check` cannot parse JSX/TS, so they are never dispatched and never a defect). **Config
+blocking is scoped to the corrected `syntaxlens._STRICT_CONFIG` map** (guaranteed-strict
+`package.json`/`composer.json`/`*-lock.json`/`pyproject.toml`/`Cargo.toml`/`Cargo.lock`/
+`poetry.lock`/`composer.lock` only); every OTHER `.json`/`.toml` — JSONC `tsconfig.json`, opaque
+`yarn.lock`/`Gemfile.lock`, arbitrary data — is advisory-only, the fix for the four CRITICAL
+false-blocks the plan-challenge caught. `sast` (the SECURITY floor) is untouched by P2.
+
 ## 9. Challenge record
 Six rounds eliminated the CRITICAL/systemic class (v5 re-scope) and caught real would-be bugs — an RCE
 (`ruby -w`), a dogfood-breaking wrapper false-red, an unanchored false-pass, forgeable anchors, and (R6)
