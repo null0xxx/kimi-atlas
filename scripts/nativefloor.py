@@ -59,6 +59,11 @@ from scripts import proccap
 # repo-controlled text can shape the on-disk basename (SECURITY-INVARIANT §4).
 _SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]+$")
 
+# The constant filename stem WE choose (never repo-derived). A rejected/empty ext
+# yields this bare stem alone; it is too weak a token to gate a defect on, so
+# :func:`_error_references_path` never treats the bare stem as a path match (§2.4).
+_BASENAME_STEM = "input"
+
 # How much of the tool's stderr to retain in the result (diagnostics only).
 _STDERR_TAIL_CHARS = 4000
 
@@ -124,8 +129,8 @@ def _safe_basename(ext: str) -> str:
     """
     lowered = (ext or "").lower()
     if _SAFE_EXT_RE.match(lowered):
-        return "input" + lowered
-    return "input"
+        return _BASENAME_STEM + lowered
+    return _BASENAME_STEM
 
 
 def _error_references_path(
@@ -138,9 +143,19 @@ def _error_references_path(
     non-zero exit as a syntax DEFECT when ``materialized_path`` OR ``basename``
     appears as a plain substring of ``stderr``/``stdout`` — a plain ``in`` test,
     NO regex, so there is no ReDoS surface. Pure.
+
+    Minor #2: when the ext was rejected, ``basename`` is the bare ``_BASENAME_STEM``
+    (``"input"``) — too weak a token, since it would match any output merely
+    containing the word "input". In that case we gate ONLY on the full
+    ``materialized_path`` (still a fully specific reference); the bare stem is not
+    trusted as a path match.
     """
     haystack = (stderr or "") + "\n" + (stdout or "")
-    return materialized_path in haystack or basename in haystack
+    if materialized_path in haystack:
+        return True
+    if basename != _BASENAME_STEM:
+        return basename in haystack
+    return False
 
 
 def _effective_backend(cgroup_only: bool) -> str:
@@ -203,23 +218,44 @@ def _run_one(
     Returns ``(result, launched)`` where ``launched`` is True iff a real tool
     process was actually started (the caller uses it to consume ``file_budget``).
     A tool-absent / empty / oversize job returns ``launched=False`` and does NOT
-    consume budget. The tempdir is always ``rmtree``'d in a ``finally``; any
-    unexpected exception degrades to a fail-open ``launch-failed`` result rather
-    than propagating (SECURITY-INVARIANT §4, and ``run`` never raises).
+    consume budget. The tempdir is always ``rmtree``'d in a ``finally`` (only when
+    one was actually created); any unexpected exception — a malformed ``job`` dict
+    (missing ``rel``/``argv``/``ext``) or an ``mkdtemp`` failure (TMPDIR
+    full/unwritable) included — degrades to a fail-open ``launch-failed`` result
+    for THIS job rather than propagating, so the batch always continues
+    (SECURITY-INVARIANT §4, and ``run`` never raises).
     """
-    rel = job["rel"]
-    argv = job["argv"]
-    tool_name = argv[0] if argv else ""
-    basename = _safe_basename(job["ext"])
-    tempdir = tempfile.mkdtemp(prefix="nativefloor-")
+    # Best-effort identity for the fail-open result even if ``job`` is malformed;
+    # each is upgraded in place as it is successfully read inside the guard below.
+    rel = ""
+    tool_name = ""
+    tempdir: str | None = None
     try:
+        # Important #1: reading job fields and creating the fresh tempdir happen
+        # INSIDE the guard, so a malformed job (missing rel/argv/ext) or an
+        # mkdtemp failure degrades to a single-job launch-failed result and NEVER
+        # aborts the batch. All job fields are read before any tempdir is created.
+        rel = job["rel"]
+        argv = job["argv"]
+        tool_name = argv[0] if argv else ""
+        basename = _safe_basename(job["ext"])
+        text = job["text"]
+        tempdir = tempfile.mkdtemp(prefix="nativefloor-")
         materialized_path = os.path.join(tempdir, basename)
 
-        text = job["text"]
         if not text:
             return _result(
                 rel, tool_name, ran=False, returncode=None, timed_out=False,
                 signature_matched=False, stderr_tail="", skipped_reason=_SKIP_EMPTY,
+            ), False
+        # Minor #3: cheap pre-filter before encoding. UTF-8 is >=1 byte/char, so
+        # len(text) > budget implies the encoded form exceeds budget too; skip the
+        # encode entirely in that case. The exact-encoded check below stays the
+        # precise gate.
+        if len(text) > max_source_bytes:
+            return _result(
+                rel, tool_name, ran=False, returncode=None, timed_out=False,
+                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_OVERSIZE,
             ), False
         encoded = text.encode("utf-8", errors="replace")
         if len(encoded) > max_source_bytes:
@@ -275,7 +311,10 @@ def _run_one(
             signature_matched=False, stderr_tail="", skipped_reason=_SKIP_LAUNCH_FAILED,
         ), False
     finally:
-        shutil.rmtree(tempdir, ignore_errors=True)
+        # Only rmtree a tempdir that was actually created: if mkdtemp failed (or a
+        # malformed job raised before it), ``tempdir`` is still None (Important #1).
+        if tempdir is not None:
+            shutil.rmtree(tempdir, ignore_errors=True)
 
 
 def _coerce_tail(stderr: object) -> str:

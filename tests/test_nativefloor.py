@@ -131,6 +131,67 @@ class TestStubMechanics(unittest.TestCase):
         self.assertEqual([x for x in leaked if x != os.path.basename(d)], [])
 
 
+class TestFailOpen(unittest.TestCase):
+    """`run`/`_run_one` NEVER raise: a malformed job or an mkdtemp failure degrades
+    to a single-job fail-open `launch-failed` result and the batch continues (§4)."""
+
+    def test_malformed_job_missing_key_is_failopen_and_batch_continues(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [
+                {"rel": "broken.rb", "text": "x", "argv": ["ruby", "-cw"]},  # missing "ext"
+                {"rel": "ok.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"},  # well-formed
+            ]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs)  # must NOT raise
+        self.assertEqual(len(results), 2)
+        self.assertFalse(results[0]["ran"])
+        self.assertEqual(results[0]["skipped_reason"], "launch-failed")
+        self.assertEqual(results[0]["rel"], "broken.rb")   # best-effort identity preserved
+        self.assertTrue(results[1]["ran"])                 # batch continued past the bad job
+
+    def test_mkdtemp_failure_is_failopen_and_does_not_raise(self):
+        def boom(*a, **k):
+            raise OSError("TMPDIR full/unwritable")
+        jobs = [{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}]
+        with mock.patch.object(nativefloor.tempfile, "mkdtemp", side_effect=boom):
+            results = nativefloor.run(jobs)  # must NOT raise despite mkdtemp OSError
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0]["ran"])
+        self.assertEqual(results[0]["skipped_reason"], "launch-failed")
+        self.assertEqual(results[0]["rel"], "a.rb")
+
+
+class TestSignatureTokenStrength(unittest.TestCase):
+    """Minor #2: the bare fallback stem ("input") is too weak to gate a defect on."""
+
+    def test_error_references_path_ignores_bare_stem(self):
+        # Bare stem must NOT match on the word alone; the full path still matches.
+        self.assertFalse(
+            nativefloor._error_references_path("boom input here", "", "/t/x/input", "input")
+        )
+        self.assertTrue(
+            nativefloor._error_references_path("boom /t/x/input here", "", "/t/x/input", "input")
+        )
+        # A basename WITH a validated extension is still a trusted token.
+        self.assertTrue(
+            nativefloor._error_references_path("err: input.rb", "", "/t/x/input.rb", "input.rb")
+        )
+
+    def test_invalid_ext_bare_stem_is_not_a_signature_match(self):
+        # Ext rejected -> basename is bare "input". The stub echoes its args (incl.
+        # the bare "input" positional) but NOT the full materialized path, so the
+        # non-zero exit must NOT be counted as a defect (fail-closed, no false positive).
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=1, echo_args=True)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run(
+                    [{"rel": "a", "text": "x", "argv": ["ruby", "-cw"], "ext": ".we;rd`"}]
+                )
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])   # bare "input" not trusted as a path ref
+
+
 class TestEffectiveBackend(unittest.TestCase):
     def test_cgroup_only_falls_to_none_when_not_cgroup(self):
         with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_ULIMIT):
