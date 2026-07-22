@@ -45,6 +45,8 @@ _PY_PASSED_RE = re.compile(r"(\d+) passed")
 _PY_FAILED_RE = re.compile(r"(\d+) failed")
 _PY_ERRORS_RE = re.compile(r"(\d+) errors?")
 _PY_NO_TESTS_RE = re.compile(r"no tests ran")
+# A tally token identifies pytest's summary line when there is no `=+…=+` rule.
+_PY_SUMMARY_TOKEN_RE = re.compile(r"passed|failed|error|no tests ran")
 
 # --- unittest ---------------------------------------------------------------
 _UT_RAN_RE = re.compile(r"Ran (\d+) tests? in")
@@ -55,9 +57,19 @@ _UT_FAILCOUNT_RE = re.compile(r"(?:failures|errors)=(\d+)")
 # --- go ---------------------------------------------------------------------
 _GO_PASS_LINE_RE = re.compile(r"^--- PASS:", re.MULTILINE)   # plain -v fallback
 _GO_FAIL_LINE_RE = re.compile(r"^--- FAIL:", re.MULTILINE)
+# A package that fails to COMPILE prints no `--- FAIL:` line — only a bare
+# `FAIL` summary and/or `[build failed]`; either forces fail>0 in the fallback.
+_GO_FAIL_SUMMARY_RE = re.compile(r"^FAIL\b", re.MULTILINE)
+_GO_BUILD_FAILED_RE = re.compile(r"\[build failed\]")
 
 # --- cargo ------------------------------------------------------------------
 _CARGO_RESULT_RE = re.compile(r"test result:[^\n]*?(\d+) passed[^\n]*?(\d+) failed")
+# A crate that fails to compile / whose harness aborts prints NO `test result:`
+# line — only a compiler/cargo error; any of these forces fail>0 so a passing
+# crate beside it cannot carry the run to green.
+_CARGO_ERROR_RE = re.compile(
+    r"error: test failed|error: could not compile|error\["
+)
 
 # --- jest -------------------------------------------------------------------
 _JEST_TESTS_LINE_RE = re.compile(r"^Tests:.*$", re.MULTILINE)
@@ -94,14 +106,36 @@ def _last_int(regex: re.Pattern[str], text: str) -> int:
     return int(matches[-1]) if matches else 0
 
 
+def _pytest_summary_line(output: str) -> str:
+    """The single pytest tally line to scan for pass/fail/error counts.
+
+    pytest prints its authoritative tally on the trailing ``=+…=+`` summary rule
+    (``===== 1 failed, 4 passed in 0.1s =====`` — the LAST such rule, after any
+    ``FAILURES`` / ``short test summary info`` section headers); a ``-q`` or
+    truncated capture with no rule uses the last line carrying a tally token.
+    Scoping the tally to this ONE line stops an incidental ``…found 2 errors…``
+    elsewhere in the log from flipping a genuinely-green run to red (I1).
+    """
+    rules = _PY_RULE_RE.findall(output)
+    if rules:
+        return rules[-1]
+    for line in reversed(output.splitlines()):
+        if _PY_SUMMARY_TOKEN_RE.search(line):
+            return line
+    return output
+
+
 def _count_pytest(output: str) -> tuple[int, int]:
     """``(passed, fail)`` for pytest — PASS-only, structural-marker-gated.
 
     Requires a pytest structural marker (``collected N items`` / ``platform …
     -- Python`` header / an ``=+…=+`` rule line); absent → ``(0, 0)`` so a smoke
-    log echoing ``5 passed`` cannot pass. ``fail`` = ``failed + errors`` and is
-    forced ``> 0`` on ``no tests ran`` — an exit-masked ``5 passed, 2 errors``
-    (0 ``failed``) therefore fails closed.
+    log echoing ``5 passed`` cannot pass. The pass/fail/error tally is read ONLY
+    from the summary line (:func:`_pytest_summary_line`), never the whole capture,
+    so a stray ``N failed``/``N errors`` in incidental output cannot flip a green
+    run to red (I1). ``fail`` = ``failed + errors`` and is forced ``> 0`` on ``no
+    tests ran`` — an exit-masked ``5 passed, 2 errors`` (the errors ARE on the
+    summary line, 0 ``failed``) therefore still fails closed.
     """
     if not (
         _PY_COLLECTED_RE.search(output)
@@ -109,9 +143,10 @@ def _count_pytest(output: str) -> tuple[int, int]:
         or _PY_RULE_RE.search(output)
     ):
         return (0, 0)
-    passed = _last_int(_PY_PASSED_RE, output)
-    fail = _last_int(_PY_FAILED_RE, output) + _last_int(_PY_ERRORS_RE, output)
-    if _PY_NO_TESTS_RE.search(output):
+    summary = _pytest_summary_line(output)
+    passed = _last_int(_PY_PASSED_RE, summary)
+    fail = _last_int(_PY_FAILED_RE, summary) + _last_int(_PY_ERRORS_RE, summary)
+    if _PY_NO_TESTS_RE.search(summary):
         fail = max(fail, 1)
     return (passed, fail)
 
@@ -138,10 +173,14 @@ def _count_unittest(output: str) -> tuple[int, int]:
 def _count_go(output: str) -> tuple[int, int]:
     """``(passed, fail)`` for go — ``-json`` test events (0 events → ``(0, 0)``).
 
-    Counts only test-level events (a ``"Test"`` field present); package-level
-    ``pass``/``fail`` summaries are skipped so they never double-count. When no
-    ``-json`` test event is seen, falls back to plain ``go test -v``'s
-    ``^--- PASS:`` / ``^--- FAIL:`` lines. Malformed JSON lines are ignored.
+    A ``pass`` is counted only at TEST level (a ``"Test"`` field present) so a
+    package-level ``pass`` summary never double-counts. A ``fail``, however, is
+    counted at TEST **or** PACKAGE level: a package that fails to compile emits
+    ``{"Action":"fail","Package":…}`` with NO ``"Test"`` field, and dropping it
+    would fabricate a pass on a masked multi-package run (C1). When no ``-json``
+    event is seen, falls back to plain ``go test -v``'s ``^--- PASS:`` /
+    ``^--- FAIL:`` lines, plus a bare ``FAIL`` summary / ``[build failed]`` (a
+    build failure prints no ``--- FAIL:`` line). Malformed JSON lines are ignored.
     """
     passed = fail = 0
     saw_event = False
@@ -153,19 +192,21 @@ def _count_go(output: str) -> tuple[int, int]:
             obj = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(obj, dict) or not obj.get("Test"):
+        if not isinstance(obj, dict):
             continue
         action = obj.get("Action")
-        if action == "pass":
+        if action == "pass" and obj.get("Test"):
             passed += 1
             saw_event = True
-        elif action == "fail":
+        elif action == "fail":                      # test-level OR package-level
             fail += 1
             saw_event = True
     if saw_event:
         return (passed, fail)
     p = len(_GO_PASS_LINE_RE.findall(output))
     f = len(_GO_FAIL_LINE_RE.findall(output))
+    if _GO_FAIL_SUMMARY_RE.search(output) or _GO_BUILD_FAILED_RE.search(output):
+        f = max(f, 1)
     return (p, f)
 
 
@@ -176,11 +217,19 @@ def _count_cargo(output: str) -> tuple[int, int]:
     ``0 passed`` line. Summing (not last-line) is load-bearing so an empty crate
     printed LAST cannot zero out an earlier crate's passes. No ``test result:``
     line at all → ``(0, 0)`` (structural marker absent).
+
+    A crate that fails to COMPILE or whose harness ABORTS prints NO ``test
+    result:`` line — only a compiler/cargo error — so its failure is invisible to
+    the summing loop; an ``error: test failed`` / ``error: could not compile`` /
+    ``error[…]`` anywhere forces ``fail>0`` so a passing crate beside it cannot
+    carry the run to green (C1).
     """
     passed = fail = 0
     for p, f in _CARGO_RESULT_RE.findall(output):
         passed += int(p)
         fail += int(f)
+    if _CARGO_ERROR_RE.search(output):
+        fail = max(fail, 1)
     return (passed, fail)
 
 

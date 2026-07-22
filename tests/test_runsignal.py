@@ -56,6 +56,18 @@ PYTEST_ALL_FAILED = (
 )
 # pytest that collected nothing.
 PYTEST_NO_TESTS = "===== no tests ran in 0.01s ====="
+# A genuinely-green pytest run with a stray `N errors` in incidental output (a
+# linter/plugin line) ABOVE the summary. Scanning the whole capture would fold
+# that `2 errors` into fail_count and flip green→red (I1, false-UNVERIFIED); only
+# the `=+…=+` summary line carries the authoritative tally.
+PYTEST_INCIDENTAL_ERRORS = (
+    "collected 5 items\n"
+    "...found 2 errors and auto-fixed them...\n"
+    "===== 5 passed in 0.10s ====="
+)
+# The masked `5 passed, 2 errors` veto — the errors ARE on the summary/tally line,
+# so it must STILL fail closed even after summary-scoping (I1 guard).
+PYTEST_ERRORS_ON_SUMMARY = "collected 5 items\n5 passed, 2 errors in 0.5s"
 
 # unittest -v summary lines.
 UNITTEST_OK = "Ran 7 tests in 0.2s\nOK"
@@ -105,6 +117,26 @@ GO_PLAIN_V = (
     "PASS\n"
     "ok  \texample/foo\t0.002s"
 )
+# go test -json under a masked exit (`go test -json ./... || true`): package ex/a
+# passes but package ex/b FAILS TO COMPILE — a package-level `fail` event with NO
+# `Test` field. Dropping it fabricates a pass (C1); the package-level fail vetoes.
+GO_JSON_MIXED_PKG_FAIL = "\n".join([
+    '{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"ex/a","Test":"TestA"}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"ex/a","Test":"TestA","Elapsed":0.01}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"ex/a","Elapsed":0.02}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"fail","Package":"ex/b"}',
+])
+# Plain `go test ./...` where a package fails to BUILD — no `--- FAIL:` line, only
+# a bare `FAIL` summary + `[build failed]`. The broadened fallback reads it as a
+# fail (C1) so the passing package cannot carry the run to green.
+GO_PLAIN_BUILD_FAILED = (
+    "=== RUN   TestAdd\n"
+    "--- PASS: TestAdd (0.00s)\n"
+    "ok  \texample/a\t0.002s\n"
+    "# example/b\n"
+    "./b_test.go:3:1: undefined: Foo\n"
+    "FAIL\texample/b [build failed]\n"
+)
 
 # cargo test: three per-crate summaries, the empty crate LAST (so a naive
 # last-line parse would read 0 passed — this pins the SUM across crates).
@@ -124,6 +156,29 @@ CARGO_TWO_CRATE = (
 CARGO_FAILED = (
     "running 3 tests\n"
     "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"
+)
+# cargo workspace under a masked exit: crate `foo` passes (a real `test result:`
+# line) but crate `bar` FAILS TO COMPILE — no `test result:` line for bar, only
+# `error[...]` + `error: could not compile`. The compile error MUST veto (C1) or
+# `(5, True)` fabricates a pass.
+CARGO_COMPILE_ERROR = (
+    "   Compiling foo v0.1.0\n"
+    "     Running unittests src/lib.rs\n\n"
+    "running 5 tests\n"
+    "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+    "   Compiling bar v0.1.0\n"
+    "error[E0425]: cannot find value `baz` in this scope\n"
+    " --> bar/src/lib.rs:2:5\n"
+    "error: could not compile `bar` (lib test) due to 1 previous error\n"
+)
+# A crate whose test harness ABORTS mid-run (a panic/segfault in the test
+# process) prints `error: test failed` with NO `test result:` line; a passing
+# crate beside it must not carry the whole run to green (C1).
+CARGO_HARNESS_ABORT = (
+    "running 5 tests\n"
+    "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+    "     Running tests/aborts.rs\n"
+    "error: test failed, to rerun pass `-p bar --test aborts`\n"
 )
 
 # jest: a failed Test SUITE (broken import) but the Tests line reads 0 failed.
@@ -209,6 +264,17 @@ class TestPytest(unittest.TestCase):
         # `collected 0 items / 1 error` — the error joins fail_count → not collected.
         self.assertEqual(runsignal.count(PYTEST_COLLECT_ERROR, ("pytest",)), (0, False))
 
+    def test_incidental_errors_off_summary_are_ignored(self):
+        # I1: a stray `2 errors` ABOVE the summary must NOT flip a green run to red.
+        self.assertEqual(
+            runsignal.count(PYTEST_INCIDENTAL_ERRORS, ("pytest",)), (5, True)
+        )
+
+    def test_errors_on_summary_line_still_veto(self):
+        # I1 guard: `5 passed, 2 errors` ON the tally line still fails closed.
+        _, collected = runsignal.count(PYTEST_ERRORS_ON_SUMMARY, ("pytest",))
+        self.assertFalse(collected)
+
 
 class TestUnittest(unittest.TestCase):
     def test_ok(self):
@@ -237,6 +303,17 @@ class TestGo(unittest.TestCase):
     def test_plain_verbose_fallback(self):
         self.assertEqual(runsignal.count(GO_PLAIN_V, ("go test",)), (2, True))
 
+    def test_json_package_level_fail_vetoes(self):
+        # C1: ex/a passes, ex/b is a package-level `fail` (build failure, no `Test`).
+        count, collected = runsignal.count(GO_JSON_MIXED_PKG_FAIL, ("go test",))
+        self.assertEqual(count, 1)
+        self.assertFalse(collected)
+
+    def test_plain_build_failed_fallback_vetoes(self):
+        # C1: a bare `FAIL … [build failed]` (no `--- FAIL:`) counts as a fail.
+        _, collected = runsignal.count(GO_PLAIN_BUILD_FAILED, ("go test",))
+        self.assertFalse(collected)
+
 
 class TestCargo(unittest.TestCase):
     def test_two_crate_sum_empty_last(self):
@@ -244,6 +321,17 @@ class TestCargo(unittest.TestCase):
 
     def test_failed_crate(self):
         count, collected = runsignal.count(CARGO_FAILED, ("cargo test",))
+        self.assertFalse(collected)
+
+    def test_compile_error_crate_vetoes(self):
+        # C1: a passing crate beside a crate that fails to COMPILE → NOT collected.
+        count, collected = runsignal.count(CARGO_COMPILE_ERROR, ("cargo test",))
+        self.assertEqual(count, 5)
+        self.assertFalse(collected)
+
+    def test_harness_abort_vetoes(self):
+        # C1: `error: test failed` with no `test result:` line for the aborted crate.
+        _, collected = runsignal.count(CARGO_HARNESS_ABORT, ("cargo test",))
         self.assertFalse(collected)
 
 
