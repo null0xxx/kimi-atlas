@@ -103,19 +103,20 @@ def tool_path(name: str) -> str | None:
 def _hermetic_env() -> dict[str, str]:
     """Return the child environment, BUILT FROM SCRATCH (SECURITY-INVARIANT §3).
 
-    Exactly ``{PATH, HOME, LANG, TMPDIR}`` — each read from the parent when set,
-    else a safe default. This is a fresh dict, NOT ``os.environ.copy()`` with keys
-    removed, so hostile interpreter hooks (``NODE_OPTIONS``, ``RUBYOPT``,
-    ``BASH_ENV``, ``LD_PRELOAD``, ``PHP_INI_SCAN_DIR``, …) simply do not exist in
-    the child. Pure: reads ``os.environ`` but has no side effect.
+    Exactly the keys in :data:`_HERMETIC_ENV_KEYS` (``{PATH, HOME, LANG, TMPDIR}``) —
+    each read from the parent when set, else a safe per-key default. The keyset is
+    DERIVED by iterating :data:`_HERMETIC_ENV_KEYS`, so that tuple is the SINGLE
+    source of truth: the built env can never silently diverge from the documented
+    §3 keyset (``set(_hermetic_env()) == set(_HERMETIC_ENV_KEYS)`` is a test). This
+    is a fresh dict, NOT ``os.environ.copy()`` with keys removed, so hostile
+    interpreter hooks (``NODE_OPTIONS``, ``RUBYOPT``, ``BASH_ENV``, ``LD_PRELOAD``,
+    ``PHP_INI_SCAN_DIR``, …) simply do not exist in the child. Pure: reads
+    ``os.environ`` but has no side effect.
     """
     tmp = tempfile.gettempdir()
-    return {
-        "PATH": os.environ.get("PATH", os.defpath),
-        "HOME": os.environ.get("HOME", tmp),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "TMPDIR": os.environ.get("TMPDIR", tmp),
-    }
+    # Safe default per key, applied only when the parent does not set that key.
+    defaults = {"PATH": os.defpath, "HOME": tmp, "LANG": "C.UTF-8", "TMPDIR": tmp}
+    return {key: os.environ.get(key, defaults[key]) for key in _HERMETIC_ENV_KEYS}
 
 
 def _safe_basename(ext: str) -> str:
@@ -204,6 +205,22 @@ def _result(
     }
 
 
+def _skip(rel: str, tool: str, reason: str, stderr_tail: str = "") -> dict:
+    """Build one fail-open SKIP result — the single definition of the skip shape.
+
+    Every skip site (empty / oversize / tool-absent / launch-failed / budget /
+    unexpected-exception) fills the SAME fixed fail-open fields (``ran=False,
+    returncode=None, timed_out=False, signature_matched=False``); centralizing them
+    here guarantees one shape. A skip is NEVER a defect (SECURITY-INVARIANT §5):
+    ``ran=False`` with a ``skipped_reason`` is always fail-open. Byte-identical to
+    the prior inline ``_result(...)`` calls it replaces.
+    """
+    return _result(
+        rel, tool, ran=False, returncode=None, timed_out=False,
+        signature_matched=False, stderr_tail=stderr_tail, skipped_reason=reason,
+    )
+
+
 def _run_one(
     job: dict,
     *,
@@ -215,8 +232,9 @@ def _run_one(
 
     Returns ``(result, launched)`` where ``launched`` is True iff a real tool
     process was actually started (the caller uses it to consume ``file_budget``).
-    A tool-absent / empty / oversize job returns ``launched=False`` and does NOT
-    consume budget. The tempdir is always ``rmtree``'d in a ``finally`` (only when
+    A tool-absent / empty / oversize / launch-failed job (Popen never started a
+    process) returns ``launched=False`` and does NOT consume budget — only a real
+    launch does. The tempdir is always ``rmtree``'d in a ``finally`` (only when
     one was actually created); any unexpected exception — a malformed ``job`` dict
     (missing ``rel``/``argv``/``ext``) or an ``mkdtemp`` failure (TMPDIR
     full/unwritable) included — degrades to a fail-open ``launch-failed`` result
@@ -242,35 +260,23 @@ def _run_one(
         materialized_path = os.path.join(tempdir, basename)
 
         if not text:
-            return _result(
-                rel, tool_name, ran=False, returncode=None, timed_out=False,
-                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_EMPTY,
-            ), False
+            return _skip(rel, tool_name, _SKIP_EMPTY), False
         # Minor #3: cheap pre-filter before encoding. UTF-8 is >=1 byte/char, so
         # len(text) > budget implies the encoded form exceeds budget too; skip the
         # encode entirely in that case. The exact-encoded check below stays the
         # precise gate.
         if len(text) > max_source_bytes:
-            return _result(
-                rel, tool_name, ran=False, returncode=None, timed_out=False,
-                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_OVERSIZE,
-            ), False
+            return _skip(rel, tool_name, _SKIP_OVERSIZE), False
         encoded = text.encode("utf-8", errors="replace")
         if len(encoded) > max_source_bytes:
-            return _result(
-                rel, tool_name, ran=False, returncode=None, timed_out=False,
-                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_OVERSIZE,
-            ), False
+            return _skip(rel, tool_name, _SKIP_OVERSIZE), False
 
         with open(materialized_path, "wb") as fh:
             fh.write(encoded)
 
         tool = tool_path(tool_name)
         if tool is None:
-            return _result(
-                rel, tool_name, ran=False, returncode=None, timed_out=False,
-                signature_matched=False, stderr_tail="", skipped_reason=_SKIP_TOOL_ABSENT,
-            ), False
+            return _skip(rel, tool_name, _SKIP_TOOL_ABSENT), False
 
         # SECURITY-INVARIANT §1/§2: argv-list only; the basename (not a repo path)
         # is the final positional; wrapped under cgroup-or-NONE (never ulimit sh).
@@ -281,13 +287,15 @@ def _run_one(
         res = proccap._launch_and_wait(
             wrapped, cwd=tempdir, timeout_s=per_file_timeout_s, env=_hermetic_env()
         )
-        # A launch happened (or was attempted): this consumes the file budget.
+        # No real process started (Popen never launched): return launched=False so a
+        # launch failure does NOT consume the file budget — it is a fail-open no-op,
+        # not a real attempt (matches this function's `launched is True iff a real
+        # tool process was actually started` contract). Only a real launch below
+        # (ran=True) consumes budget.
         if res["launched"] is False:
-            return _result(
-                rel, tool_name, ran=False, returncode=None, timed_out=False,
-                signature_matched=False, stderr_tail=_coerce_tail(res.get("stderr", "")),
-                skipped_reason=_SKIP_LAUNCH_FAILED,
-            ), True
+            return _skip(
+                rel, tool_name, _SKIP_LAUNCH_FAILED, _coerce_tail(res.get("stderr", ""))
+            ), False
 
         timed_out = bool(res["timed_out"])
         returncode = res["returncode"]
@@ -304,10 +312,7 @@ def _run_one(
             stderr_tail=_coerce_tail(res.get("stderr", "")), skipped_reason=None,
         ), True
     except Exception:  # noqa: BLE001 — fail-open: an unexpected error is never a defect.
-        return _result(
-            rel, tool_name, ran=False, returncode=None, timed_out=False,
-            signature_matched=False, stderr_tail="", skipped_reason=_SKIP_LAUNCH_FAILED,
-        ), False
+        return _skip(rel, tool_name, _SKIP_LAUNCH_FAILED), False
     finally:
         # Only rmtree a tempdir that was actually created: if mkdtemp failed (or a
         # malformed job raised before it), ``tempdir`` is still None (Important #1).
@@ -364,11 +369,7 @@ def run(
         # SECURITY-INVARIANT §4 / spec §2.7: budget check FIRST — no tool
         # resolution, no launch, no tempdir when the batch budget is spent.
         if ran_count >= file_budget or (time.monotonic() - start) > wall_budget_s:
-            results.append(_result(
-                job.get("rel", ""), tool_name, ran=False, returncode=None,
-                timed_out=False, signature_matched=False, stderr_tail="",
-                skipped_reason=_SKIP_BUDGET,
-            ))
+            results.append(_skip(job.get("rel", ""), tool_name, _SKIP_BUDGET))
             continue
         result, launched = _run_one(
             job,

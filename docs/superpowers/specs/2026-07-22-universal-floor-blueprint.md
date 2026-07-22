@@ -144,7 +144,10 @@ absent**, so **Go and Ruby syntax are uncovered here** (fail-open no-op — neve
 `.github/workflows/native-floor.yml` lane is where those two are hard-asserted and actually
 exercised. The hermetic runner is **cgroup-less on the default host → parse checks run
 uncapped-but-wall-clock-timeout-bounded** (`_effective_backend` never falls to the `ulimit` shell
-backend, preserving argv-only). **`.jsx`/`.ts`/`.tsx` are advisory-only** (no `SYNTAX_ARGV` entry —
+backend, preserving argv-only). **AS-BUILT:** the earlier "cgroup-or-uncapped mode (a param)"
+`cgroup_only` knob (§2.7) was **removed** during the shipped-6-lens hardening — `_effective_backend()`
+takes no argument and unconditionally returns cgroup-or-`NONE`; the behaviour above is unchanged, only
+the dead param is gone. **`.jsx`/`.ts`/`.tsx` are advisory-only** (no `SYNTAX_ARGV` entry —
 `node --check` cannot parse JSX/TS, so they are never dispatched and never a defect). **Config
 blocking is scoped to the corrected `syntaxlens._STRICT_CONFIG` map** (guaranteed-strict
 `package.json`/`composer.json`/`*-lock.json`/`pyproject.toml`/`Cargo.toml`/`Cargo.lock`/

@@ -55,6 +55,13 @@ def _write_sleep_stub(d: str, sleep_s, exit_code: int = 0) -> str:
 
 
 class TestHermeticEnv(unittest.TestCase):
+    def test_env_keyset_is_derived_from_the_single_source_of_truth(self):
+        # _hermetic_env DERIVES its keyset by iterating _HERMETIC_ENV_KEYS, so the
+        # tuple is the ONE source of truth — the built env can never silently drift
+        # from the documented SECURITY-INVARIANT §3 keyset.
+        self.assertEqual(set(nativefloor._hermetic_env()), set(nativefloor._HERMETIC_ENV_KEYS))
+        self.assertEqual(nativefloor._HERMETIC_ENV_KEYS, ("PATH", "HOME", "LANG", "TMPDIR"))
+
     def test_env_is_exactly_the_four_keys(self):
         hostiles = ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV")
         for h in hostiles:
@@ -137,6 +144,26 @@ class TestStubMechanics(unittest.TestCase):
             self.assertFalse(r["ran"])
             self.assertEqual(r["skipped_reason"], "budget-exhausted")   # unconditional
 
+    def test_launch_failure_does_not_consume_budget(self):
+        # A Popen that never started a process (launched=False) is a fail-open
+        # no-op, NOT a real attempt, so it must not count against file_budget. With
+        # file_budget=N and N+1 jobs whose launches ALL fail, every job gets a real
+        # attempt (all "launch-failed") — none is spuriously "budget-exhausted"
+        # because a failed launch wrongly burned a slot.
+        def _fail_launch(argv, cwd, timeout_s, env=None):
+            return {"stdout": "", "stderr": "boom", "returncode": None,
+                    "timed_out": False, "launched": False}
+        jobs = [{"rel": f"f{i}.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}
+                for i in range(3)]   # N+1 == 3 jobs against file_budget=2
+        with mock.patch.object(nativefloor, "tool_path", return_value="/bin/sh"), \
+             mock.patch.object(proccap, "_launch_and_wait", side_effect=_fail_launch):
+            results = nativefloor.run(jobs, file_budget=2)
+        self.assertEqual(len(results), 3)
+        for r in results:
+            self.assertFalse(r["ran"])
+            self.assertEqual(r["skipped_reason"], "launch-failed")   # a real attempt each
+        self.assertTrue(all(r["skipped_reason"] != "budget-exhausted" for r in results))
+
     def test_timed_out_run_is_never_a_defect(self):
         # SECURITY-INVARIANT §5 / the `not timed_out` signature gate: a run that is
         # KILLED for exceeding per_file_timeout_s is fail-open — never a defect — even
@@ -171,15 +198,25 @@ class TestStubMechanics(unittest.TestCase):
             self.assertEqual(r["skipped_reason"], "budget-exhausted")
 
     def test_no_tempdir_leak(self):
+        # Hermetic assertion: point tempfile.tempdir at a PRIVATE dir for the duration
+        # so nativefloor's mkdtemp(prefix="nativefloor-") lands there and the check
+        # depends ONLY on THIS test's activity — no shared /tmp read, so a concurrent
+        # nativefloor run in another test/process can no longer false-fail it.
+        # nativefloor rmtree's every dir it creates, so its private tempdir must hold
+        # no residual "nativefloor-*" entry.
         with tempfile.TemporaryDirectory() as d:
             stub = _write_stub(d, exit_code=0, echo_args=True)
-            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
-                nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
-        # Hermetic assertion: scope STRICTLY to nativefloor's OWN mkdtemp(prefix=
-        # "nativefloor-") dirs. A before/after diff of the whole shared tempdir would
-        # misattribute a concurrent process's /tmp activity as a leak (~8% flaky CI);
-        # nativefloor rmtree's every dir it creates, so none of its own must remain.
-        leaked = [x for x in os.listdir(tempfile.gettempdir()) if x.startswith("nativefloor-")]
+            with tempfile.TemporaryDirectory() as private_tmp:
+                saved = tempfile.tempdir
+                tempfile.tempdir = private_tmp   # nativefloor's mkdtemp() respects this
+                try:
+                    with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                        nativefloor.run(
+                            [{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}]
+                        )
+                    leaked = [x for x in os.listdir(private_tmp) if x.startswith("nativefloor-")]
+                finally:
+                    tempfile.tempdir = saved
         self.assertEqual(leaked, [])
 
 

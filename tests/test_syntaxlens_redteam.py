@@ -138,16 +138,11 @@ class TestBashEndToEnd(unittest.TestCase):
             syntaxlens.check({"evil.sh": "touch %s\n" % sentinel}, outside)
             self.assertFalse(os.path.exists(sentinel))  # bash -n parsed, never ran the touch
 
-    def test_bash_env_hook_does_not_leak(self):
-        with tempfile.TemporaryDirectory() as d:
-            evil = os.path.join(d, "evil.sh")
-            with open(evil, "w") as fh:
-                fh.write("echo leaked 1>&2\n")
-            os.environ["BASH_ENV"] = evil
-            try:
-                self.assertEqual(syntaxlens.check({"ok.sh": "echo hi\n"}, "."), [])
-            finally:
-                del os.environ["BASH_ENV"]
+    # NOTE: a `test_bash_env_hook_does_not_leak` was DELETED here — it was vacuous
+    # (BASH_ENV is a no-op under `bash -n`, so it passed whether or not the hermetic
+    # env was applied). The env-from-scratch invariant (§3) is proven non-vacuously
+    # by TestHermeticEnvIsReallyApplied.test_launch_receives_exactly_the_hermetic_env
+    # (spies the `env=`) + the NODE_OPTIONS test above.
 
     def test_broken_sh_has_teeth(self):
         d = syntaxlens.check({"bad.sh": "if [ 1 -eq 1 ]; then\n"}, ".")
@@ -164,12 +159,11 @@ class TestPhpEndToEnd(unittest.TestCase):
             syntaxlens.check({"evil.php": src}, outside)
             self.assertFalse(os.path.exists(sentinel))  # php -l linted, never ran the write
 
-    def test_php_ini_scan_dir_hook_does_not_leak(self):
-        os.environ["PHP_INI_SCAN_DIR"] = "/nonexistent/evil"
-        try:
-            self.assertEqual(syntaxlens.check({"ok.php": "<?php $x = 1;\n"}, "."), [])
-        finally:
-            del os.environ["PHP_INI_SCAN_DIR"]
+    # NOTE: a `test_php_ini_scan_dir_hook_does_not_leak` was DELETED here — it was
+    # vacuous (PHP_INI_SCAN_DIR→nonexistent is a no-op under `php -l`, so it passed
+    # regardless of whether the hermetic env was applied). The env-from-scratch
+    # invariant (§3) is proven non-vacuously by
+    # TestHermeticEnvIsReallyApplied.test_launch_receives_exactly_the_hermetic_env.
 
     def test_broken_php_has_teeth(self):
         d = syntaxlens.check({"bad.php": "<?php $x = ;\n"}, ".")

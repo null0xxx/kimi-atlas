@@ -172,6 +172,14 @@ def _launch_and_wait(argv: list[str], cwd: str, timeout_s: int, env: dict[str, s
 
 **Files:** Create `scripts/nativefloor.py`, `tests/test_nativefloor.py`.
 
+> **AS-BUILT (shipped-6-lens hardening):** the `cgroup_only` parameter shown below
+> (`run(..., cgroup_only=True, ...)` and `_effective_backend(cgroup_only)`) was
+> **removed** during hardening. `_effective_backend()` now takes no argument and
+> **unconditionally** returns cgroup-or-`_BACKEND_NONE` (it never falls to the
+> `ulimit` shell backend on this parse-only path). Behaviour is unchanged —
+> cgroup-capped where available, else uncapped-but-wall-clock-timeout-bounded — only
+> the dead param is gone. The snippets below are the original plan text, kept as-is.
+
 The single execution engine for the syntax floor. Pure helpers are unit-tested with **no tool**; `run`
 performs the one side effect (materialize → launch under cap → detect). **Every SECURITY-INVARIANT
 clause above is a test here.**
