@@ -46,7 +46,7 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
 
 ```
-/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.1
+/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.2.0
 /plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
 ```
 

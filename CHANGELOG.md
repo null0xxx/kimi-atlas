@@ -4,6 +4,42 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-07-22
+
+The **universal run-signal floor**: the DOES-IT-RUN gate now recognizes a genuine test run in
+**any positively-identified runner** — pytest, unittest, `go test -json`, cargo, jest, vitest,
+mocha, rspec, phpunit — not just Python. A green Go/Rust/JS/Ruby/PHP repo now *verifies* where
+before it degraded to `UNVERIFIED`. The recognizer is **PASS-only and fail-closed**: a
+`|| true`-masked failure, an errors-outside-examples run, or a package-level failure event can no
+longer fabricate a pass, and an unrecognized runner degrades to `UNVERIFIED` rather than guessing.
+Python output stays **byte-identical**, and the FROZEN pure gate (`verdict.merge`/`gate`) is
+untouched — the result-dict shape is unchanged. Design hardened through **7 rounds** of the
+plugin's own 6-lens *before* code, then the shipped code was put through **4 more rounds** of that
+same harness (7 → 2 → 3 → **0** defects) — catching six fabricated-pass/false-red vectors and five
+ReDoS in the new code, including two regressions introduced by earlier fixes — before the pure gate
+returned `OK`. Test suite **1040 → 1073**.
+
+### Added
+- **`scripts/runsignal.py`** — a pure, PASS-only run recognizer. Per-runner structural signatures
+  (a bare `passed` count is honored only when a *structural* marker co-occurs, so a smoke log cannot
+  pose as a test run); a polyglot recipe folds with **AND** (any masked-failing tag vetoes a green
+  one); and a universal untrusted-input bound (per-line 8192 / total 2 MB, tail-preserving) closes
+  the whole ReDoS class up front before any per-runner regex runs.
+- **`scripts/langfloor.py`** — the single run/floor language registry + a wrapper-expanding resolver:
+  `make test` / `npm test` / `bundle exec` / `poetry run` / `uv run` are read and expanded to the
+  runner tag(s) they actually invoke; an unsupported residual runner resolves to *empty* (→ `UNVERIFIED`).
+  Includes recursive `collectable_pytest` discovery with a `.venv`/`node_modules` denylist.
+- **`scripts/proccap.py`** — the cap/subprocess backend, extracted from `runcheck` byte-equivalently,
+  plus a broad command-agnostic `ran_the_build` recall that guards the double-execution cap branch.
+- **Benchmark harness** (`bench/`, `make bench-validate`) — measures gate *trustworthiness*
+  (confusion matrix, false-pass rate), not just task correctness.
+
+### Changed
+- **`scripts/runcheck.py`** rewired: retired `parse_test_count`/`parse_new_tests_collected`; the
+  discover order is now `make test` → `npm test` → `pytest` (iff collectable) → language markers →
+  `''` (unmarked → `UNVERIFIED`), and it threads the resolved runner tags into `runsignal.count`.
+- Whole-system map + graph regenerated (`references/system-map.md`, `references/system-graph.json`).
+
 ## [1.1.1] — 2026-07-21
 
 A patch release from a **live end-to-end run**: an atlas run on a real repo surfaced a genuine,
@@ -106,6 +142,7 @@ First public release.
   manual overrides via `references/skill-overrides.json`.
 - **713 unit tests**, `make ci` as the mechanical floor; MIT licensed.
 
+[1.2.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.2.0
 [1.1.1]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.1
 [1.1.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.0
 [1.0.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.0.0
