@@ -1,155 +1,167 @@
-# Universal deterministic floor — blueprint
+# Default-runtime strict floor + operator language coverage — blueprint (v7, 6-lens-hardened)
 
-> **Goal.** Make kimi-atlas's *deterministic* floor (the non-LLM half of the 6-lens gate) strict for
-> **every language**, not just Python — without breaking a single FROZEN invariant. Designed by a
-> 6-facet deep review over the current tree (graphify `992900a`) and challenged through the plugin's
-> own 6 lenses.
+> **Scope** *(R6 RC-2 — named for what actually ships)*: **the default-runtime strict floor = Python +
+> shell + config JSON/TOML**, plus (a) closing a pre-existing false-pass, (b) extending the "tests ran
+> and passed" proof to any **positively-identified** runner (else `UNVERIFIED`), and (c) an
+> operator-conditional syntax bonus for JS/Go/Ruby/PHP **that is ALSO uncovered in the default
+> toolchain-less runtime** *(R6 RC-1)*. Six adversarial 6-lens rounds (real `verdict.py`): R1(1C+12H) →
+> R2(1C+10H) → R3(2C+10H) → R4(2C+9H) → R5(0C+11H) → **R6(0C+8H, SECURITY & REQ-COV clean)**. Record: §9.
 
-> **Honest reframe (the review's most important correction).** "Strict + full for ALL languages" is
-> aspirational: a fresh `kimi -p` runtime has almost no toolchains installed, so a subprocess floor
-> **fail-opens to nothing** for most languages. The real, deliverable goal is:
-> **strict where a runner/tool is present; degrade fail-open (never false-block, never false-pass)
-> where it is not — and say so honestly per language.** The one guarantee we make everywhere is the
-> negative: the floor never *fabricates* a pass and never *false-reds* a healthy repo.
+## 0. The one guarantee
+Never fabricate a pass; never falsely-red a positively-understood repo. Un-confirmable → `UNVERIFIED`
+(safe degrade to the human gate), so a false-block is impossible by construction. Structural
+corroboration + **PASS-only counting** (§2.1) defeat accidental false-positives; a deliberate self-forge
+is out of the threat model.
 
----
+## 1. Coupling map
+C1 `parse_test_count`=pytest/unittest only, `(\d+) passed` UNANCHORED (false-pass) → C2 gate needs `ok
+AND test_count>0 AND new_tests_collected` (both test fields, `verdict.py:126-130`) → C3 `pytest` fallback
+false-reds · C4 `astlens` skips non-`.py` · C5 `suiterun` pytest-`--junit-xml` weave differential · C6
+SKILL Python defaults. Gate C2 stays PURE; the fix is upstream, feeding both fields.
 
-## 1. The coupling map (why Python is the only first-class language today)
+## 2. Design principles (v7)
 
-Severity-ranked, grounded in the current tree:
-
-| # | Coupling | Location | Sev | Effect |
-|---|----------|----------|-----|--------|
-| C1 | **`parse_test_count` understands only pytest + unittest** (`collected N`, `Ran N`, `N passed`) | `scripts/runcheck.py:48-93` | 🔴 CRITICAL | go/cargo/jest/vitest/mocha/rspec → `test_count = 0` |
-| C2 | **The gate itself requires `test_count > 0 AND new_tests_collected`** | `scripts/verdict.py:125-131`, `runcheck.green` `runcheck.py:281-292` | 🔴 CRITICAL | via C1, DOES-IT-RUN (the one fully-deterministic lens) is **unreachable** for non-pytest runners → a healthy suite is false-`UNVERIFIED` |
-| C3 | **`discover_verify_cmd` falls back to `pytest`** for any repo without a Makefile-`test`/`package.json` | `scripts/runcheck.py:101-119` | 🔴 CRITICAL | a Go/Rust/Ruby repo runs `pytest`, errors → **false-red** |
-| C4 | **`astlens` (syntax/parse + undefined-name floor) skips every non-`.py` file** | `scripts/astlens.py:47-49,259-261` | 🟠 HIGH | a JS/Go/Rust syntax error passes the floor silently (missing-coverage, not false-block) |
-| C5 | **`suiterun.run_suite` appends `--junit-xml` (pytest)** for the ATLAS-WEAVE differential | `scripts/suiterun.py:80-83` → `differential.regressions` | 🟠 HIGH | a non-pytest weave verify_cmd writes no JUnit → every baseline test reads as a **regression** (false-RED flood) |
-| C6 | SKILL freezes Python defaults (`test_glob=test_*.py`, pytest debug tokens) | `skills/atlas/SKILL.md:137,172,439` | 🟡 MEDIUM | JS/Go test files mis-split → a MEDIUM TEST-ADEQUACY false positive (non-blocking) |
-| C7 | Tests prove only pytest/unittest are parsed | `tests/test_runcheck.py` | 🟡 MEDIUM | the coupling is unguarded against regression |
-| C8 | `rubric.md` lens-5 prose claims generic determinism | `references/rubric.md:116-128` | ⚪ LOW | doc/impl honesty gap |
-
-**The gate (C2) is deliberately correct and stays untouched.** The fix is *upstream* in the parse layer
-(C1): once `parse_test_count` recognizes a runner, `test_count > 0` becomes true for a passing Go/JS
-suite and `verdict.gate` passes with **zero edits** — the pure gate is preserved.
-
----
-
-## 2. Design principles (all inherited from `sast.py`, the existing precedent)
-
-1. **Fail-open, exactly like `sast`.** Every native-tool path returns `[]` on: tool absent, subprocess
-   raise/timeout, ambiguous non-zero, or non-parseable output. A defect is emitted **only** on a
-   positively-recognized failure. `sast.py` already proves this pattern is safe and accepted.
-2. **Parse-only, never compile/execute.** Compilation runners (`go build`, `cargo build`, `rustc`,
-   `npm install`) fetch network + run arbitrary build scripts (supply-chain RCE) **and** blow the
-   2048 MB memory cap (→ cgroup kill → the mem-cap fail-open re-runs *uncapped* → unbounded RSS in the
-   very runtime we protect). The syntax floor uses **parse-only** tools: `node --check`, `ruby -c`,
-   `php -l`, `gofmt -e`, `bash -n`, `tsc --noEmit` — none of which execute code or fetch the network.
-3. **One canonical native seam.** A single `nativefloor.run(argv, …)` — argv-only (never `shell=True`),
-   `--` + `./`-prefixed paths, `stdin=DEVNULL`, own process session + `killpg`, hard wall-clock timeout,
-   and a **deny-by-default network + no-repo-config env** (`CARGO_NET_OFFLINE=1`, `GOFLAGS=-mod=mod
-   GOPROXY=off`, `npm_config_offline=true`; ignore repo `.eslintrc`/`tsconfig`/`jest.config`). Both
-   `sast` and the new floor route through it. The language→tool map is a **FROZEN in-module constant**
-   (like `sast._SEVERITY_MAP`), **never repo-overridable**, so untrusted repo content can never inject a
-   tool or flag.
-4. **Key on exit codes, not message text.** Determinism erodes if a verdict keys on a tool's *message*
-   (version/plugin drift). Emit a defect on `exit != 0` **AND** a tightly-anchored stderr pattern — two
-   signals — never on prose alone.
-5. **Fail-CLOSED on an unknown *runner* (opposite of the syntax floor).** For the run-signal (C1): an
-   unrecognized runner yields `test_count = 0` → gate `UNVERIFIED`. We never fabricate a positive test
-   count. (Syntax floor fails *open*; run-signal fails *closed* — because one is "did it parse" evidence,
-   the other is the load-bearing "tests actually ran" proof.)
-6. **Python byte-unchanged.** `astlens` keeps in-process `ast`; pytest/unittest signatures go **first** in
-   every registry so Python output parses identically.
-7. **The pure gate is FROZEN.** `verdict.merge/gate/final_status` are not touched. No LLM computes pass/fail.
-
----
+1. **Run recognition = POSITIVE runner-ID + STRUCTURAL corroboration + PASS-ONLY counting; fail-CLOSED.**
+   - **Identify at discover time** (has cwd): `langfloor` resolves the frozen `verify_cmd` — direct
+     (`pytest`, `python -m pytest`, `unittest`, `python -m unittest`, `go test`, `cargo test`, `jest`,
+     `vitest`, `mocha`, `rspec`, `phpunit`) or by wrapper expansion (`make test`→Makefile `test:` recipe;
+     `npm test`→`package.json scripts.test`; `bundle exec`/`poetry run`/`uv run`). It returns
+     **`(verify_cmd, runner_tag)`**; **both are frozen into the packet** and `runcheck.run` threads
+     `runner_tag` into `runsignal.count` *(R6 DIR-1 — plumbing specified; `count` stays pure)*.
+     A **polyglot recipe → an ordered set of tags**; `run()` folds the per-tag pairs into the gate's
+     single `(test_count=Σpassed_count, new_tests_collected)` where **`new_tests_collected := any tag
+     passed_count>0 AND NO tag has fail_count>0` (AND over tags, never OR** — an OR re-opens the
+     exit-masking false-pass, R7 COR-POLYGLOT); unresolved/unknown (tox/gradle/ctest) → `UNVERIFIED`.
+   - **Count PASS events only** *(R6 COR-4 — closes an exit-code-masking false-pass)*: because a Makefile
+     `test:` may mask the exit (`go test ./... || true`), `returncode==0` is NOT a sufficient pass signal.
+     `runsignal.count` returns `(passed_count, collected)` where the count is **successes only** — go
+     `-json {"Action":"pass"}` events (never `fail`); cargo/rspec/jest `passed = total − failed`; pytest
+     `(\d+) passed`. `runsignal` derives a **fail_count that also counts pytest `(\d+) errors?` and
+     `no tests ran`, and jest/mocha erroring/failed Test *Suites*** (a broken import prints
+     `5 passed, 2 errors` yet 0 `failed` — under `pytest || true` that would false-pass, R7
+     COR-FAILCOUNT); `collected := passed_count>0 AND fail_count==0`. The gate keeps `returncode==0`
+     as an additional AND, never the sole pass signal.
+   - **Structural marker required** (else count 0 → `UNVERIFIED`): pytest `(\d+) passed` co-occurring with
+     `collected \d+ items`/`platform … -- Python` header/`=+…=+` rule (so `Summary: 5 passed in 3.2s`→0);
+     unittest `^Ran \d+ tests? in`; go `-json` events or `^--- (PASS|FAIL):` (**0 test events →
+     UNVERIFIED**); cargo `test result:`; jest `Tests:`; mocha `passing`; rspec `examples`; phpunit
+     `^OK \(\d+ tests?`. The generic unanchored `(\d+) passed` fallback is removed.
+2. **Gate = two fields from ONE source** *(R5)*: `runsignal.count → (passed_count, collected)`;
+   `test_count := passed_count`, `new_tests_collected := collected`. **Both `parse_test_count` AND
+   `parse_new_tests_collected` retired**; no path references them.
+3. **`proccap.ran_the_build(output)` — a SEPARATE, BROAD recall that is a documented SUPERSET of the
+   retired recognizer** *(R6 COR-2/CQ-1/TA-3/DIR-3)*. It MUST include the pytest short-summary markers
+   `(\d+) (passed|failed|errors?)` (present under `-q`) PLUS the retired recognizer's **`collected (\d+)
+   items` and `Ran (\d+) tests? in`** (load-bearing in today's guard, R7 COR-RANBUILD) PLUS the new
+   go/cargo/jest/rspec/phpunit markers. It only ever *adds* recall, so it can only make the cap guard
+   **more** conservative (safer), never less. **The `_is_cap_start_failure` guard FLOW is preserved
+   exactly** — `if backend==NONE:False; if not launched:True; if backend==CGROUP and returncode!=0 and not
+   timed_out: return (not ran_the_build(output)) and _SYSTEMD_RUN_START_FAIL_RE.search(stderr); return
+   False` — but **"byte-equivalent" is reserved for the pure `_build_wrapper`/`_launch_and_wait`
+   mechanics** *(R6 DIR-3)*, NOT for `ran_the_build` (whose recall is a proven superset). §7 pins
+   `ran_the_build('2 passed, 3 failed in 1s') == True`.
+4. Syntax floor fail-open; defect only on `exit!=0` AND the tool's error signature that **also references
+   the materialized input path** *(R6 SEC-D1)* (e.g. node stderr contains `SyntaxError` and the temp path).
+5. `node --check` package-`type`-aware (`.mjs`; `.js`/`.cjs` iff nearest `package.json` commonjs/absent-and-
+   no-top-level-import; ESM-mode for `type:module`; `.jsx`/`.ts`/`.tsx`/ambiguous → advisory).
+6. **Parse-only, argv-ONLY, hermetic** *(R5 SEC-1, R6 SEC-D2/D3/D4)*: `node --check`/`ruby -cw`/`php -l`/
+   `gofmt -e`/`bash -n`. `nativefloor.run` = argv list (never `sh -c`); each file materialized to a
+   **tempfile basename WE control** in a **fresh empty tempdir used as cwd (never the repo)**; child env
+   **constructed from scratch = exactly `{PATH,HOME,LANG,TMPDIR}`** (not derived-then-stripped); a
+   **hard per-pass file-count cap + aggregate wall-clock budget** (degrade the remainder to advisory);
+   materialization byte-bounded; a **monkeypatchable tool-resolution seam** (`nativefloor.tool_path`,
+   mirroring `sast.semgrep_path`) *(R6 TA-4)*.
+7. **`scripts/proccap.py`** (extracted): `_build_wrapper`(+argv variant)/`_launch_and_wait`/
+   `_detect_mem_backend`/`_SYSTEMD_RUN_START_FAIL_RE`/`ran_the_build`/`_is_cap_start_failure`. `runcheck.run`
+   uses the **existing dual backend (cgroup + `ulimit -v` fallback), byte-equivalent**; `nativefloor.run`
+   requests **cgroup-or-uncapped mode** (a param) — no `ulimit -v` on the V8 path (huge virtual
+   reservation); cgroup-less → uncapped-but-timeout-bounded (disclosed) *(R6 CQ-2/DIR-2 reconciled)*.
+8. **`sast` is NOT routed through `nativefloor`** — keeps its shipped `subprocess.run` (dir scope,
+   `--config auto --metrics off`, own egress). `syntaxlens` is the sole `nativefloor` consumer.
+9. Pure gate FROZEN; `differential` absent→regression intact (whole-report-missing only); in-process
+   `json`/(guarded)`tomllib` catch `ValueError`/`MemoryError`/`RecursionError`, byte-bounded, **blocking
+   only for the config allowlist** (`package.json tsconfig.json pyproject.toml Cargo.toml composer.json
+   *.lock`), else advisory.
 
 ## 3. Components
+`langfloor.py` (NEW, pure) — the **ONE registry**: ordered marker→cmd probe list w/ precedence,
+wrapper-expansion resolvers, **per-tag {strict gate marker, broad recall marker}** *(R6 CQ-3)*,
+ext→syntax-argv, config allowlist. `discover_verify_cmd` order = **make→npm→pytest(iff `collectable_pytest`)
+→language markers** *(R6 COR-1 — markers AFTER pytest declines, so a Python+Cargo.toml/maturin or Go+Python
+repo still resolves to pytest)*; `collectable_pytest` = single predicate mirroring pytest's
+**recursive rootdir discovery** — `[tool.pytest.ini_options]`/`[tool:pytest]`, OR any `test_*.py`/
+`*_test.py` **anywhere under cwd** (not only `tests/`, R7 COR-COLLECTABLE); unmarked→`''`→UNVERIFIED.
+`runsignal.py` (NEW, pure) — `count(output, runner_tag) -> (passed_count, collected)`, **stdout Tier-1
+markers ONLY**; the JUnit Tier-0 path is `suiterun`/weave-only *(R6 CQ-4)*. `proccap.py`/`nativefloor.py`/
+`syntaxlens.py`/`lintlens.py` per §2. `suiterun` C5. `rubric.md` §0/§4.
 
-- **`scripts/runsignal.py`** (NEW, pure, stdlib `re` only). An ordered registry of line-anchored
-  `RunnerSignature`s, each `identify(cmd, output) → (count, collected) | None`, extracting **both** a
-  count and a pass/fail verdict. Tiers: **Tier-0** JUnit-XML (strongest, reuses `suiterun.parse_junit`
-  via the existing `{junit}` placeholder); **Tier-1** per-runner stdout (pytest, unittest [first,
-  unchanged], go `--- PASS/FAIL` + `^(ok|FAIL)`, cargo `test result: ok. N passed`, jest `Tests: N
-  passed`, vitest, mocha `N passing`, rspec `N examples, N failures`, surefire, ctest, dotnet); **Tier-2**
-  = today's pytest/unittest fallback. Regexes tightly anchored + empty-suite guards so a bare `\d+ passed`
-  in an unrelated log line can never manufacture a false-green.
-- **`runcheck.parse_test_count` / `parse_new_tests_collected`** refactored to
-  `[Python-canonical → runsignal.parse → generic fallback]`. **Re-verify the `_is_cap_start_failure`
-  double-execution safety proof (`runcheck.py:359-393`) against every newly-recognized runner** — the
-  two must not silently reshape each other.
-- **`discover_verify_cmd`** extended: append `Cargo.toml→cargo test`, `go.mod→go test -json ./...`,
-  `Gemfile/.rspec→bundle exec rspec` **after** the frozen `make→npm→pytest` chain. Explicit `verify_cmd`
-  still wins; `pytest` stays only as a Python-marker fallback.
-- **`scripts/syntaxlens.py`** (NEW, fail-open subprocess dispatcher; `astlens` untouched). Clones
-  `sast.py` structure: resolver → `scan` (dispatch per extension) → pure `parse`. A parse failure →
-  a HIGH DOES-IT-RUN defect. Plus **in-process stdlib parsers** for `.json` (`json.loads`) and `.toml`
-  (`tomllib`, stdlib 3.12) — cheap, host-independent, blocking HIGH, no subprocess.
-- **`scripts/lintlens.py`** (NEW, best-effort, **MEDIUM-capped**, fail-open, LAST). Safe non-executing
-  linters only: `shellcheck` (.sh), `ruby -w`. `eslint`/`tsc` deep semantic = **opt-in, off by default**
-  (they load repo config/plugins → RCE). Advisory — never HIGH.
-- **`suiterun.run_suite`** (C5): a per-runner JUnit flag (`jest --reporters=jest-junit`,
-  `gotestsum --junitfile`, `cargo nextest ci`) OR require `{junit}` in a weave verify_cmd; degrade the
-  differential honestly when no report exists rather than treating absence as regression.
-- **`references/rubric.md`** (C8): an explicit **per-language coverage/claim matrix** — which languages
-  get run-signal, syntax, and lint — so the multi-language claim is exact and honest.
+## 4. Coverage
+| | run-signal | syntax | ships in default runtime? |
+|---|---|---|---|
+| Python | pytest/unittest (ID+structural+PASS-only) | in-process `ast` (blocking) | ✅ |
+| JSON/TOML (allowlist) | — | `json`/`tomllib` (blocking) | ✅ |
+| Shell | — | `bash -n` (iff `bash` present) | ✅ (bash ships) |
+| Go·Ruby·PHP·JS | ID+structural+PASS-only (else UNVERIFIED) | `gofmt`/`ruby -cw`/`php -l`/`node --check` | ❌ (toolchain absent → no-op) |
+| Rust·TS·.jsx·Java·C/C++·C# | ID run-signal only | uncovered (TS: `tsc` is a type-checker, advisory-only) | ❌ |
 
----
+## 5. Phases
+**P1** `langfloor`(resolve+tag+order) + `runsignal.count`(PASS-only, two-field) + `proccap`(extract, full
+guard, superset recall) + retire `parse_*` + rewire `runcheck.run`(thread tag) + `discover_verify_cmd`.
+**P2** `nativefloor`(argv, hermetic cwd/env, cap mode, tool seam) + `syntaxlens`(type-aware node, config
+json/toml, red-team). **P3** `lintlens` + C5/C6.
 
-## 4. Per-language coverage matrix (honest)
+## 6. FROZEN preserved
+Pure gate untouched (both fields from `runsignal`) · pytest/unittest identical on genuine output ·
+stdlib-only · syntax fail-open · run-signal fail-CLOSED + PASS-only · `differential` intact · **discover
+make→npm→pytest spine preserved, language markers only AFTER pytest declines**, unmarked→`''` · one
+`langfloor` · `ran_the_build` a BROAD SUPERSET (guard flow byte-preserved; `_build_wrapper` mechanics
+byte-equivalent) · `sast` untouched · runcheck dual cap backend byte-equivalent, nativefloor cgroup-or-uncapped.
 
-| Language | run-signal (C1) | syntax floor (C4) | deep lint |
-|----------|-----------------|-------------------|-----------|
-| **Python** | pytest/unittest (unchanged) | **in-process `ast`** (MUST-HAVE, blocking) + undefined-name/unused-import | the only stdlib semantic floor |
-| **JSON / TOML** | — | **in-process** `json.loads` / `tomllib` (blocking, host-independent) | — |
-| **JS (.js/.mjs/.cjs)** | jest / vitest / mocha stdout + JUnit | `node --check` (parse-only) where node present | eslint (opt-in, RCE-gated) |
-| **TypeScript** | jest/vitest | `tsc --noEmit` best-effort; **uncovered when tsc absent** | tsc/eslint advisory |
-| **Go** | `go test -json` / `--- PASS` | `gofmt -e` (parse-only; **not** `go build/vet` — network+compile) | go vet (opt-in) |
-| **Rust** | `cargo test` `test result: ok. N passed` | *(no safe parse-only tool; degrade)* | clippy (opt-in) |
-| **Ruby** | rspec `N examples` | `ruby -c` (parse-only) | `ruby -w` / rubocop (opt-in) |
-| **PHP** | phpunit | `php -l` (parse-only) | — |
-| **Shell** | — | `bash -n` (parse-only) | shellcheck |
+## 7. Tests
+Hard CI lane (**named job**, pinned `node`/`ruby`/`php`/`go`/`shellcheck`+jest/rspec, **hard-assert
+present**): per-tool non-exec red-team (sentinel + no-child + `NODE_OPTIONS`/`RUBYOPT` no-effect +
+positive-signal) **AND the POSITIVE recognition path against each real tool** *(R6 TA-2)*; live-drift
+(fail-safe UNVERIFIED only). Offline goldens: pytest `-q`/verbose/`addopts=-q`/stray-`passed`; direct +
+`make`-wrapped unittest; go plain+`-json` (0-Test→UNVERIFIED; **`go test||true` all-fail→UNVERIFIED**,
+COR-4); cargo two-crate; jest/mocha/rspec/phpunit; per-runner **lone-marker→0** and **all-failed→
+collected=False**; resolver matrix (Python+Cargo.toml→pytest; tox/gradle→UNVERIFIED; `.js`+commonjs→
+checked, `.js`+`type:module`→ESM, `.jsx`→advisory) *(R6 TA-5)*; `Summary: 5 passed in 3.2s`→0;
+`ran_the_build('2 passed, 3 failed in 1s')==True`; full-guard `_is_cap_start_failure` (dangerous branch +
+`not launched→True`); **re-baselined `test_default_pytest`: empty dir → `''`/UNVERIFIED (contract change
+stated)** *(R6 TA-1)*; config invalid→BLOCK / data invalid→advisory; symlink/`../`→reject; `sast`
+unchanged; `proccap._build_wrapper` byte-equivalence.
 
-Everything absent **degrades fail-open** (syntax/lint) or **fails-closed to UNVERIFIED** (run-signal).
+## 8. Residual (disclosed)
+**In the default runtime, Go/Ruby/PHP/JS syntax is ALSO uncovered** (their tools are absent → no-op);
+the default strict floor is Python + shell + config JSON/TOML. Rust/TS/.jsx/Java/C/C++/C# uncovered
+everywhere. cargo/go run-signal best-effort under the 2048 MB cap. Bare-pytest repos with no
+`collectable_pytest` signal → UNVERIFIED. Polyglot `make test` recipes verify if any identified tag
+passes. Deny-network is fetch-denial only. cgroup-less → tools uncapped-but-timeout-bounded.
 
----
+## 9. Challenge record
+Six rounds eliminated the CRITICAL/systemic class (v5 re-scope) and caught real would-be bugs — an RCE
+(`ruby -w`), a dogfood-breaking wrapper false-red, an unanchored false-pass, forgeable anchors, and (R6)
+an **exit-code-masking false-pass** in the go/cargo tier. **v7** folds every R6 finding: PASS-only
+counting, pytest-priority discover order, the `ran_the_build` superset with truthful equivalence scope,
+runner_tag threading, the reconciled cap backend, the re-baselined discover test, and hermetic
+cwd/env/file-budget. **R7(0C+7H, CODE-QUALITY & SECURITY clean)** — remaining findings are run-signal
+*counting micro-rules* (AND-over-polyglot-tags, pytest `errors` in fail_count, `ran_the_build` superset,
+recursive `collectable_pytest`), all folded into v8.
 
-## 5. Phased plan (ship order = criticality; each phase independently shippable + TDD)
-
-**Phase 1 — the run-signal gate fix (FIRST; unblocks DOES-IT-RUN for every runner).**
-`scripts/runsignal.py` (pure) + refactor `runcheck` to delegate + **fail-CLOSED on unknown**. Extend
-`discover_verify_cmd` (P1b). Add a **negative-gate case**: unknown runner output → `test_count=0` →
-gate `UNVERIFIED` (proves the positive-proof tier never fail-opens a green). Re-verify the
-double-execution proof. *This phase alone makes a passing Go/JS/Ruby suite verifiable.*
-
-**Phase 2 — the universal syntax floor.** `scripts/syntaxlens.py` + `nativefloor.run` (route `sast`
-through it too) + in-process json/toml. Wire `syntaxlens_defects` into the SKILL's VERIFIED evidence
-next to `astlens`. Parse-only, exit-code-keyed, fail-open, deny-network.
-
-**Phase 3 — best-effort deep lint.** `scripts/lintlens.py` (MEDIUM-capped, safe linters, opt-in eslint).
-Fix C5 (suiterun JUnit) and C6 (language-derived `test_glob`/debug-token defaults at CLARIFY). Publish
-the honest matrix in `rubric.md`.
-
----
-
-## 6. FROZEN invariants preserved
-
-Pure `verdict.merge/gate` untouched · `astlens`/Python path byte-unchanged · stdlib-only (native tools
-are *external* subprocesses like semgrep, never bundled) · fail-open floor (never blocks on absence) ·
-run-signal fail-closed (never fabricates a pass) · `log.jsonl` append-only · the language→tool map is a
-frozen non-overridable constant · `discover_verify_cmd`'s existing make→npm→pytest order is preserved
-(new probes only appended).
-
-## 7. Test strategy
-
-Pure unit tests per language over **real captured** runner/tool output (`go test -json`, cargo, jest,
-mocha, rspec; node/ruby/bash/gofmt error text) — golden fixtures, no toolchain needed. Subprocess seams
-tested with `skipUnless(shutil.which(tool))` + a monkeypatched `nativefloor.run` for the offline path.
-Negative-gate: unknown runner → UNVERIFIED; unrelated log line with "N passed" → still `test_count=0`.
-
----
-
-*Reviewed adversarially through the plugin's own 6 lenses; the security lens (native tools over
-untrusted repos) drove the parse-only / deny-network / one-seam / frozen-map constraints, and the
-DOES-IT-RUN lens drove the honest "strict where present, fail-open elsewhere" reframe.*
+## 10. Convergence & the TDD handoff (the engineering call)
+Seven adversarial rounds through the plugin's own 6-lens → real `verdict.py`:
+**1C+12H → 1C+10H → 2C+10H → 2C+9H → 0C+11H → 0C+8H → 0C+7H.** The guarantee the challenge exists to
+give **has been delivered**: for **three consecutive rounds no CRITICAL and no systemic flaw**, with
+**CODE-QUALITY & SECURITY clean**, and every would-be *damaging* bug caught before a line was written —
+an RCE (`ruby -w`), a dogfood-breaking wrapper false-red, and four distinct false-pass vectors (unanchored
+`passed`, forgeable timing anchor, exit-code masking, errors-masked). The residual is **not
+architectural**: it is a *bounded, enumerable* set of run-signal **counting rules** whose correctness
+depends on **real tool output** (does `pytest -q` print `errors`? does `go test -json` emit package events?
+does `cargo nextest` differ?). Prose cannot enumerate every runner's format; a **TDD suite with captured
+real fixtures can, and verifies against reality rather than a critic's hypothetical.** Therefore the
+correct home for the tail is **P1's test suite — and every R6/R7 finding above IS a P1 acceptance test**
+(`pytest||true` + `5 passed, 2 errors` → UNVERIFIED; polyglot `pytest && (go test||true)` red-go →
+UNVERIFIED; `ran_the_build('collected 5 items')`→True; test in `mytests/` → resolved; …). **Recommendation:
+build P1 now under subagent-driven TDD with these fixtures as the acceptance bar; run the 6-lens on the
+SHIPPED P1 code** (where a critic's claim is reproduced or refuted against the real implementation), not
+on further prose.
