@@ -58,6 +58,43 @@ enables the hermetic child.
 
 ---
 
+## Plan-challenge fold (the plugin's own 6-lens over this plan: 17 CONFIRMED, pure-gate FAIL → folded)
+
+Before a line was written, this plan was run through kimi-atlas's own 6-lens (6 critics + per-finding
+adversarial reproduce/refute against the real blueprint + P1 code). It found **4 CRITICAL + 3 HIGH + 9
+MEDIUM + 1 LOW**, all folded below. **The SECURITY-INVARIANT core (argv-only, env-from-scratch,
+`ruby -cw`, hermetic tempdir) drew ZERO findings** — the RCE-defense design is sound. Every CRITICAL was
+a **false-block-a-valid-repo** vector in the *config* policy. The three design corrections:
+
+1. **Config blocking uses an EXPLICIT strict-format map, NOT `langfloor.CONFIG_ALLOWLIST`** — this
+   *corrects* blueprint §2.9, whose enumeration the challenge proved wrong. `tsconfig.json` is **JSONC**
+   (the default `tsc --init` output has `//` comments + trailing commas — strict `json.loads` rejects it →
+   CRITICAL false-block). `yarn.lock`/`Gemfile.lock`/`pnpm-lock.yaml` are **opaque non-JSON/non-TOML**
+   formats (any parser false-blocks them). `poetry.lock`/`Cargo.lock` are TOML; `package-lock.json`/
+   `composer.lock` are JSON. So blocking is driven by a **basename→known-parser** map of files whose format
+   is *guaranteed*; everything else (incl. `tsconfig.json`, opaque locks, arbitrary `*.json`/`*.toml`) is
+   **advisory at most, never blocking**. (§2.9's intent — "invalid config blocks, invalid data advises" —
+   is preserved; only its file list is corrected. Documented deviation.)
+2. **node ESM/CJS mode is carried by the MATERIALIZED EXTENSION, not dir-inference** — the hermetic
+   tempdir has no `package.json`, so `node --check input.js` always runs in CJS mode; a valid ESM `.js`
+   (using `import`) in a `"type":"module"` package would be a `SyntaxError` → false-block. Fix:
+   `syntaxlens` resolves the nearest `package.json` `type` and tells `nativefloor` the **extension to
+   materialize under** — ESM `.js` → `input.mjs`, CJS `.js` → `input.js`, `.cjs`→`.cjs`, `.mjs`→`.mjs`.
+   The resolved type is thus *load-bearing* (not dead code). `.jsx`/`.ts`/`.tsx` are **not dispatched**.
+3. **Core mechanics are proven with a STUB TOOL via the `tool_path` seam, tool-independently.** Budget
+   degradation, the `signature_matched` gate (incl. the **negative** case — a non-zero exit that does NOT
+   name the path → NO defect), launch-failure, and timeout are all tested by monkeypatching
+   `nativefloor.tool_path` to a tiny `sh`/`python` stub we write (exit code + stderr we control) — no
+   `node`/`ruby` needed. Live-tool tests (`skipUnless`) add the *real* non-execution proof on top.
+   `_effective_backend` is reclassified as an **impure adapter** (it calls the memoized host probe) and
+   its test monkeypatches `proccap._detect_mem_backend`.
+
+Every `job` therefore carries an explicit materialization extension:
+`job = {"rel": str, "text": str, "argv": list[str], "ext": str}` — `ext` is the extension `nativefloor`
+writes the tempfile under (`syntaxlens` sets it; for non-node files it is the file's own ext).
+
+---
+
 ## Task 1: `proccap._launch_and_wait` — optional hermetic `env` (byte-equivalent for existing callers)
 
 **Files:** Modify `scripts/proccap.py`; Modify `tests/test_proccap.py`.
@@ -147,123 +184,204 @@ clause above is a test here.**
   - `tool_path(name: str) -> str | None` — resolve a tool executable (mirrors `sast.semgrep_path`);
     `shutil.which` then common sites; `None` = fail-open signal.
   - `run(jobs: list[dict], *, cgroup_only: bool = True, file_budget: int = 40, wall_budget_s: float = 60.0, per_file_timeout_s: int = 10, mem_limit_mb: int = 2048, max_source_bytes: int = 1_000_000) -> list[dict]`.
-    Each `job = {"rel": str, "text": str, "argv": list[str]}` (`argv` = the tool argv **without** the
-    filename, e.g. `["ruby", "-cw"]`, sourced by the caller from `langfloor.SYNTAX_ARGV`). Returns one
+    Each `job = {"rel": str, "text": str, "argv": list[str], "ext": str}` (`argv` = the tool argv
+    **without** the filename, e.g. `["ruby", "-cw"]`, from `langfloor.SYNTAX_ARGV`; `ext` = the extension
+    to **materialize under**, chosen by the caller — for node it encodes ESM/CJS mode, see Task 3). Returns one
     **result** per job in input order:
     `{"rel", "tool": argv[0], "ran": bool, "returncode": int|None, "timed_out": bool, "signature_matched": bool, "stderr_tail": str, "skipped_reason": str|None}`.
     `ran=False` (with `skipped_reason` ∈ `{"tool-absent","budget-exhausted","launch-failed","empty-text","oversize"}`)
     is the fail-open path — **never** a defect. A genuine parse error is `ran=True, returncode!=0,
     timed_out=False, signature_matched=True`.
-- Pure helpers (each independently tested, **no subprocess**):
+- **Pure helpers** (each independently tested, **no subprocess, no host probe**):
   - `_hermetic_env() -> dict[str, str]` — **built from scratch**: `{"PATH": os.environ.get("PATH", os.defpath), "HOME": os.environ.get("HOME", tempfile.gettempdir()), "LANG": os.environ.get("LANG", "C.UTF-8"), "TMPDIR": os.environ.get("TMPDIR", tempfile.gettempdir())}`. **No other keys.**
-  - `_safe_basename(rel: str) -> str` — `"input" + <lowercased ext of rel, validated against ^\.[A-Za-z0-9]+$ else ""> `; strips every directory component; no repo-controlled path text survives.
+  - `_safe_basename(ext: str) -> str` — `"input" + <ext lowercased, validated against ^\.[A-Za-z0-9]+$ else "">`; the caller passes `job["ext"]`; no repo-controlled path text ever reaches the filesystem.
   - `_error_references_path(stderr: str, stdout: str, materialized_path: str, basename: str) -> bool` —
-    True iff `materialized_path` **or** `basename` appears literally in `stderr`/`stdout` (spec §2.4 —
-    a real parse error names the file it choked on; a tool that crashed for other reasons will not).
+    True iff `materialized_path` **or** `basename` appears literally in `stderr`/`stdout` (**plain substring,
+    no regex → no ReDoS**; spec §2.4 — a real parse error names the file it choked on; a tool that crashed
+    for other reasons will not).
+- **Impure adapter** (transitively spawns — test by monkeypatching `proccap._detect_mem_backend`, NOT
+  grouped with the pure helpers):
   - `_effective_backend(cgroup_only: bool) -> str` — `proccap._detect_mem_backend()` if that is
     `_BACKEND_CGROUP`, else `_BACKEND_NONE` when `cgroup_only` (uncapped-but-timeout-bounded — no ulimit).
+    (`_detect_mem_backend` runs a `systemd-run` probe on first call and memoizes; the unit test patches it.)
 
 - [ ] **Step 1 — Write the failing tests** (`tests/test_nativefloor.py`). The **tool-independent
   security proofs (always run)** plus **live proofs (skipUnless)**:
 
 ```python
 from __future__ import annotations
-import os, shutil, sys, tempfile, unittest
-from scripts import nativefloor, proccap
+import os, shutil, stat, tempfile, unittest
+from unittest import mock
+from scripts import nativefloor, proccap, langfloor
+
+def _write_stub(d: str, exit_code: int, echo_args: bool, fixed_msg: str = "") -> str:
+    """An executable sh stub standing in for a real tool (tool-INDEPENDENT).
+    echo_args=True prints its args (which include the materialized basename) to stderr —
+    so _error_references_path matches; echo_args=False prints a fixed message with NO path."""
+    p = os.path.join(d, "stub.sh")
+    with open(p, "w") as f:
+        f.write("#!/bin/sh\n")
+        f.write('echo "err: $@" 1>&2\n' if echo_args else ('echo %r 1>&2\n' % (fixed_msg or "generic failure")))
+        f.write("exit %d\n" % exit_code)
+    os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return p
 
 class TestHermeticEnv(unittest.TestCase):
     def test_env_is_exactly_the_four_keys(self):
-        for hostile in ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV"):
-            os.environ[hostile] = "/evil"
+        hostiles = ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV")
+        for h in hostiles:
+            os.environ[h] = "/evil"
         try:
             env = nativefloor._hermetic_env()
             self.assertEqual(set(env), {"PATH", "HOME", "LANG", "TMPDIR"})
-            for hostile in ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV"):
-                self.assertNotIn(hostile, env)
+            for h in hostiles:
+                self.assertNotIn(h, env)
         finally:
-            for hostile in ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV"):
-                del os.environ[hostile]
+            for h in hostiles:
+                del os.environ[h]
 
 class TestSafeBasename(unittest.TestCase):
-    def test_strips_repo_path_and_preserves_ext(self):
-        self.assertEqual(nativefloor._safe_basename("a/b/../../etc/passwd.rb"), "input.rb")
-        self.assertEqual(nativefloor._safe_basename("weird;name`.js"), "input.js")
-        self.assertEqual(nativefloor._safe_basename("noext"), "input")
+    def test_ext_validated_no_repo_text(self):
+        self.assertEqual(nativefloor._safe_basename(".rb"), "input.rb")
+        self.assertEqual(nativefloor._safe_basename(".mjs"), "input.mjs")
+        self.assertEqual(nativefloor._safe_basename(""), "input")
+        self.assertEqual(nativefloor._safe_basename(".we;rd`"), "input")   # invalid ext rejected
 
-class TestNeverShellNeverExecute(unittest.TestCase):
-    # The RCE guard, provable WITHOUT ruby: capture what run() would launch via the wrapper builder.
+class TestParseOnlyArgvPins(unittest.TestCase):
+    """Static proof that EVERY tool argv is parse-only — never an execute flag (the RCE guard)."""
+    def test_all_syntax_argv_are_parse_only(self):
+        self.assertEqual(langfloor.SYNTAX_ARGV[".rb"], ["ruby", "-cw"])   # -cw, NEVER -w/-e
+        self.assertEqual(langfloor.SYNTAX_ARGV[".js"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".cjs"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".mjs"], ["node", "--check"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".php"], ["php", "-l"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".go"], ["gofmt", "-e"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".sh"], ["bash", "-n"])
+        self.assertEqual(langfloor.SYNTAX_ARGV[".bash"], ["bash", "-n"])
+
     def test_argv_is_never_sh_c_on_none_backend(self):
         wrapped = proccap._build_wrapper_argv(["ruby", "-cw", "input.rb"], 2048, proccap._BACKEND_NONE)
-        self.assertEqual(wrapped, ["ruby", "-cw", "input.rb"])   # verbatim, no shell
-        self.assertNotIn("sh", wrapped[:1])
-
-    def test_ruby_argv_uses_check_not_execute(self):
-        from scripts import langfloor
-        self.assertEqual(langfloor.SYNTAX_ARGV[".rb"], ["ruby", "-cw"])   # -cw, NEVER -w
+        self.assertEqual(wrapped, ["ruby", "-cw", "input.rb"])   # verbatim, no shell interposed
 
     def test_tool_absent_is_failopen_no_defect(self):
-        jobs = [{"rel": "x.rb", "text": "puts 1", "argv": ["definitely-no-such-tool-xyz", "-cw"]}]
+        jobs = [{"rel": "x.rb", "text": "puts 1", "argv": ["definitely-no-such-tool-xyz", "-cw"], "ext": ".rb"}]
         [res] = nativefloor.run(jobs)
         self.assertFalse(res["ran"]); self.assertEqual(res["skipped_reason"], "tool-absent")
 
+class TestStubMechanics(unittest.TestCase):
+    """Budget + signature-gating proven WITHOUT any real tool, via a monkeypatched tool_path stub."""
+    def test_signature_positive_when_error_names_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=1, echo_args=True)   # prints "err: input.rb"
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertTrue(res["signature_matched"])   # -> caller will emit a defect
+
+    def test_signature_NEGATIVE_when_error_omits_path(self):
+        # The false-block guard (§2.4): a non-zero exit that does NOT name our path -> NO defect.
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=2, echo_args=False, fixed_msg="out of memory")
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])   # -> caller emits NOTHING (fail-open)
+
+    def test_ok_exit_is_no_defect(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
+        self.assertFalse(res["signature_matched"])
+
+    def test_file_budget_is_exact(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [{"rel": f"f{i}.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"} for i in range(5)]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs, file_budget=2)
+        self.assertEqual(sum(1 for r in results if r["ran"]), 2)   # EXACTLY file_budget ran
+        for r in results[2:]:
+            self.assertFalse(r["ran"])
+            self.assertEqual(r["skipped_reason"], "budget-exhausted")   # unconditional
+
+    def test_no_tempdir_leak(self):
+        before = set(os.listdir(tempfile.gettempdir()))
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
+        # nativefloor's own mkdtemp dirs are all rmtree'd; only our own `d` may remain (removed by the CM)
+        leaked = set(os.listdir(tempfile.gettempdir())) - before
+        self.assertEqual([x for x in leaked if x != os.path.basename(d)], [])
+
+class TestEffectiveBackend(unittest.TestCase):
+    def test_cgroup_only_falls_to_none_when_not_cgroup(self):
+        with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_ULIMIT):
+            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_NONE)
+        with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_CGROUP):
+            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_CGROUP)
+
+# ---- Live-tool proofs (skipUnless). node/php/bash present here; ruby/gofmt skip. ----
 @unittest.skipUnless(shutil.which("node"), "node not installed")
 class TestNodeLive(unittest.TestCase):
     def test_valid_js_no_error(self):
-        [res] = nativefloor.run([{"rel": "ok.js", "text": "const x = 1;\n", "argv": ["node", "--check"]}])
+        [res] = nativefloor.run([{"rel": "ok.js", "text": "const x = 1;\n", "argv": ["node", "--check"], "ext": ".js"}])
         self.assertTrue(res["ran"]); self.assertEqual(res["returncode"], 0)
         self.assertFalse(res["signature_matched"])
 
     def test_syntax_error_signature_matches(self):
-        [res] = nativefloor.run([{"rel": "bad.js", "text": "const = ;\n", "argv": ["node", "--check"]}])
+        [res] = nativefloor.run([{"rel": "bad.js", "text": "const = ;\n", "argv": ["node", "--check"], "ext": ".js"}])
         self.assertTrue(res["ran"]); self.assertNotEqual(res["returncode"], 0)
         self.assertTrue(res["signature_matched"])
 
     def test_non_execution_no_side_effect(self):
-        # If --check EXECUTED the file it would create the sentinel. Parse-only must NOT.
-        with tempfile.TemporaryDirectory() as d:
-            sentinel = os.path.join(d, "PWNED")
+        # Sentinel is an ABSOLUTE path OUTSIDE any materialized tempdir. If --check EXECUTED the
+        # file it would create the sentinel; parse-only must NOT. (Mandate for bash/php/ruby too.)
+        with tempfile.TemporaryDirectory() as outside:
+            sentinel = os.path.join(outside, "PWNED")
             src = "require('fs').writeFileSync(%r, 'x');\n" % sentinel
-            nativefloor.run([{"rel": "eval.js", "text": src, "argv": ["node", "--check"]}])
+            nativefloor.run([{"rel": "eval.js", "text": src, "argv": ["node", "--check"], "ext": ".js"}])
             self.assertFalse(os.path.exists(sentinel))   # code never ran
 
     def test_node_options_env_has_no_effect(self):
-        # A hostile NODE_OPTIONS in the PARENT env must not reach the hermetic child.
         os.environ["NODE_OPTIONS"] = "--require /nonexistent/evil.js"
         try:
-            [res] = nativefloor.run([{"rel": "ok.js", "text": "const x=1;\n", "argv": ["node", "--check"]}])
-            # If NODE_OPTIONS had leaked, node would error trying to require the missing module.
-            self.assertEqual(res["returncode"], 0)
+            [res] = nativefloor.run([{"rel": "ok.js", "text": "const x=1;\n", "argv": ["node", "--check"], "ext": ".js"}])
+            self.assertEqual(res["returncode"], 0)   # NODE_OPTIONS did NOT leak into the hermetic child
         finally:
             del os.environ["NODE_OPTIONS"]
 
-class TestBudgets(unittest.TestCase):
-    def test_file_budget_degrades_remainder_to_advisory(self):
-        jobs = [{"rel": f"f{i}.js", "text": "const x=1;", "argv": ["node", "--check"]} for i in range(5)]
-        results = nativefloor.run(jobs, file_budget=2)
-        self.assertEqual(sum(1 for r in results if r["ran"]) <= 2 or all(not r["ran"] for r in results[2:]), True)
-        for r in results[2:]:
-            if not r["ran"]:
-                self.assertEqual(r["skipped_reason"], "budget-exhausted")
+# TestBashLive (argv ["bash","-n"], ext ".sh") and TestPhpLive (["php","-l"], ext ".php") mirror
+# TestNodeLive: a valid sample (rc 0, no signature), a broken sample (rc!=0, signature matched), and a
+# non-execution sentinel using an ABSOLUTE path OUTSIDE the tempdir (bash: a `.sh` that would `touch`
+# the sentinel; php: `<?php file_put_contents(...);`) — proving `-n`/`-l` parse only.
 ```
-
-  (bash/php live classes mirror `TestNodeLive` with `argv=["bash","-n"]` / `["php","-l"]`, a valid and a
-  broken sample, plus a non-execution sentinel for bash — a `.sh` that would `touch` a sentinel under
-  execution — proving `bash -n` parses only.)
 
 - [ ] **Step 2 — Run, verify RED** (import error / missing functions).
 
 - [ ] **Step 3 — Implement `scripts/nativefloor.py`.** Long module docstring citing §2.4/2.6/2.7 and
-  every SECURITY-INVARIANT clause. `run` per job: `_safe_basename` → `mkdtemp()` fresh cwd →
-  reject `not text` (empty) / `len(text.encode()) > max_source_bytes` (oversize) → write the tempfile →
-  `tool_path(argv[0])`; `None` → `ran=False, tool-absent` → **`shutil.rmtree`** the tempdir →
-  continue → decrement `file_budget`; if exhausted or `elapsed > wall_budget_s` → remaining jobs
-  `ran=False, budget-exhausted` (no launch) → build `real_argv = [resolved_tool, *argv[1:], basename]`
-  → `wrapped = proccap._build_wrapper_argv(real_argv, mem_limit_mb, _effective_backend(cgroup_only))`
-  → `res = proccap._launch_and_wait(wrapped, cwd=tempdir, timeout_s=per_file_timeout_s, env=_hermetic_env())`
-  → `launched=False` → `ran=False, launch-failed` → else `signature_matched = (not res["timed_out"]) and res["returncode"] != 0 and _error_references_path(res["stderr"], res["stdout"], materialized_path, basename)`
-  → **always `shutil.rmtree(tempdir, ignore_errors=True)` in a `finally`.** Never raise to the caller
-  (wrap the per-job body; on any unexpected exception → `ran=False, skipped_reason="launch-failed"`).
-  `stderr_tail` = last 4000 chars.
+  every SECURITY-INVARIANT clause. Keep a running `ran_count` and a `start = time.monotonic()`. `run` per job:
+  1. **Budget check FIRST** (before any work): if `ran_count >= file_budget` **or**
+     `time.monotonic() - start > wall_budget_s` → append `ran=False, skipped_reason="budget-exhausted"`,
+     **no tool resolution, no launch, no tempdir** → continue. (So **exactly `file_budget` jobs ever run.**)
+  2. `basename = _safe_basename(job["ext"])` → `tempdir = mkdtemp()` (fresh empty cwd) →
+     `materialized_path = os.path.join(tempdir, basename)`.
+  3. Reject `not job["text"]` (`empty-text`) / `len(job["text"].encode()) > max_source_bytes` (`oversize`)
+     → `ran=False`, `shutil.rmtree`, continue (does **not** consume budget).
+  4. Write `job["text"]` to `materialized_path`. `tool = tool_path(job["argv"][0])`; `None` →
+     `ran=False, skipped_reason="tool-absent"` → `rmtree` → continue (does **not** consume budget).
+  5. `real_argv = [tool, *job["argv"][1:], basename]` →
+     `wrapped = proccap._build_wrapper_argv(real_argv, mem_limit_mb, _effective_backend(cgroup_only))` →
+     `res = proccap._launch_and_wait(wrapped, cwd=tempdir, timeout_s=per_file_timeout_s, env=_hermetic_env())`
+     → **`ran_count += 1`** (a launch happened). `res["launched"] is False` → `ran=False,
+     skipped_reason="launch-failed"`; else `ran=True` and
+     `signature_matched = (not res["timed_out"]) and res["returncode"] != 0 and _error_references_path(res["stderr"], res["stdout"], materialized_path, basename)`.
+  6. **Always `shutil.rmtree(tempdir, ignore_errors=True)` in a `finally`.** Wrap the whole per-job body so
+     it **never raises to the caller** — any unexpected exception → `ran=False, skipped_reason="launch-failed"`.
+  `stderr_tail` = last 4000 chars. (Note: a tool-absent job does not consume `file_budget` — the budget
+  bounds actual launches, matching `test_file_budget_is_exact` which uses an always-present stub.)
 
 - [ ] **Step 4 — Run, verify GREEN**, `make ci` green (skipUnless honored where tools absent).
 
@@ -284,25 +402,44 @@ blocking-vs-advisory policy.
 - Produces: `check(changed_files: dict[str, str], cwd: str) -> list[dict]` — canonical defect dicts
   `{id, category, severity, location, fix}` (same shape as `astlens.lint`), sorted by `location`.
   `cwd` = review_root (needed to resolve the nearest `package.json` for node `type`-awareness).
+- Module-level table (single source):
+  ```python
+  # Basename -> parser, for config files whose format is GUARANTEED, so a parse failure is a real
+  # syntax error and BLOCKS. Everything NOT in this map (tsconfig.json = JSONC with comments;
+  # yarn.lock/Gemfile.lock/pnpm-lock = opaque; arbitrary *.json/*.toml data) is advisory at most.
+  # This CORRECTS blueprint §2.9's file list (the plan-challenge proved tsconfig.json + bare *.lock
+  # false-block valid repos); §2.9's intent (invalid config blocks, invalid data advises) is preserved.
+  _STRICT_CONFIG: dict[str, str] = {
+      "package.json": "json", "composer.json": "json",
+      "package-lock.json": "json", "composer.lock": "json",
+      "pyproject.toml": "toml", "Cargo.toml": "toml",
+      "Cargo.lock": "toml", "poetry.lock": "toml",
+  }
+  ```
 - Policy:
-  - **Source files** (ext in `SYNTAX_ARGV`): build one `nativefloor` job each; `argv` from `SYNTAX_ARGV`,
-    **except node** — resolve mode first (below). A result with `signature_matched=True` → **HIGH
-    `DOES-IT-RUN`** blocking defect (`id="syntax-<ext>"`, location=rel, fix cites the tool). `ran=False`
-    or `signature_matched=False` → **no defect** (fail-open).
-  - **node `type`-awareness** (spec §2.5): `.mjs` → check (ESM). `.cjs` → check. `.js` → check **iff**
-    the nearest `package.json` walking up from the file's dir within `cwd` is **absent or not
-    `"type":"module"`** (CommonJS); if `"type":"module"` → still check (node infers ESM by dir). **`.jsx`,
-    `.ts`, `.tsx` → advisory only (never blocking)** — `node --check` does not understand JSX/TS; emit at
-    most a LOW advisory or skip. (Keep it simple: `.jsx/.ts/.tsx` are **not** dispatched — no `SYNTAX_ARGV`
-    entry — so they never produce a defect. A comment records why.)
-  - **Config files** (in-process, **no subprocess**): a changed file whose basename is `*.json` →
-    `json.loads`; `*.toml` → `tomllib.loads` (guarded). Wrap in `try/except (ValueError, RecursionError,
-    MemoryError)` (and `tomllib.TOMLDecodeError`, a `ValueError` subclass). Byte-bound the input
-    (`> 1_000_000` bytes → advisory, don't parse). **Blocking (HIGH `DOES-IT-RUN`) iff the file matches
-    `CONFIG_ALLOWLIST`** — exact basename in the set, **or** matches a glob member (`*.lock`); otherwise a
-    parse failure is **advisory (LOW, non-blocking, or skipped)**. Valid config → no defect.
-  - A file can be both source and config only for `.json`/`.toml` (handled by the config branch; they
-    have no `SYNTAX_ARGV` entry).
+  - **Config files** (in-process, **no subprocess**) — check FIRST (a `.json`/`.toml` is config, not source):
+    for a changed file whose **basename is in `_STRICT_CONFIG`**, parse with the mapped parser
+    (`json.loads` / `tomllib.loads`), **byte-bounded** (`len(text.encode()) > 1_000_000` → **advisory,
+    do not parse**), inside `try/except (ValueError, RecursionError, MemoryError)` (`tomllib.TOMLDecodeError`
+    is a `ValueError` subclass). Parse failure → **HIGH `DOES-IT-RUN` blocking** defect
+    (`id="config-<basename>"`). Valid → no defect. A changed `*.json`/`*.toml` whose basename is **NOT** in
+    `_STRICT_CONFIG` (incl. `tsconfig.json`, `yarn.lock`, `Gemfile.lock`, arbitrary data files) → **never
+    parsed for blocking** (skip / at most a LOW advisory). This is the fix for all four CRITICAL false-blocks.
+  - **Source files** (ext in `SYNTAX_ARGV`, and NOT a `_STRICT_CONFIG` basename): build one `nativefloor`
+    job `{rel, text, argv: SYNTAX_ARGV[ext], ext: <materialization ext, below>}`. A result with
+    `signature_matched=True` → **HIGH `DOES-IT-RUN`** blocking defect (`id="syntax-<ext>"`, location=rel,
+    fix cites the tool). `ran=False` **or** `signature_matched=False` → **no defect** (fail-open).
+  - **node ESM/CJS via the MATERIALIZED EXTENSION** (spec §2.5, corrected): the hermetic tempdir has no
+    `package.json`, so mode MUST be carried by the extension `nativefloor` writes under. Resolve via
+    `_nearest_package_type(rel, cwd)` (walks up from `dirname(rel)` to `cwd`, reads each `package.json`
+    fail-safe on `OSError`/`ValueError` → absent):
+    - `.mjs` → job `ext=".mjs"`. `.cjs` → job `ext=".cjs"`. `.js` → `ext=".mjs"` iff nearest type is
+      `"module"`, else `ext=".js"` (CJS). So the resolved type is **load-bearing** (it picks the ext).
+    - `.jsx`, `.ts`, `.tsx` → **NOT dispatched** (no `SYNTAX_ARGV` entry; `node --check` cannot parse
+      JSX/TS) → never a defect. A comment records why.
+  - A file is EITHER config (basename in `_STRICT_CONFIG`, or a non-strict `*.json`/`*.toml` → skip) OR
+    source (ext in `SYNTAX_ARGV`) — the config check owns `.json`/`.toml`; `SYNTAX_ARGV` has no `.json`/
+    `.toml` entry, so there is no double-dispatch.
 
 - [ ] **Step 1 — Write the failing tests** (`tests/test_syntaxlens.py`):
 
@@ -310,44 +447,61 @@ blocking-vs-advisory policy.
 import json, os, shutil, tempfile, unittest
 from scripts import syntaxlens
 
-def _blocking(defects):  # HIGH/CRITICAL DOES-IT-RUN/... count as blocking
+def _blocking(defects):  # HIGH/CRITICAL count as blocking
     return [d for d in defects if d["severity"] in ("HIGH", "CRITICAL")]
 
 class TestConfigParse(unittest.TestCase):
-    def test_invalid_allowlist_config_blocks(self):
+    def test_invalid_strict_json_config_blocks(self):
         d = syntaxlens.check({"package.json": "{ not json"}, cwd=".")
-        self.assertTrue(_blocking(d))
-        self.assertEqual(d[0]["category"], "DOES-IT-RUN")
+        self.assertTrue(_blocking(d)); self.assertEqual(d[0]["category"], "DOES-IT-RUN")
 
-    def test_invalid_lockfile_blocks(self):
-        d = syntaxlens.check({"poetry.lock": "{{{ broken"}, cwd=".")   # *.lock glob member
-        # *.lock is TOML-ish/opaque; treat unparseable allowlisted lock as blocking per CONFIG_ALLOWLIST
-        self.assertTrue(_blocking(d))
+    def test_invalid_toml_lock_blocks(self):
+        # poetry.lock IS TOML and IS in _STRICT_CONFIG -> a broken one blocks.
+        self.assertTrue(_blocking(syntaxlens.check({"poetry.lock": "= = = broken"}, cwd=".")))
 
-    def test_invalid_data_json_is_advisory_not_blocking(self):
-        d = syntaxlens.check({"fixtures/sample.json": "{ not json"}, cwd=".")
-        self.assertFalse(_blocking(d))   # not on the allowlist -> never blocks
+    # --- the four CRITICAL false-block regressions the plan-challenge caught: all must NOT block ---
+    def test_tsconfig_jsonc_is_NOT_blocked(self):
+        # tsc --init emits JSONC: // comments + trailing commas. strict json.loads would reject it,
+        # but tsconfig.json is NOT in _STRICT_CONFIG -> advisory at most, NEVER blocking.
+        tsconfig = '{\n  // editor hints\n  "compilerOptions": { "strict": true, },\n}\n'
+        self.assertFalse(_blocking(syntaxlens.check({"tsconfig.json": tsconfig}, cwd=".")))
+
+    def test_yarn_lock_opaque_is_NOT_blocked(self):
+        self.assertFalse(_blocking(syntaxlens.check({"yarn.lock": "# yarn lockfile v1\nfoo@1:\n  version 1\n"}, cwd=".")))
+
+    def test_gemfile_lock_opaque_is_NOT_blocked(self):
+        self.assertFalse(_blocking(syntaxlens.check({"Gemfile.lock": "GEM\n  specs:\n    rake (13.0)\n"}, cwd=".")))
+
+    def test_arbitrary_data_json_is_NOT_blocked(self):
+        self.assertFalse(_blocking(syntaxlens.check({"fixtures/sample.json": "{ not json"}, cwd=".")))
 
     def test_valid_config_no_defect(self):
         self.assertEqual(syntaxlens.check({"package.json": json.dumps({"name": "x"})}, cwd="."), [])
 
     def test_oversize_config_is_not_parsed(self):
-        big = "{" + "0" * 2_000_000
-        d = syntaxlens.check({"package.json": big}, cwd=".")
-        self.assertFalse(_blocking(d))   # byte-bound -> advisory, never a blocking parse attempt
+        self.assertFalse(_blocking(syntaxlens.check({"package.json": "{" + "0" * 2_000_000}, cwd=".")))
 
-class TestNodeTypeAwareness(unittest.TestCase):
-    def test_jsx_never_dispatched(self):
-        # .jsx has no SYNTAX_ARGV entry -> never a defect even with junk
-        self.assertEqual(syntaxlens.check({"c.jsx": "<App/>;"}, cwd="."), [])
+class TestNodeDispatch(unittest.TestCase):
+    def test_jsx_ts_tsx_never_dispatched(self):
+        for name, src in (("c.jsx", "<App/>;"), ("a.ts", "let x: number ="), ("b.tsx", "<X/>")):
+            self.assertEqual(syntaxlens.check({name: src}, cwd="."), [], name)
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")
-class TestNodeLive(unittest.TestCase):
-    def test_broken_js_blocks(self):
-        d = syntaxlens.check({"broken.js": "function ( {"}, cwd=".")
-        self.assertTrue(_blocking(d))
+class TestNodeEsmLive(unittest.TestCase):
+    def test_esm_js_in_type_module_is_not_false_blocked(self):
+        # A valid ESM `.js` (top-level import) under a "type":"module" package must be materialized as
+        # .mjs and parse clean -> NO block. (Under CJS materialization node would SyntaxError on import.)
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "package.json"), "w") as f:
+                f.write('{"type":"module"}')
+            os.makedirs(os.path.join(root, "src"))
+            d = syntaxlens.check({"src/app.js": "import path from 'node:path';\nexport const x = 1;\n"}, cwd=root)
+            self.assertFalse(_blocking(d))
 
-    def test_valid_js_clean(self):
+    def test_broken_js_blocks(self):
+        self.assertTrue(_blocking(syntaxlens.check({"broken.js": "function ( {"}, cwd=".")))
+
+    def test_valid_cjs_js_clean(self):
         self.assertEqual(syntaxlens.check({"ok.js": "const x = 1;\n"}, cwd="."), [])
 ```
 
@@ -382,10 +536,15 @@ is already linked — see the plan commit); update `AGENTS.md` tracked-doc count
   - Update the prose at `SKILL.md:395` ("5 DOES-IT-RUN = `runcheck` + `astlens.lint` …") to name
     `syntaxlens.check` as the syntax floor for non-Python source.
 
-- [ ] **Step 2 — Integration test** (add to `tests/test_syntaxlens_redteam.py` or a SKILL-wiring test):
-  a `syntaxlens` HIGH `DOES-IT-RUN` defect, fed through `verdict.merge([...], script_defects=[that])`
-  then `verdict.gate`, yields a **blocking** UNVERIFIED — proving the fold reaches the pure gate
-  identically to `astlens`. Assert the import + call line exist in `SKILL.md` (string-pin, `assertRegex`).
+- [ ] **Step 2 — Integration test with a GREEN-baseline CONTROL** (mirror the existing astlens
+  gate-wiring test): build an **otherwise-green** merge input (green `runcheck`, empty
+  `lint`/`reqcoverage`/`pathcheck`/`sast`, `docs_clean=True`, no schema errors) and assert **both** arms:
+  (a) **CONTROL** — with `syntaxlens_defects=[]` merged in, `verdict.gate(...)` returns **`OK`**;
+  (b) with a single `syntaxlens` **HIGH `DOES-IT-RUN`** defect added to `script_defects`, the same merge →
+  `verdict.gate(...)` flips to **`UNVERIFIED`** (blocking). Without arm (a) the test would pass even if the
+  fold did nothing, so the control is mandatory. Also string-pin the `SKILL.md` wiring
+  (`assertRegex` that the `syntaxlens` import + `syntaxlens.check(changed_files, review_root)` call +
+  `script_defects += ev.get("syntaxlens_defects", [])` line all exist).
 
 - [ ] **Step 3 — Red-team consolidation** (`tests/test_syntaxlens_redteam.py`): the non-execution
   sentinel proofs across **every present tool** (node/php/bash here; ruby/gofmt `skipUnless`), the
