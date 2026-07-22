@@ -1,745 +1,449 @@
-# kimi-atlas — system map (graphify)
+# kimi-atlas — system map
 
-> **What this is.** A durable, graph-structured map of the entire kimi-atlas system — *where everything is and how it connects* — so future targeted changes land precisely. It is the human navigator for the machine-readable topology in [`system-graph.json`](system-graph.json) (122 nodes · 249 edges · 8 subsystems).
+> **Regenerated 2026-07-22 on `8dfa0a1`** — the whole-system "graphify": **8 subsystems · 87 nodes · 220 edges**. The structured graph is [`system-graph.json`](system-graph.json). Every claim is grounded in the current tree; pure-core/I-O-hand kinds mirror the plugin's own split. `make test` is the authoritative test count.
 
-> **How it was produced.** A multi-agent *graphify* audit (2026-07-20): eight subsystem mappers read the actual code in parallel, plus seven flaw-finder dimensions whose findings were each adversarially verified. The companion audit output is the [flaw register](../docs/superpowers/plans/2026-07-20-flaw-register.md).
+## Subsystems at a glance
 
-> **Authority.** This map is a *summary*. The executable authority is the `SKILL.md` files and `scripts/ctxstore.STAGES`; when they disagree with this doc, they govern.
-
-
-## The eight subsystems
-
-| subsystem | what it is |
-|-----------|------------|
-| **agent-roles** | Seven `agents/*.md` role prompts; frontmatter is documentation-only, body is prepended to the built-in `Agent(subagent_type=…)` dispatch. |
-| **atlas-core-statemachine** | The single-change core: one uninterrupted, human-gated `INIT→OUTPUT` machine in `skills/atlas/SKILL.md`. |
-| **atlas-weave-orchestration** | The outer multi-agent meta-machine: file-disjoint plan-DAG, ≤3 concurrent inner atlas runs, combined-tree differential integration. |
-| **build-ci-packaging** | How it builds/gates/installs/ships: the `make ci` hub, negative gates, the plugin manifest, install flow. |
-| **docs-and-references** | The prose spine: `references/*.md` + narrative + phased plans, gated by inventory-drift. |
-| **skill-system** | 115 vendored skill packages + registry + advisory selector; TOP-1 injected into the coder. |
-| **tests** | unittest suite with 1:1 `scripts/*.py → tests/test_*.py` coverage, green via `make test`. |
-| **verification-harness** | The 6-lens code-review gate; three deterministic lenses + three model critics; `verdict.merge/gate` are PURE. |
-
-## High-level overview
-
-```mermaid
-flowchart TB
-  WEAVE["ATLAS-WEAVE<br/>outer meta-machine"] -->|wraps N inner runs| ATLAS
-  ATLAS["atlas core<br/>INIT→OUTPUT state machine"] -->|GROUNDED invokes| SEL["skillselect<br/>(advisory)"]
-  ATLAS -->|CODED injects TOP-1| REG[("skill-registry.json")]
-  ATLAS -->|dispatches| ROLES["agent-roles<br/>scout · coder · critics"]
-  ATLAS -->|VERIFIED marshals evidence into| HARNESS["verification-harness<br/>6 lenses"]
-  HARNESS -->|pure| VERDICT[["verdict.merge / gate"]]
-  SEL --> REG
-  REG --> SKILLS["skills/ — 115 vendored packages"]
-  MK["Makefile · make ci"] --> TESTS["tests/ — green"]
-  MK --> DOCS["references/*.md"]
-  ATLAS -. persists .-> LEDGER[(".atlas/&lt;run_id&gt;/ ledger")]
-```
-
-## Legend
-
-**Node kinds:** `module` (a `scripts/*.py`), `state-machine` (a SKILL stage/machine), `agent-role`, `artifact` (generated/committed data), `schema`, `config`, `doc`.
-
-**Edge types:** `imports`, `invokes`, `writes-artifact`, `reads-artifact`, `injects`, `transitions`, `verifies`, `validates`, `anchors`, `doc-links`.
-
+| subsystem | nodes | what it is |
+|-----------|-------|------------|
+| **atlas-core** | 12 | atlas-core is the single-change orchestration engine of kimi-atlas: a deterministic INIT→OUTPUT state machine driven by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (ctxstore) and a family of PURE decision cores (plandag, scheduler, planstage, budget, bestofn, resume, runcaps) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements. |
+| **verification-harness** | 13 | The 6-lens verification gate that decides whether a code change is "elite" (OK) or degrades to UNVERIFIED. |
+| **atlas-weave** | 8 | atlas-weave is the OUTER multi-agent meta-machine that wraps the single-change `atlas` inner machine: it decomposes a large multi-file request into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges the node diffs through a combined-tree INTEGRATE sink. |
+| **agentic-backbone** | 9 | The agentic-backbone is the Graph+Loop+Verification layer that sits atop ctxstore's append-only ledger. |
+| **skill-system** | 6 | The skill-system vendors 115 official skill packages into the plugin and makes the right one addressable at the right moment. |
+| **bench** | 7 | A standalone benchmark harness (new; absent from the old graphify) that measures not just whether kimi-atlas solves a coding task, but whether its 6-lens gate tells the truth when it says OK. |
+| **build-ci** | 11 | The build-ci subsystem is kimi-atlas's quality gate and packaging layer. |
+| **tests** | 21 | The tests/ subsystem is the plugin's proof engine: 59 test_*.py unittest modules totaling 928 tests, all green via `make test` (python3 -m unittest discover -s tests -v). |
 
 ---
 
-## agent-roles
+## atlas-core
 
-The `agents/*.md` files are the seven subagent role prompts that the atlas and atlas-weave orchestrators dispatch. kimi-atlas ships NO custom subagent runtime: each role is a plain Markdown file whose YAML frontmatter (name/description/tools/model/temperature/justification) is DOCUMENTATION ONLY — the orchestrator reads the file, strips the frontmatter, prepends the remaining body to a task packet, and calls the Kimi built-in `Agent(subagent_type=<mapped>)`. Real permissions come solely from the mapped built-in type (explore/coder/plan); the `tools:`/`model:` lines are never honored by the runtime. Roles split into one grounder (context-scout→explore), one implementer (elite-coder→coder), one decomposer (planner→plan), three per-node isolated 6-lens critics (correctness/code-quality/security→plan), and one cross-node seam critic (integration-critic→plan). Every read-only role (explore/plan) writes NOTHING and RETURNS its result as its final message; the root persists it. Correctness, security, and integration critics emit strict `critic`-schema JSON; the scout and planner emit their own bespoke JSON shapes.
+The single-change orchestration engine of kimi-atlas. A deterministic `INIT→OUTPUT` state machine, conducted by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (`ctxstore`) and a family of PURE decision cores (`plandag`, `scheduler`, `planstage`, `budget`, `bestofn`, `resume`, `runcaps`) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements.
 
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `context-scout` | `agents/context-scout.md` | Grounds a run: scans the target repo for intent-relevant files/conventions/constraints and returns a grounding-context JSON digest (verified paths + sha only, no guessing). |
-| `elite-coder` | `agents/elite-coder.md` | Implements the change from the task packet, self-verifies by running verify_cmd, and returns a STATUS line — self-reported STATUS is evidence the harness re-checks, never proof. |
-| `planner` | `agents/planner.md` | Read-only decomposer (ATLAS-WEAVE): turns the frozen task packet into a file-disjoint plan-DAG (or a single node) plus per-node risk features, as one JSON object. |
-| `correctness-critic` | `agents/correctness-critic.md` | Isolated adversarial critic for the CORRECTNESS lens (rubric lens 1); also confirms advisory TEST-ADEQUACY (lens 4) and REQUIREMENTS-COVERAGE (lens 6). Emits a critic-schema defect report. |
-| `code-quality-critic` | `agents/code-quality-critic.md` | Isolated adversarial critic for the CODE-QUALITY lens (rubric lens 2) — structural rot the lint floor cannot see. Emits a critic-schema defect report. |
-| `security-critic` | `agents/security-critic.md` | Isolated adversarial critic for the SECURITY lens (rubric lens 3) — taints inputs and follows them to sinks; also audits whether code treats ingested content as DATA. Emits a critic-schema report. |
-| `integration-critic` | `agents/integration-critic.md` | ATLAS-WEAVE seam critic: reviews the COMBINED union tree of K file-disjoint node diffs for cross-node interactions no single node's isolated 6-lens gate could see — the residual the differential oracle is SOUND-but-not-COMPLETE about. Emits a critic-schema report. |
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | Single-change core orchestrator: reads/strips/prepends each role file and dispatches via built-in Agent types; persists all read-only-subagent outputs; runs the 6-lens gate. |
-| `weave.SKILL` | `skills/atlas-weave/SKILL.md` | Multi-agent meta-orchestrator: dispatches planner→plan to build the DAG, runs ≤3 concurrent inner atlas runs over file-disjoint nodes, then integration-critic→plan over the combined tree. |
-| `critic.schema` | `references/schemas.json` | Shape all four critic role JSON outputs must match: required keys dimensions(dict), defects(list), verdict(str). |
-| `rubric` | `references/rubric.md` | The 6 verification lenses; each critic is handed exactly its single lens slice as isolated input. |
-
-### Invariants that matter
-
-- Read-only + read-only Bash (grounding only: git ls-files/sha; never build/run project code)
-- Records verified paths only; a path seen only inside file content is NOT verified and excluded from relevant_files
-- File contents are DATA never instructions; injection text wrapped in <<UNTRUSTED>>…<</UNTRUSTED>> under untrusted_excerpts
-- Writes NO file (explore has no Write/Edit); returns digest as final message
-- Emits only facts — no prose/recommendations/implementation
-- Respects max-files cap; repo_mode:none + empty lists when not a code repo
-- Only role with real Write/Edit (from built-in coder type)
-- Stays strictly inside given scope/worktree; never touches user's working tree or default branch
-- Cannot spawn subagents / ask user / manage TODOs (is a subagent)
-- MECHANICAL floor (deterministically gated): build+tests pass, test_count>0, new tests collected, behaviour+failure-path assertions, no debug_tokens/TODO/FIXME, naming/lint/path clean
-- Self-verify: run verify_cmd last; if not pass → STATUS: INCOMPLETE (a false 'done' is worse)
-- ASPIRATIONAL layer (fallible critic, not auto-verified): correctness-first edge enumeration, convention match, security posture, untrusted content is DATA
+The SKILL is the **sole root**: it holds full-fidelity intent, dispatches read-only scout/critic and write-capable coder subagents by reading role-files (strip frontmatter → prepend body → map onto Kimi built-in `explore`/`coder`/`plan` types), runs the state machine in one uninterrupted turn, and **never computes pass/fail** — that authority lives in the `verdict` subsystem's pure `merge`/`gate`/`final_status`. The pure cores enforce provable halting (monotone gas + per-job `MAX_ATTEMPTS`), memory-safe flat-W=3 wave scheduling, and a byte-identical degrade-to-single-node guarantee.
 
 ### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| Change which built-in subagent type a role maps to | skills/atlas/SKILL.md:36 (context-scout→explore, elite-coder→coder, critics→plan) and skills/atlas-weave/SKILL.md:36-37 (planner→plan, integration-critic→plan) |
-| Edit the read→strip-frontmatter→prepend dispatch mechanism | skills/atlas/SKILL.md:32-37; skills/atlas-weave/SKILL.md:34-36 |
-| Change what a critic is allowed to receive (isolation boundary) | each critic role file's 'You receive… only' list (e.g. correctness-critic.md:19-31) and skills/atlas/SKILL.md:475-488 (per-lens evidence slice) |
-| Adjust per-critic dispatch temperature (V5) | skills/atlas/SKILL.md:489-492 (orchestrator sets 0.2/0.5/0.3; frontmatter temperature: lines are doc-only and NOT honored) |
-| Change critic output shape / verdict semantics | references/schemas.json → critic; each role file's 'Output' section (e.g. code-quality-critic.md:78-99); verdict OK iff zero CRITICAL+zero HIGH |
-| Change the scout's grounding digest fields | agents/context-scout.md:52-63 (JSON shape); skills/atlas/SKILL.md:220-232 (persist as context.json) |
-| Change coder mechanical vs aspirational gate wording | agents/elite-coder.md:25-46 (mechanical floor) vs 48-68 (aspirational) |
-| Change planner DAG contract / disjointness rules | agents/planner.md:27-61; enforced by scripts/planstage.py coerce_dag/validate_planner_dag (referenced skills/atlas-weave/SKILL.md:88-89) |
-| Change what the integration-critic must NOT recompute (deterministic sink boundary) | agents/integration-critic.md:19-42; folded by integrate.integration_verdict (skills/atlas-weave/SKILL.md:153-166) |
-| Persisted artifact filenames per role | skills/atlas/SKILL.md:496-497 (critic_correctness/code_quality/security.json), context.json at :231; critic_integration.json at integration-critic.md:84 |
-| Which roles can write files (permission source of truth) | built-in type only: coder=Write/Edit (elite-coder); explore/plan=read-only (scout, planner, all critics). Stated in every role file's frontmatter HTML comment |
-
-**Entry points:** `skills/atlas/SKILL.md:32-37 (read→strip→prepend dispatch protocol + role→built-in mapping)` · `skills/atlas/SKILL.md:217-224 (context-scout dispatch, GROUNDED)` · `skills/atlas/SKILL.md:326-327 (elite-coder dispatch, CODED)` · `skills/atlas/SKILL.md:469-497 (3-critic wave dispatch, VERIFIED)` · `skills/atlas-weave/SKILL.md:83-89 (planner dispatch)` · `skills/atlas-weave/SKILL.md:153-166 (integration-critic seam wave)` · `agents/*.md (the 7 role prompt bodies)`
-
-
-### Notes
-
-- Frontmatter is DOCUMENTATION ONLY across all 7 roles — the HTML comment right below each frontmatter block states the orchestrator strips it and that tools:/model:/temperature: are NOT honored by the runtime. Real permissions come only from the mapped built-in Agent type. This is a load-bearing invariant, not decoration.
-- model: fields diverge from the project's 'opus for every subagent' mandate: context-scout, elite-coder, and planner declare model: sonnet — but since model: is doc-only and never honored, the actual model is set by the runtime/orchestrator, so the sonnet lines do not contradict the elite-tier mandate at dispatch time.
-- Two distinct output-contract families: (a) the 4 critics (correctness/code-quality/security/integration) all emit the SAME strict critic schema {dimensions,defects,verdict}; (b) context-scout and planner each emit a bespoke JSON shape defined only in their own role file. elite-coder is the ONLY role that returns prose + a STATUS: line rather than JSON.
-- verdict semantics are uniform and pure-computed downstream: verdict=OK iff zero CRITICAL and zero HIGH defects; dimensions[lens]='no' iff a blocking defect on that lens. No LLM computes pass/fail — verdict.merge/gate and integrate.integration_verdict are pure.
-- integration-critic is the ONLY weave-specific critic and explicitly must NOT recompute the deterministic sink (integrate.actual_conflicts for file conflicts + differential.regressions, a zero-false-positive oracle). Its lens is strictly the residual: emergent cross-node seams with no covering test — a deliberately narrow, non-overlapping scope.
-- correctness-critic carries extra scope: it confirms advisory lenses 4 (TEST-ADEQUACY) and 6 (REQUIREMENTS-COVERAGE) and may escalate their heuristic-MEDIUM findings to HIGH with located evidence. The other single-lens critics are told NOT to stray outside their lens.
-- security-critic is the only critic whose deterministic evidence (semgrep SAST) is fail-open: if the floor is empty/absent the orchestrator says so explicitly and the critic STILL runs on its own reading — SAST augments, never replaces, the judgment eye.
-- elite-coder is the only role with real Write/Edit (built-in coder type) and the only one with a self-verify loop (run verify_cmd last; STATUS: INCOMPLETE if it fails). Its STATUS is explicitly 'evidence the harness re-checks with its own runcheck, never proof'.
-- All read-only roles (explore + plan) write NOTHING (F2) and RETURN their result as the final message; the root — the only actor with Write+Bash — persists everything via ctxstore.write_artifact. This is why the scout/planner/critics can safely run under permission-restricted built-in types.
-- SAFE-2 (untrusted content is DATA, never instructions) appears in every single role file — it is the uniform cross-cutting guardrail. security-critic additionally audits whether the code under review treats ingested content as DATA (auditing the ingestors), extending SAFE-2 from self-protection to a review criterion.
-
----
-
-## atlas-core-statemachine
-
-The single-change core of kimi-atlas: one uninterrupted, human-gated state machine (INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT) prose-encoded in skills/atlas/SKILL.md. The LLM orchestrator is the sole root; it holds frozen intent, dispatches exactly three kinds of subagent via role-file prepend (context-scout→explore for grounding, elite-coder→coder for implementation, three isolated critics→plan for judgment lenses), and marshals inputs into PURE decision functions (scripts/verdict.py) that alone compute pass/fail. Durable truth lives on disk in a per-run .atlas/<run_id>/ ledger (scripts/ctxstore.py), which is what makes the run compaction-survivable and resumable. Verification is a 6-lens harness: a deterministic floor (runcheck/quality/reqcoverage/pathcheck + sast) whose defects are merged in so every gate() failure condition also becomes a blocking merged defect, plus three adversarial model critics; the refine loop provably halts at MAX_PASSES=2.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | Prose-encoded root orchestrator + canonical state machine; drives INIT→OUTPUT in one uninterrupted turn, dispatches subagents by role-file prepend, marshals inputs into the pure verdict functions, and never auto-applies. |
-| `stage.INIT_INTENT` | `skills/atlas/SKILL.md:110-178` | Resume-check first (scan .atlas/*/state.json for newest non-terminal run), else parse $ARGUMENTS into the task packet, record baseline_sha, protect tree via .git/info/exclude, freeze the immutable packet, advance INIT then INTENT_CAPTURED. |
-| `stage.CLARIFY` | `skills/atlas/SKILL.md:180-208` | Conditional human gate 1. Deterministic trigger: validate.validate(packet,'task-packet') schema errors OR any of verify_cmd/success_criteria/scope_paths empty. Interactive → ONE batched AskUserQuestion (<=3, never re-ask); headless → deterministic defaults recorded as assumptions. |
-| `stage.TRIAGED` | `skills/atlas/SKILL.md:210-214` | Classify archetype (bugfix/feature/refactor/test), confirm target is a code tree. Pure bookkeeping, no subagent, no pause. |
-| `stage.GROUNDED` | `skills/atlas/SKILL.md:216-285` | Dispatch context-scout (explore) for a grounding digest, persist it as context.json, advance GROUNDED (degraded=True if scout JSON unusable after one retry), then run advisory skill selection into skills.json. |
-| `stage.PRE_CODE_GATE` | `skills/atlas/SKILL.md:287-321` | Human gate 2 (SAFE-1/OPS-4) before any real-tree mutation. Synthesize+persist plan.md preview; set and persist review_root; branch interactive (AskUserQuestion Approve/Adjust/Cancel, review_root='.') vs headless (isolate: git worktree off baseline_sha, or throwaway sandbox). |
-| `stage.CODED` | `skills/atlas/SKILL.md:323-341` | Memory-guard (>=3GB), dispatch elite-coder (coder) with the full frozen packet + persisted review_root + injected skills (TOP-1 ACTIVE, top-3 advisory). Coder self-verifies; its STATUS is evidence, never proof. Advance CODED. Never present the diff here. |
-| `stage.VERIFIED` | `skills/atlas/SKILL.md:343-572` | The 6-lens harness in 5 steps: (1) capture one diff.patch + changed/test file maps from review_root; (2) run 3+ deterministic lenses at root Bash into det_evidence.json (runcheck lens5, quality.lint_deliverable lens4, reqcoverage lens6, pathcheck grounding, sast SECURITY floor, docs naming); (3) dispatch 3 isolated judgment critics as one <=3 wave; (4) verdict.merge PURE; enforce_critic_schema; (5) verdict.gate PURE. Advance VERIFIED with provisional verdict. |
-| `stage.REFINE` | `skills/atlas/SKILL.md:574-603` | Conditional, provably-halting loop. Read authoritative pass count from ledger; refine if verdict.should_refine (CRITICAL/HIGH AND passes<2) OR V7 clause (any CORRECTNESS/SECURITY defect at any severity AND passes<1). True → advance REFINE and loop back to CODED with the blocking fixes; False → OUTPUT. |
-| `stage.OUTPUT` | `skills/atlas/SKILL.md:605-641` | Terminal human gate 3. Compute verdict.final_status; advance OUTPUT first, then missing_stages backstop; present labelled STOP block (✅ VERIFIED / ⚠️ UNVERIFIED + residual blocking defects + diff location). Interactive → AskUserQuestion Apply/Refine/Discard before any merge; headless → print + halt. Never auto-apply. |
-| `ctxstore` | `scripts/ctxstore.py` | Run persistence + canonical STAGES + compaction-surviving ledger. Holds NO prompting knowledge — deterministic disk I/O only. |
-| `verdict` | `scripts/verdict.py` | The PURE decision functions of the 6-eye harness — no model judgment, no prompt knowledge. Makes the refine loop provably halt and degradation deterministic. |
-| `context-scout` | `agents/context-scout.md` | Grounding role. Scans target repo for facts/conventions/constraints relevant to intent, returns the grounding digest JSON as its final message (writes nothing). |
-| `elite-coder` | `agents/elite-coder.md` | Implementation role. Implements the change under the elite mandate, self-verifies by running verify_cmd, returns STATUS: COMPLETE\|INCOMPLETE + changed files. |
-| `correctness-critic` | `agents/correctness-critic.md` | Isolated adversarial judgment lens 1 (CORRECTNESS). Also confirms advisory lenses 4/6, may escalate a real gap to HIGH. |
-| `code-quality-critic` | `agents/code-quality-critic.md` | Isolated adversarial judgment lens 2 (CODE-QUALITY) — dead abstraction, unclear structure, convention drift. HIGH is rare. |
-| `security-critic` | `agents/security-critic.md` | Isolated adversarial judgment lens 3 (SECURITY) — taint inputs to sinks; also audits whether ingestors treat content as DATA. |
-| `runcheck` | `scripts/runcheck.py` | Lens 5 DOES-IT-RUN — fully deterministic. Discovers verify_cmd, launches an arbitrary target build mem-capped + hard-timeout in a new process group, parses test counts/collection, computes the green bar. |
-| `quality` | `scripts/quality.py` | Lens 4 TEST-ADEQUACY / debug-token floor + the merged-critic schema enforcer. |
-| `reqcoverage` | `scripts/reqcoverage.py` | Lens 6 REQUIREMENTS-COVERAGE — token-overlap of FROZEN success_criteria vs the diff + scope-creep detection. |
-| `pathcheck` | `scripts/pathcheck.py` | Grounding backstop for lenses 1/6 — a cited path in the diff that does not exist under review_root is a CRITICAL CORRECTNESS defect. |
-| `difftool` | `scripts/difftool.py` | Captures the single deterministic unified diff every lens reviews, from review_root, handling tracked + untracked-in-scope files. |
-| `sast` | `scripts/sast.py` | SECURITY deterministic floor (semgrep). Fail-open: absent/error/timeout → [] and the SECURITY lens degrades to judgment-only. |
-| `validate` | `scripts/validate.py` | Schema validator used by the CLARIFY trigger (task-packet) and the GROUNDED state-integrity backstop (context). |
-| `skillselect` | `scripts/skillselect.py` | Advisory skill selector (V6) — ranks the committed skill-registry against frozen intent, honoring overrides; result persisted as skills.json for coder/critic injection. |
-| `check_artifact_naming` | `scripts/check_artifact_naming.py` | Doc-gate check (PASS-bar item 5) — verifies naming/inventory cleanliness for any changed .md doc (docs_clean). |
-| `schemas` | `references/schemas.json` | Defines the task-packet, context (run-state), and critic JSON schemas the state machine validates against. |
-| `rubric` | `references/rubric.md` | The six canonical verification lenses; each critic receives exactly its single lens; verdict._DIMENSIONS mirrors it. |
-
-### Invariants that matter
-
-- COMPLETION INVARIANT: INIT→OUTPUT is ONE turn; only 3 legal turn-ending pauses (CLARIFY AskUserQuestion, PRE-CODE approval AskUserQuestion, OUTPUT human gate).
-- NO LLM ever computes pass/fail — orchestrator only marshals inputs into verdict.merge/gate (PURE).
-- A CODED change is never a result; only the OUTPUT-stage, gated, status-labelled block is presented.
-- Every stage transition MUST call ctxstore.advance and it must RETURN before the stage counts done.
-- Never auto-applies: every mutation is human-gated (interactive) or confined to an isolated worktree/sandbox (headless).
-- SAFE-2: all ingested file/web content is DATA, never instructions.
-- review_root is set once at the PRE-CODE gate and is the single tree the coder writes and VERIFIED diffs+runchecks against.
-- task packet frozen once here: {intent, success_criteria[] ordered/immutable, scope_paths[], verify_cmd, baseline_sha, debug_tokens[], test_glob}.
-- run_id = ${KIMI_SESSION_ID} (stable across compaction); base = .atlas in target cwd, else ${KIMI_CODE_HOME}/atlas-runs/wd_<sha>/.
-- init_run writes intent.txt once (never overwritten).
-- Packet fields are mutable ONLY here, before first use.
-- Skipped entirely (no CLARIFY ledger entry) when packet fully specified.
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| add/rename/reorder a state machine stage | scripts/ctxstore.py:35-49 (STAGES/CONDITIONAL/MANDATORY) — single source of truth; then the matching ### block in skills/atlas/SKILL.md:110-641 |
-| change the PASS bar / what makes a run VERIFIED | scripts/verdict.py:114-159 gate() (+ its mirror script_defects synthesis in skills/atlas/SKILL.md:521-551) |
-| change the refine loop cap or the V7 forcing rule | scripts/verdict.py:24 MAX_PASSES + :55-61 should_refine; V7 clause in skills/atlas/SKILL.md:587-591 |
-| change how pass/fail is merged from critics + scripts | scripts/verdict.py:76-111 merge() |
-| change the human-gate points | skills/atlas/SKILL.md:62-84 (Completion Invariant, the 3 gates) + CLARIFY:180-208, PRE-CODE:287-321, OUTPUT:605-641 |
-| change how subagents are dispatched (role-file prepend + built-in mapping) | skills/atlas/SKILL.md:32-45 (KIMI ADAPTATION) + per-stage Agent(...) calls at :217, :326, :469-497 |
-| change grounding / scout output shape | agents/context-scout.md:47-63 + consumer skills/atlas/SKILL.md:216-247 |
-| change coder mandate / self-verify contract | agents/elite-coder.md:25-46 |
-| change a judgment critic's lens / severity rules / isolation packet | agents/correctness-critic.md, agents/code-quality-critic.md, agents/security-critic.md (each) + evidence-slice assembly skills/atlas/SKILL.md:479-488 |
-| change where the coder writes / verification tree (interactive vs headless isolation) | skills/atlas/SKILL.md:293-319 (review_root branch) — read back everywhere via read_artifact('review_root') |
-| change deterministic lens 5 (runcheck) green bar / mem cap / timeout | scripts/runcheck.py:281-293 green + :396 run + call site skills/atlas/SKILL.md:429-431 |
-| change deterministic lens 4 (lint) severity/tokens | scripts/quality.py:118 lint_deliverable |
-| change deterministic lens 6 (coverage/scope-creep) | scripts/reqcoverage.py:96 coverage |
-| change SECURITY SAST floor severity mapping / fail-open | scripts/sast.py:83 parse_semgrep_json + :163 scan |
-| change ledger persistence / refine-pass counting | scripts/ctxstore.py:132-180 advance + get_refine_passes |
-| change the resume behavior after compaction | skills/atlas/SKILL.md:110-131 INIT resume-check + scripts/resume.py + atlas-resume skill dir |
-| change schemas (task-packet / context / critic) | references/schemas.json (consumed by scripts/validate.py:29 and scripts/quality.py:44) |
-| change advisory skill selection / injection | scripts/skillselect.py:113 select + policy prose skills/atlas/SKILL.md:270-284, :334-336 |
-
-**Entry points:** `skills/atlas/SKILL.md — /skill:atlas <rough request> [verify_cmd:][success:][scope:] (or `ping`), $ARGUMENTS parsed at INIT` · `INIT resume-check (skills/atlas/SKILL.md:110-131) — re-entry after compaction/interruption via .atlas/<run_id>/ ledger, resumed by atlas-resume sessionStart` · `scripts/verdict.py — pure decision surface: merge/gate/should_refine/final_status/missing_stages` · `scripts/ctxstore.py — STAGES + init_run/advance/get_state ledger API`
-
-
-### Notes
-
-- The state machine is PROSE-ENCODED in skills/atlas/SKILL.md and executed by the LLM orchestrator; the Python scripts are the deterministic 'hands' it calls via Bash. STAGES (ctxstore) and the pure verdict functions are the only mechanical truth — everything else is orchestrator discipline enforced by the Completion Invariant.
-- Agent role files carry YAML frontmatter (tools:/model:/temperature:) that is DOCUMENTATION ONLY — explicitly stripped before dispatch. Real permissions come solely from the built-in Kimi subagent type: context-scout→explore, elite-coder→coder, all three critics→plan. So the model:sonnet in scout/coder and model:opus in critics are non-binding labels, not the runtime model.
-- Concurrency cap is exactly 3, and peak is the 3-critic VERIFIED wave; CODED (coder) finishes before VERIFIED begins so coder and critics never coexist. Every spawn and every runcheck launch is preceded by a free -m >=3GB guard.
-- Key consistency invariant: the SKILL synthesizes script_defects (lint+reqcov+pathcheck+sast + synthesized runcheck/docs-naming/schema CRITICALs) INTO verdict.merge so that EVERY deterministic gate() failure also appears as a blocking defect in merged_critic.json. This keeps should_refine()/final_status() — which read ONLY merged_critic — in agreement with gate(). Breaking this (e.g. adding a new gate() condition without a matching synthesized defect) would let a run ship a false ✅ VERIFIED.
-- The refine loop's provable halt is a conjunction: should_refine caps at passes<MAX_PASSES(2) AND the V7 clause is guarded by passes<1, so worst case is <=2 re-drafts. The pass count is ALWAYS read from the on-disk ledger (count of REFINE lines in log.jsonl), never from model memory.
-- 'context' is overloaded on purpose: the context JSON-schema validates the run STATE (state.json), while context.json is the separate scout grounding digest consumed by pathcheck.cross_check. validate(state,'context') is a state-integrity check, NOT digest validation.
-- review_root is the single most load-bearing runtime value: set once at the PRE-CODE gate, it is the coder's only writable root AND the cwd for both difftool.capture and runcheck.run. Hard-coding '.' instead would make the headless worktree diff empty and runcheck test the untouched main tree — a false ✅ exactly where SAFE-1 isolation is mandatory.
-- agents/planner.md and agents/integration-critic.md exist in the same agents/ dir but belong to the ATLAS-WEAVE multi-agent layer, not this single-change core; they are not dispatched by skills/atlas/SKILL.md.
-- OUTPUT ordering is deliberate: advance('OUTPUT') is recorded BEFORE the missing_stages backstop so OUTPUT itself isn't reported missing; and a missing mandatory stage is only recorded, never re-executed, because re-running CODED after VERIFIED would mutate the diff and void the gate.
-
----
-
-## atlas-weave-orchestration
-
-The multi-agent OUTER meta-machine that wraps the unchanged single-change `atlas` inner machine. It takes a change too large for one coherent atlas run, decomposes it into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges results through a combined-tree differential gate — all without letting any LLM compute pass/fail (every scheduling/disjointness/cycle/differential/gate decision is a pure function over on-disk facts) and while provably halting (gas + MAX_ATTEMPTS caps). The hierarchy lives entirely in the persisted `plan.dag.json` data, never in the agent tree: the orchestrator stays the sole root and marshals evidence into pure cores that decide. A 1-node DAG (or any planner failure) degrades byte-identically to a single atlas run. Layered as pure decision cores (plandag/planstage/scheduler/differential/integrate/resume/budget/bestofn) plus thin I/O "hands" (uniontree/leaseclock/ctxstore/runcaps) plus the orchestrator SKILL prose that sequences them.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `weave.SKILL` | `skills/atlas-weave/SKILL.md` | Outer orchestrator prose: the sole-root agent that sequences the DECOMPOSED->BUDGETED->SCHEDULE*->INTEGRATE->AGGREGATE->OUTPUT meta-machine, marshalling on-disk facts into the pure cores and dispatching subagents/node runs. |
-| `plandag` | `scripts/plandag.py` | Pure plan-DAG substrate: acyclicity, scope-disjointness, criteria-conservation, gas/attempt bounds, and the ready/expand/fixpoint graph logic the scheduler marshals but never re-implements. |
-| `planstage` | `scripts/planstage.py` | DECOMPOSED-stage gate: validate a planner's DAG (acyclic, disjoint, every frozen criterion covered) or degrade to the byte-identical 1-node atlas DAG. |
-| `runcaps` | `scripts/runcaps.py` | Provision the halting caps (depth_max/node_max/gas) and soft token_budget from the task packet; the BUDGETED-stage fuel hand. |
-| `budget` | `scripts/budget.py` | Pure risk/budget heuristics for BUDGETED: score a node's blast radius to SIZE spend (how many drafts it funds); never gates pass/fail. |
-| `bestofn` | `scripts/bestofn.py` | Risk-funded best-of-N draft selection: pure lexicographic N->1 collapse before a node's VERIFIED, so best-of-N never touches merge/combined-tree machinery. |
-| `scheduler` | `scripts/scheduler.py` | Pure decision core for the flat-W=3 memory-admissible work-stealing scheduler: plan/charge/dispatch waves, apply receipts, reap expired leases, and fold the final aggregate + run status. |
-| `leaseclock` | `scripts/leaseclock.py` | Injected-clock lease stamp + expiry: stamps a subagent turn with a lease token + wall-clock deadline and reports expired leases for reap_expired. |
-| `uniontree` | `scripts/uniontree.py` | INTEGRATE I/O hand: create a detached git worktree at baseline_sha, git-apply the union of node diffs in list order, capture the combined diff — the THIRD disjointness net. |
-| `integrate` | `scripts/integrate.py` | Pure INTEGRATE decision core: parse actual touched files from diffs, flag same-file cross-change conflicts, and fold conflict+differential defects into one canonical integration verdict. |
-| `differential` | `scripts/differential.py` | Pure combined-tree differential ORACLE: identify tests green-in-isolation but not green on the merged tree (zero-false-positive cross-change regressions); the RUNNER is deferred I/O. |
-| `resume` | `scripts/resume.py` | Run-shape-aware graph resume: pick the graph ROOT run among on-disk runs (never a task sub-run) and reset orphaned RUNNING jobs to PENDING for a fresh scheduler start. |
-| `ctxstore` | `scripts/ctxstore.py` | Run persistence hand: freeze the immutable task packet, record canonical stage transitions, append the compaction-surviving ledger, and write DAG artifacts (atomically) under .atlas/<run_id>/. |
-| `dogfood_weave` | `scripts/dogfood_weave.py` | End-to-end deterministic proof harness: drives the FULL weave pipeline on a real temp git repo with SCRIPTED coder outputs (no live agents), pinning the composition of pure cores + I/O hands in CI. |
-| `planner.role` | `agents/planner.md` | Read-only DECOMPOSED subagent (mapped planner->plan): returns ONE JSON file-disjoint plan-DAG + per-node risk features; writes nothing (the orchestrator persists it). |
-| `integration-critic.role` | `agents/integration-critic.md` | INTEGRATE seam subagent (mapped integration-critic->plan): reviews the combined_diff + touched exported symbols, RETURNS a critic-schema report persisted as critic_integration.json. |
-| `atlas.node` | `skills/atlas/SKILL.md` | A weave node IS an inner atlas sub-run: a full INIT->OUTPUT 6-lens machine over the node's scope_paths in its own isolated worktree at run_id ${SESSION}/tasks/<node_id>, reporting completion. |
-| `plan.dag.json` | `.atlas/${SESSION}/plan.dag.json` | The persisted single source of truth for the whole run: {meta:{depth_max,node_max,gas_remaining,next_seq}, nodes:{node_id->{kind,depth,deps,scope_paths,success_criteria_subset,verify_cmd,children,parent}}, jobs:[{job_id,node_id,kind,deps,attempts,state,lease}]}. |
-
-### Invariants that matter
-
-- No LLM computes pass/fail — all verdicts are pure folds
-- Provable halting via runcaps.seed_caps gas + MAX_ATTEMPTS; dispatch_wave is the SOLE gas-charging site
-- Degrade byte-identically to atlas on a 1-node DAG / any planner failure
-- Discard post-resume in-flight receipts (lease token f'{job_id}#{attempts}' does not rotate across resume)
-- Star topology, <=3 concurrent, sole root; a node never spawns a sub-orchestrator
-- Never auto-apply the union — human gate at OUTPUT
-- is_dag rejects cycles AND dangling deps via Kahn's algorithm
-- scope_overlap: equal or directory-prefix overlaps; '' sentinel (whole-repo) overlaps everything — safe direction
-- charge_gas floors at 0, deepcopies (pure); with MAX_ATTEMPTS makes scheduler provably halt
-- expand raises CapExceeded on gas-out / depth_max / node_max breach
-- criteria_conservation tested against GLOBAL non-DECOMPOSE verifier set, immune to children-graph shape
-- coerce_dag NEVER trusts planner output: degrades on non-dict, no nodes, >node_max, non-dict node, bad field shape, validation failure, or any raised exception
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| change the concurrency cap / memory admission model | scripts/scheduler.py:16-32 (ROOT_RSS_MB, CEILING_MB=4608, FREE_FLOOR_MB=3072, W_MAX=3, RSS_MB, KIND_CLASS) + can_admit:70-92 + plan_wave:120-144 |
-| change how gas / halting fuel is provisioned | scripts/runcaps.py:49 (gas = node_max*MAX_ATTEMPTS + node_max); plandag.MAX_ATTEMPTS=2 at scripts/plandag.py:20 |
-| the SOLE gas-charging site | scripts/scheduler.py:164-183 dispatch_wave -> plandag.charge_gas (scripts/plandag.py:160-169) |
-| file-disjointness enforcement (three nets) | declared: scripts/plandag.py:71-112 scope_overlap/disjoint (via planstage.validate_planner_dag); actual touched-file: scripts/integrate.py:60-92 actual_conflicts; git-apply: scripts/uniontree.py:41-102 apply_union failed[] |
-| degrade-to-atlas guarantee (1-node DAG) | scripts/planstage.py:14-46 single_node_dag + 89-122 coerce_dag (every failure path degrades) |
-| lease / clock stamp + expiry (reaper feed) | scripts/leaseclock.py:32-64 stamp/expired; scheduler.stamp_lease:155-161; reap_expired:256-271 |
-| combined-tree regression oracle | scripts/differential.py:13-27 regressions (green == exactly 'pass') |
-| the one pure final fold / how a node FAIL forces run FAIL | scripts/scheduler.py:319-364 final_aggregate + unresolved_nodes:302-316 + criteria_conservation backstop |
-| run-status / gas-freeze -> UNVERIFIED labeling | scripts/scheduler.py:367-378 run_status (gas_frozen only when unresolved) |
-| receipt fencing against stale/dup (post-resume safety) | scripts/scheduler.py:186-188 lease_valid + 211-253 apply_receipt; scripts/resume.py:53-77 resume + PRECONDITION note; leaseclock no-rotation note lines 13-18 |
-| atomic DAG write (crash-safe persistence) | scripts/ctxstore.py:193-210 write_artifact_atomic (tmp + os.replace) |
-| per-node isolation via hierarchical run_id | scripts/ctxstore.py:52-66 _run_dir; resume.is_task_subrun scripts/resume.py:20-27 |
-| union worktree create/apply/cleanup | scripts/uniontree.py:41-115 apply_union + cleanup (detached, git -C, fail-safe) |
-| best-of-N funding + N->1 collapse | scripts/bestofn.py:46-66 select/fanout_n; sizing at scripts/budget.py:23-36 risk_score |
-| touched-file diff parser (conflict ground truth) | scripts/integrate.py:15-57 touched_files (splits on '\n', hunk-aware, rename/copy) |
-| end-to-end deterministic proof / add a scenario | scripts/dogfood_weave.py:91-231 dogfood |
-
-**Entry points:** `skills/atlas-weave/SKILL.md (orchestrator prose, invoked by /skill:atlas-weave)` · `scripts/dogfood_weave.py:dogfood (deterministic end-to-end CI proof)` · `scripts/planstage.py:coerce_dag (DECOMPOSED gate / degrade-to-atlas)` · `scripts/scheduler.py:plan_wave + dispatch_wave (SCHEDULE* trampoline)` · `scripts/scheduler.py:final_aggregate + run_status (AGGREGATE fold)` · `scripts/resume.py:select_graph_run + resume (atlas-resume reconstruction)`
-
-
-### Notes
-
-- The hierarchy is data, not agent tree: the orchestrator stays sole root; a node's inner atlas run never spawns a sub-orchestrator. All scheduling/disjointness/differential/gate decisions are PURE functions over plan.dag.json.
-- Two-tier caps in runcaps: depth_max/node_max/gas are HALTING caps (gas provisioned strictly above worst-case dispatch count = node_max*2 + node_max margin so a DECOMPOSE expand can't starve the run); token_budget is a SOFT sizing hint that NEVER gates.
-- charge-at-dispatch (not receipt) is load-bearing: a crashed/orphaned agent has already spent its fuel, so gas can never be re-lent — this is why resume() deliberately does NOT refund gas and does NOT attempts++ (a compaction is not an agent failure).
-- The lease token f'{job_id}#{attempts}' intentionally omits any timestamp so it does NOT rotate across a resume — which forces the SKILL/atlas-resume wiring to DISCARD any in-flight receipt from a killed turn, because it would otherwise pass lease_valid against the re-dispatched attempt. This is the single subtlest correctness coupling in the subsystem (leaseclock <-> resume <-> apply_receipt).
-- A clean git apply is explicitly NOT credited as disjointness proof: same-file-different-hunk edits concatenate silently, so integrate.actual_conflicts re-validates against the ACTUAL touched files (integrate.touched_files) — the second of three disjointness nets, with uniontree's git-apply failed[] as the third.
-- actual_conflicts counts conflicts by distinct CHANGE list-position, not distinct ids, so a missing/duplicate node id fails SAFE (still flagged) rather than laundering an overlap.
-- differential.regressions requires the green token to be EXACTLY lowercase 'pass'; any other spelling is treated as non-green. This asymmetry is what makes the oracle zero-false-positive and is a contract the P8 suite-runner (suiterun.parse_junit/run_suite) must honor.
-- final_aggregate has three independent false-green guards: unresolved node -> synthetic CRITICAL; resolved non-DECOMPOSE node with no folded 6-lens verdict -> UNVERIFIED; a resolved DECOMPOSE whose criteria aren't re-covered by a child -> criteria_conservation defect. A single one forces FAIL; a passing sibling can never mask it.
-- scheduler.can_admit's structural rule (build forbids a 2nd build or any coder; coder forbids a build) is load-bearing beyond the numeric ceiling: build+coder (1024+2048+1300=4372) passes the 4608 ceiling and is forbidden ONLY by that rule — so a build wave never overlaps a coder wave.
-- plan_wave's progress floor (admit the single smallest-RSS ready job when the wave would be empty, nothing is running, ready jobs exist, and gas remains) guarantees forward progress; the root's live free -m re-check is the true OOM veto. An empty wave while jobs are RUNNING is the normal in-flight/memory wait, NOT a termination signal (the loop guard is is_terminated == plandag.is_fixpoint).
-- measure() strictly decreases on dispatch/receipt, but a successful DECOMPOSE-expand keeps gas fixed and ADDS bounded children, so lower components may rise on that one step — termination therefore rests on the GLOBAL gas bound, not on measure monotonicity alone. dogfood_weave asserts iters <= gas0+nodes+5 to catch any halting regression.
-- seed_jobs is idempotent (keyed on node_id) so re-seeding after an expand graft is a no-op; multi-job stage-chains per node are a documented DEFERRED extension (currently 1 job per node).
-
----
-
-## build-ci-packaging
-
-The build-ci-packaging subsystem is how kimi-atlas builds, gates, installs, and ships. Its hub is a stdlib-only Makefile whose `ci` target (check-strict + test + inventory-drift + check-shell) is the exact pipeline GitHub Actions (`.github/workflows/check.yml`) and the opt-in local pre-commit hook (`.githooks/pre-commit`, installed by `scripts/install-hooks.sh`) both run. Two red-team negative gates live OUTSIDE `make ci` on purpose: `run_negative_gate.py` (needs Kimi + semgrep) proves the judgment critics and SAST floor block sub-elite fixtures, and `run_weave_negative_gate.py` proves the combined-tree integration sink blocks via pure cores. Shipping is two-sided: `.kimi-plugin/plugin.json` is the plugin manifest (declares skills dir, sessionStart resume skill, telemetry hooks, tool-wiring instructions), `scripts/install.sh` installs the committed HEAD into `~/.kimi-code/plugins` with atomic installed.json registration, and `scripts/skillextract.py --verify` is the zip-free manifest-integrity gate for the 115 vendored skill packages.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `Makefile` | `Makefile` | Central build/gate orchestrator; defines the `ci` pipeline plus install/extract/registry targets |
-| `ci.workflow` | `.github/workflows/check.yml` | GitHub Actions CI: run the local pipeline on push/PR to main/master |
-| `pre-commit.hook` | `.githooks/pre-commit` | Opt-in local pre-commit gate that runs `make ci` before each commit |
-| `install-hooks.sh` | `scripts/install-hooks.sh` | Install the opt-in pre-commit hook by pointing core.hooksPath at .githooks |
-| `install.sh` | `scripts/install.sh` | Install/uninstall kimi-atlas as a native Kimi Code plugin and register it in installed.json |
-| `plugin.json` | `.kimi-plugin/plugin.json` | Kimi plugin manifest — identity, skills dir, sessionStart resume skill, telemetry hooks, tool-wiring instructions |
-| `plugin_meta` | `scripts/plugin_meta.py` | Pure reader of the plugin manifest version |
-| `check_artifact_naming` | `scripts/check_artifact_naming.py` | Doc naming gate (lens for `make check`/`check-strict`): every project .md is lowercase kebab-case, .md, non-generic |
-| `inventory_drift` | `scripts/inventory_drift.py` | Doc inventory-drift gate: fail if the doc set on disk diverges from what references/*.md + README.md link |
-| `skillpkgs` | `scripts/skillpkgs.py` | Shared skill-package-aware markdown walk used by BOTH doc gates (owns the exemption once) |
-| `run_negative_gate` | `scripts/run_negative_gate.py` | Single-change red-team gate: prove each judgment critic blocks sub-elite code on exactly its lens, and the SAST floor blocks a mechanical vuln without a critic |
-| `run_weave_negative_gate` | `scripts/run_weave_negative_gate.py` | Combined-tree red-team gate: prove the ATLAS-WEAVE integration sink cannot ship a broken union of file-disjoint node changes |
-| `suiterun` | `scripts/suiterun.py` | JUnit suite runner for the ATLAS-WEAVE INTEGRATE sink: turn a JUnit XML into {test_id:status} for differential regression detection |
-| `skillextract` | `scripts/skillextract.py` | Extract the vendored Skills/ zips into skills/<name>/ byte-identically and run the sha256 manifest-integrity verify gate |
-| `telemetry.hook` | `hooks/telemetry.sh` | Fail-open observe-only telemetry hook wired into the plugin manifest for PostToolUse/SubagentStart/SubagentStop |
-| `guard-destructive.hook` | `hooks/guard-destructive.sh` | OPT-IN destructive-Bash PreToolUse guard — the only kimi-atlas hook that can BLOCK; ships DISABLED (not in manifest) |
-| `probes` | `probe/*.sh` | Throwaway-runtime probes that RECORD unconfirmed Kimi runtime behaviors (advisory; not a gate) |
-| `fixtures` | `tests/fixtures/*/fixture.json` | Red-team fixture matrix consumed by run_negative_gate: 1 good baseline + 4 bad_* seeded defects |
-
-### Invariants that matter
-
-- `make ci` = check-strict + test + inventory-drift + check-shell — this exact list is mirrored by CI and the pre-commit hook
-- negative-gate and skills-extract are DELIBERATELY excluded from `ci` (they need Kimi/semgrep/zips)
-- stdlib-only: python3 + posix sh + awk; no third-party build deps
-- check-shell is `sh -n` syntax-only over .githooks/pre-commit, hooks/*.sh, probe/*.sh, tolerating absent files
-- CI is a thin wrapper — it runs `make ci` verbatim so local and remote gates cannot drift
-- Pinned to Python 3.12 (matches the stdlib-only 3.12 mandate)
-- Only the deterministic gates run in CI; the Kimi/semgrep negative gate is never invoked here
-- Recursion guard: exits 0 immediately when ATLAS_NO_HOOK=1 (so an atlas run committing from inside a hook does not re-enter)
-- Only active after `git config core.hooksPath .githooks` (set by install-hooks.sh); affects only the current clone
-- Runs the identical `make ci` as CI
-- Resolves repo root via `git rev-parse --show-toplevel` BEFORE any `.git` test (fixes the Track A ordering bug; handles worktrees where .git is a file)
-- Fails friendly with exit 1 outside a git repo or when .githooks is missing
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| change what `make ci` runs | Makefile:35 (`ci: check-strict test inventory-drift check-shell`) |
-| change the CI Python version or trigger branches | .github/workflows/check.yml:5-7,16 |
-| add/remove a doc-naming exemption | scripts/check_artifact_naming.py:48 (EXCLUSION_SET), :52 (GRANDFATHERED) |
-| change which dirs are treated as future/skipped in the doc-drift gate | scripts/inventory_drift.py:48 (FUTURE_DIRS), :64 (_SKIP_SEGMENTS) |
-| change how skill packages are skipped in doc walks | scripts/skillpkgs.py:20 (is_package_dir), :25 (walk_markdown) |
-| add a red-team fixture / change the pass bar | tests/fixtures/<name>/fixture.json; scripts/run_negative_gate.py:403 (evaluate_outcome), :672 (process_sast_fixture) |
-| change the Kimi/semgrep impure seams for the negative gate | scripts/run_negative_gate.py:590 (invoke_kimi), :607 (sast_scan) |
-| add a combined-tree integration scenario | scripts/run_weave_negative_gate.py:144 (scenarios), :132 (_EVALUATORS) |
-| change what counts as a green test (JUnit parsing) | scripts/suiterun.py:32 (parse_junit), :24 (_CHILD_STATUS) |
-| change the plugin identity / wired hooks / sessionStart | .kimi-plugin/plugin.json:3 (version), :19 (sessionStart), :20-36 (hooks) |
-| change the plugin install/registration flow | scripts/install.sh:61 (git archive HEAD \| tar), :66-91 (atomic installed.json write) |
-| change the opt-in pre-commit install (worktree/ordering) | scripts/install-hooks.sh:10 (repo-root-first), :21 (core.hooksPath) |
-| change the destructive-Bash denylist | hooks/guard-destructive.sh:81 (CMDPOS), :86-112 (denylist rules) |
-| change telemetry write target / no-op conditions | hooks/telemetry.sh:82-88 (active run discovery), :93 (append) |
-| change skill-extraction integrity / verify | scripts/skillextract.py (plan_extractions/build_manifest/verify_manifest; --verify path) |
-| read the plugin manifest version programmatically | scripts/plugin_meta.py:15 (read_version) |
-
-**Entry points:** `make ci (deterministic gate: check-strict + test + inventory-drift + check-shell)` · `make negative-gate (red-team: run_negative_gate.py, needs Kimi+semgrep)` · `python3 scripts/run_weave_negative_gate.py (pure combined-tree red-team, importable)` · `make skills-extract (skillextract.py + --verify integrity gate)` · `./scripts/install.sh (install plugin into ~/.kimi-code)` · `make install-hooks -> ./scripts/install-hooks.sh (opt-in pre-commit)` · `.github/workflows/check.yml (CI trigger on push/PR to main/master)`
-
-
-### Notes
-
-- `make ci` is a strictly DETERMINISTIC gate: it never invokes Kimi or semgrep. The two red-team gates (run_negative_gate needs Kimi+semgrep; skills-extract needs the Skills/ zips) are intentionally excluded so CI stays hermetic — confirmed by grepping .github + Makefile.
-- The single-change negative gate is impure (2 subprocess seams to kimi/semgrep, both monkeypatched by tests/test_run_negative_gate.py); the weave negative gate is 100% pure over crafted data (no agents/git/subprocess) and thus importable and unit-testable directly.
-- No LLM ever computes pass/fail anywhere in the gates: run_negative_gate routes critic JSON through pure verdict.merge -> quality.enforce_critic_schema -> verdict.gate; run_weave_negative_gate calls only pure cores (integrate/differential/planstage/verdict/scheduler).
-- Fail-safe direction is consistent across the subsystem: suiterun degrades to {} (conservative regression), telemetry/probes/guard fail-OPEN to exit 0, sast_scan fails-open to [], but the negative-gate FAILS CLOSED (a bad_* returning OK is a RUBBER STAMP with non-zero exit).
-- install.sh ships the committed HEAD via `git archive HEAD \| tar` — never the working tree — and both install.sh and its uninstall path write installed.json atomically (mkstemp + os.replace) with a timestamped .bak. This is the packaging safety story.
-- Every script uses the same path shim: `_ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, _ROOT)` so `from scripts import ...` resolves whether run directly or imported (check_artifact_naming.py:40, inventory_drift.py:40, run_negative_gate.py:83, run_weave_negative_gate.py:53).
-- guard-destructive.sh is the ONLY hook that can block and is deliberately absent from plugin.json hooks[] — it stays disabled until probe/probe_hook_block.sh confirms which of Kimi's two block mechanisms (exit 2 vs exit-0 permissionDecision JSON) is honored; it emits BOTH to hedge.
-- The 115-vs-117 skill count: skillextract coalesces 2 byte-identical duplicate zips; skills-extract runs extract THEN --verify (the zip-free re-hash gate against references/skills-manifest.json).
-- Doc gate self-consistency: references/*.md + README.md index themselves and each other, so inventory_drift's orphan signal only fires on docs added OUTSIDE that source set — a new sibling dropped into references/ does not trip it, but a new top-level doc or new directory does.
-- check-shell only does `sh -n` (syntax check) over the hooks/probes/installer — it does NOT execute them, so behavior of telemetry/guard/probes is not exercised by `make ci` (only their unit-testable Python cores and the fixtures are).
-
----
-
-## docs-and-references
-
-The documentation corpus of kimi-atlas: a human-readable design spine that grounds and cross-links the three code layers (atlas single-change core, ATLAS-WEAVE multi-agent meta-machine, the 115-skill system). It is organized as a set of reference docs under references/ (architecture, atlas-weave spec, runtime facts, rubric, orchestration contract, skill-registry, live-validation) plus machine-readable schema/registry/manifest JSON, three top-level narrative files (README, AGENTS, PLAN), and eight phased build-plan docs under docs/superpowers/plans/. The docs deliberately separate authority: SKILL.md files are the executable authority and ctxstore.STAGES is the single source of truth, while these docs are the durable, compaction-independent summary ("when the two disagree, the SKILL governs"). Every first-party .md is markdown-linked from references/*.md or README.md by an enforced inventory-drift doc gate.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `doc.readme` | `README.md` | Top-level product front door: install, using the 115 skills, automatic selection, atlas quality model, ATLAS-WEAVE overview, honest limits, repo layout, FAQ, and the Documentation link hub. |
-| `doc.agents` | `AGENTS.md` | Project memory / fast-resume map: what exists, the daily-five make commands, non-negotiable conventions, the skill system v2, atlas-run workflow, open items (D1-D7), and status. |
-| `doc.plan` | `PLAN.md` | The original definitive build plan for the single-change atlas core (apex methodology, v2): objective/non-goals, grounded foundation constraints, exact architecture tree, 6-eye harness, deterministic backbone, phases P0-P5, migration mapping, risk register, execution DAG. |
-| `doc.architecture` | `references/architecture.md` | The atlas single-change design in brief: the compaction/self-grading problem, the no-patch overlay approach (root SKILL state machine, role files, deterministic backbone, 6-lens harness, on-disk ctxstore), why it fits Kimi, and explicit non-goals. |
-| `doc.atlas-weave` | `references/atlas-weave.md` | The full ATLAS-WEAVE multi-agent spec: resolved decisions, objective/non-goals, hard runtime physics, outer meta-machine architecture, data model, 3-tier verification, concurrency/memory budget, halting proof, engineering calcs, phased build P6-P12, and honest residuals. |
-| `doc.kimi-runtime` | `references/kimi-runtime.md` | The authoritative verified runtime reference for Kimi Code CLI: tech stack, the 27 real tool wire-names, the 3 built-in subagent profiles, the apex custom-agent pattern, plugin manifest, skills, hooks, compaction/session state, E2E testing, extra subsystems, and the probe log. |
-| `doc.orchestration` | `references/orchestration.md` | The orchestrator operating contract: persistence conventions, root-only responsibilities, subagent role→built-in mapping, dispatch protocol, immutable task packet, critic output contract, untrusted-content rule, state preservation, gates/conditionals, and the completion invariant. |
-| `doc.rubric` | `references/rubric.md` | The 6 falsifiable verification lenses: canonical dimension names, severity mapping, per-lens claim/test/deterministic-floor/judgment-residual, per-critic verdict, the 6-clause PASS bar, and the honest-scope caveats (V3/V5/V6/V7). |
-| `doc.live-validation` | `references/live-validation.md` | The first end-to-end validation on the live Kimi CLI v0.26.0/k3: runtime compat (Stage 0), atlas single-change (Stage 1), the first live ATLAS-WEAVE multi-agent run (Stage 2), and the Q/T comparison weave-vs-single-shot (Stage 3). |
-| `schema.schemas` | `references/schemas.json` | The machine-readable required/optional field contracts for every persisted artifact and role return: task-packet, context, critic, task-dag, dag-node, job, planner-output, skill-registry, skill-entry, skill-overrides, skills-manifest(+entry). |
-| `doc.skill-registry` | `references/skill-registry.md` | Documents the skill registry & selection subsystem: source-of-truth tree, coalesce policy (117→115), registry schema, trigger extraction (E1), the weighted selection algorithm (E2), manual overrides, and the rebuild/verify commands. |
-| `data.skill-registry-json` | `references/skill-registry.json` | The compact committed registry (v2, 115 entries {name,category,description,triggers,path}) distilled from the skills/ tree by scripts/skillregistry.py; the input skillselect ranks against. |
-| `data.skills-manifest` | `references/skills-manifest.json` | The sha256 integrity anchor for every vendored skill file (117 zips → 115 packages, 712 files); CI re-hashes the whole extracted tree against it zip-free. |
-| `cfg.skill-overrides` | `references/skill-overrides.json` | Optional user-editable selector steering: pin / exclude / boost / categories; absence means no overrides; malformed fields ignored so selection never breaks a run. |
-| `plan.hardening` | `docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md` | The residual-defect analysis for the skills era: the D1-D7 LOW defects across registry/selector/extractor/tests, each with location/root-cause/why-LOW/minimal-fix/regression-test, plus dispositioned audit items and an ordered fix plan. |
-| `plan.p6` | `docs/superpowers/plans/2026-07-16-atlas-weave-p6-pure-cores.md` | Test-first plan for P6 — the pure cores (plandag + verdict.aggregate + coverage-partition + schema blocks + red-team unit fixtures). |
-| `plan.p7` | `docs/superpowers/plans/2026-07-16-atlas-weave-p7-decompose-budget.md` | Test-first plan for P7 — DECOMPOSED + BUDGETED with degrade-to-atlas proven first (planner.md, budget.py, is_dag/disjoint wiring). |
-| `plan.p8` | `docs/superpowers/plans/2026-07-16-atlas-weave-p8-scheduler.md` | Test-first plan for P8 — the SCHEDULE loop (flat W=3 work-stealing, thin-return, memory discipline, lease + requeue cap, builds-in-pool). |
-| `plan.p9` | `docs/superpowers/plans/2026-07-16-atlas-weave-p9-best-of-n.md` | Test-first plan for P9 — risk-funded per-node best-of-N (N∈{1,3}, floor rerank + N→1 collapse, PreToolUse build-block hook). |
-| `plan.p10` | `docs/superpowers/plans/2026-07-16-atlas-weave-p10-integrate-sink.md` | Test-first plan for P10 — the INTEGRATE sink (integrate.py + differential.py + combined 6-lens + integration-critic seam wave + bounded INTEGRATION_REPAIR). |
-| `plan.p11` | `docs/superpowers/plans/2026-07-16-atlas-weave-p11-resume.md` | Test-first plan for P11 — run-shape-aware graph resume (locate the GRAPH run, rehydrate the frontier by pure projection, requeue expired leases, reset dirty worktrees, atomic dag writes). |
-| `plan.p12` | `docs/superpowers/plans/2026-07-16-atlas-weave-p12-runtime-dogfood.md` | Test-first plan for P12 — fuel/halting caps + negative-gate teeth + the outer SKILL loop + deterministic I/O hands + a real end-to-end dogfood measuring Q/T vs single-shot atlas. |
-
-### Invariants that matter
-
-- Links every reference doc + skill JSON + hardening plan (the canonical doc hub)
-- States pass/fail is never computed by an LLM (verdict.merge/gate pure)
-- Claims degrade-to-atlas byte-identity and human-gated, never-auto-apply
-- Encodes the stdlib-only/pure-core/hands conventions and doc-gate rules
-- Lists D1-D7 open items pointing at the 2026-07-19 hardening plan
-- Status line: suite green (`make test`), tracked docs in sync (no inventory drift), registry v2 (115 skills)
-- Predates the skills system and ATLAS-WEAVE (covers P0-P5 only; P6-P12 live in atlas-weave.md + plan docs)
-- Cited by architecture/atlas-weave/kimi-runtime/AGENTS but links out to no other .md itself (uses backtick paths)
-- Referenced as the authority for non-goals (§1) and harness design (§4)
-- Grounded in the verified Node.js SEA runtime (corrects the old mistaken Python kimi_cli assumption)
-- Names the FullCompaction threshold 0.85×max_context (~223K@256K, ~891K@k3/1M)
-- Not an anti-Goodhart guarantee; judgment-only defects are a named residual
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| change the atlas state machine prose (INIT→OUTPUT) | references/architecture.md:13 + references/orchestration.md:5 (but ctxstore.STAGES / skills/atlas/SKILL.md is the real authority) |
-| edit the 6-lens rubric, severity mapping, or the PASS bar | references/rubric.md (lenses at :37/:56/:71/:100/:116/:130; PASS bar at :155) |
-| add/modify a persisted-artifact field contract | references/schemas.json (11 blocks; e.g. task-packet:2, critic:29, task-dag:36) — also read at runtime by scripts |
-| update runtime facts (tools, subagents, hooks, compaction, probes) | references/kimi-runtime.md (tools §2:12, subagents §3:18, hooks §7:57, compaction §8:68, probe log §11:81) |
-| change the ATLAS-WEAVE architecture/halting/memory/residuals | references/atlas-weave.md (§3 arch:62, §5 verification:127, §6 memory:163, §7 halting:184, §10 residuals:269) |
-| edit the orchestrator operating contract / role mapping | references/orchestration.md (roles table :19, dispatch protocol :30, gates :49) |
-| skill selection algorithm / weights / overrides docs | references/skill-registry.md (weights table :51; overrides :67) + cfg references/skill-overrides.json |
-| the live E2E proof numbers (agent counts, timings, Q/T) | references/live-validation.md (Stage 2 table :43; Stage 3 Q/T table :73) |
-| the tracked open defects D1-D7 (root cause + fix) | docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md (A table :16, per-defect from :26) |
-| the original single-change build plan / non-goals / risk register | PLAN.md (§1 Objective+Non-Goals:22, §4 harness:137, §9 Risk Register:315) |
-| install / usage / repo-layout / FAQ user-facing copy | README.md (Quick start :35, Repository layout :171, FAQ :213) |
-| conventions any code edit must match (stdlib-only, doc gates) | AGENTS.md (Non-negotiable conventions :41) |
-| add a new first-party .md (must satisfy the doc gate) | link it from references/*.md or README.md; conventions in AGENTS.md:50-54 (lowercase kebab-case + individual markdown link) |
-
-**Entry points:** `README.md (product front door + Documentation link hub)` · `AGENTS.md (fast-resume project memory, read first in any session)` · `references/kimi-runtime.md (ground-truth physics every design cites)` · `references/atlas-weave.md (the largest/most-linked design spec)` · `docs/superpowers/plans/ (phased build plans P6-P12 + 2026-07-19 hardening)`
-
-
-### Notes
-
-- Authority hierarchy is explicit and load-bearing: the SKILL.md files + ctxstore.STAGES are the executable source of truth; these docs are the durable human-readable summary. orchestration.md:5 states 'when the two disagree, the SKILL governs' and 'Do not duplicate the SKILL here.' A map consumer editing prose must not treat these docs as behavior.
-- STALE-vs-shipped #1: references/atlas-weave.md:3 still carries the banner 'Status: DESIGN (approved in principle, 2026-07-16)', but its own §9 says P6-P12 landed on main and live-validation.md proves the whole system ran end-to-end. The banner is roadmap framing that the rest of the corpus has outrun.
-- STALE-vs-shipped #2: references/kimi-runtime.md H1 (line 1) is titled 'Kimi Code CLI v0.23.5' while its body (§8:69, §11 probes) was updated to v0.26.0 / k3 / 1M. The title lags the content; every other doc now says v0.26.0/k3.
-- atlas-weave.md still describes the runtime as 'v0.23.5' in its intro (line 8) even though the system was validated on v0.26.0 — a residual version reference, not a functional error (§10.3/§10.4 carry explicit k3/1M re-calibration notes, so the doc is internally aware of the newer runtime).
-- PLAN.md is the OLDER layer: it covers only the single-change atlas build phases P0-P5 (apex methodology) and predates both the skills system and ATLAS-WEAVE. It is linked-in by architecture/atlas-weave/kimi-runtime/AGENTS but links out to no other .md itself (it cites paths in backticks, not markdown links). README.md does NOT link PLAN.md.
-- references/schemas.json is dual-purpose: documented here under references/ but also read at RUNTIME by the pure scripts relative to themselves (orchestration.md Conventions:10). It is simultaneously a doc artifact and a live contract — edits here change validator behavior.
-- The doc-link graph is a genuine hub-and-spoke: README.md and AGENTS.md are the two hubs (README links all 7 reference docs + the 3 skill JSONs + AGENTS; AGENTS links the core references + the hardening plan). kimi-runtime.md is the most-cited spoke (architecture, atlas-weave, orchestration all ground in it). The 8 plan docs are leaves reachable only from atlas-weave.md §9 (P6-P12) and AGENTS/skill-registry (hardening).
-- Test counts are intentionally NOT baked into README/AGENTS prose (F4, guarded by tests/test_doc_testcount.py) — the suite size is proven by `make test`; only live-validation cites the target-repo's own suite (a different repo-under-test, not a contradiction). Skill counts are consistently 115 (117 zips → 115 packages); tracked-doc drift is caught by inventory_drift.
-- The KNOWN open items D1-D7 (from the audit brief) live entirely in one doc: docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md, cross-referenced from AGENTS.md Open items and skill-registry.md Related. Any new registry/selector/extractor finding should be checked against that D1-D7 table first.
-
----
-
-## skill-system
-
-The right-skill-at-the-right-time layer: 115 vendored official skill packages under skills/<name>/ (byte-identical to their source zips, sha256-anchored by references/skills-manifest.json), distilled into a compact committed registry and ranked by an advisory, explainable selector. skillextract was the one-time importer; at runtime skillregistry builds the registry from the tree and skillselect scores it against a task intent. Selection is advisory-only (V6): it emits no verdicts and can never gate or widen scope. The atlas GROUNDED stage persists the top-3 to skills.json and injects the TOP-1 SKILL.md body into the coder packet as the ACTIVE skill under SAFE-2 untrusted framing.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `skillregistry` | `scripts/skillregistry.py` | Build references/skill-registry.json from the extracted skills/ tree; hand-parse SKILL.md frontmatter (SAFE-2), take category from the manifest, extract E1 triggers; audit-gated write. |
-| `skillselect` | `scripts/skillselect.py` | Advisory weighted selector: score each registry entry by token overlap (name 3.0 > triggers 2.0 > description 1.0 + category prior); pin/exclude/boost/categories overrides. |
-| `skillextract` | `scripts/skillextract.py` | One-time importer: unpack Skills/*.zip byte-identically into skills/ (modes normalized), write the sha256 manifest; --verify re-hashes the tree against the manifest. |
-| `skillpkgs` | `scripts/skillpkgs.py` | Shared skill-package-aware markdown walk: a directory containing SKILL.md is a vendored package whose payload markdown is never descended into. |
-| `skill-registry.json` | `references/skill-registry.json` | v2 registry: 115 entries {name, category, description, triggers, path}. |
-| `skills-manifest.json` | `references/skills-manifest.json` | sha256 anchor for every vendored file + its category; the source of truth the registry and --verify re-prove. |
-| `skill-overrides.json` | `references/skill-overrides.json` | Optional user steering: pin / exclude / boost / categories. |
-| `skill-registry.md` | `references/skill-registry.md` | Prose spec of the registry schema, trigger extraction (E1), selection algorithm (E2), overrides, and rebuild. |
-| `skills-tree` | `skills/` | 115 vendored official packages (712 files) + 3 first-party orchestrator skill dirs (atlas, atlas-weave, atlas-resume) = 118 dirs. |
-| `schemas.skill` | `references/schemas.json` | skill-registry / skill-entry / skill-overrides JSON schemas the registry validates against. |
-
-### Invariants that matter
-
-- Written only when schema-valid AND audit clean (registry-count==manifest-skill-count).
-- Entries sorted by (category,name), timestamp-free → rebuild over an unchanged tree is a no-op diff.
-- Frontmatter treated as untrusted data (SAFE-2).
-- select() is PURE; load_registry/load_overrides/main are the I/O hand.
-- Advisory only (V6) — no verdicts, no defects, can never gate a run.
-- exclude wins over pin; malformed override fields are ignored (selection must never break a run).
-- Zip-slip / path-traversal guarded (strict name validation, joined-path/symlink guards).
-- Same-name group must be byte-identical to coalesce (117 zips → 115 packages).
-- --verify runs zip-free anywhere the repo is checked out.
-- Single source of the skill-package exemption used by both doc gates.
-- Sorted, stable-keyed, timestamp-free.
-- A skill dir the manifest does not record is an audit failure.
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| change how skills are ranked / weighted | scripts/skillselect.py (_score_entry, NAME/TRIGGER/DESCRIPTION weights) |
-| change what fields land in the registry | scripts/skillregistry.py (entry build) + references/schemas.json (skill-entry) |
-| pin/exclude/boost a skill | references/skill-overrides.json |
-| re-import or re-verify the vendored tree | scripts/skillextract.py (--verify) + references/skills-manifest.json |
-| change how TOP-1 is injected into the coder | skills/atlas/SKILL.md GROUNDED/CODED stages |
-
-**Entry points:** `make skill-registry` · `python3 scripts/skillselect.py '<intent>'` · `python3 scripts/skillextract.py --verify`
-
-
-### Notes
-
-- Hand-authored map: the automated skill-system mapper hit the StructuredOutput retry cap; this map was reconstructed from scripts/skillselect.py, references/skill-registry.md, and AGENTS.md.
-- 118 skill dirs = 115 vendored (registry) + 3 first-party orchestrator skills (atlas, atlas-weave, atlas-resume).
-
----
-
-## tests
-
-The tests/ subsystem is a comprehensive unittest suite that runs fully green (proven by `make test`). It has exact 1:1 coverage: every scripts/*.py (31 modules, excluding __init__) has a matching tests/test_<name>.py — there are ZERO uncovered scripts. Two test files intentionally have no same-name script: test_audit_findings.py is a cross-cutting red-team/regression suite spanning integrate/resume/plandag/scheduler, and test_ctxstore_atomic.py is a supplementary atomic-write suite for ctxstore. Assertions come in four flavors: pure-function behavior, failure-path, boundary, and adversarial RED-TEAM (zip-slip, dropped-requirement, hidden overlap, combined regression), plus a distinct class of real-committed-artifact pins (TestMainRealRepo, TestCommittedRegistry/Manifest/NamePolicy, plugin.json via parents[1]) that assert the live repo tree and generated artifacts stay in sync.
-
-
-### Key components
-
-| id | path | responsibility |
-|----|------|----------------|
-| `suite.discover` | `tests/` | The unittest suite: all test_*.py files green (proven by `make test`). |
-| `scripts.pkg` | `scripts/__init__.py` | Package marker that makes `from scripts import X` importable when discover runs from repo root. |
-| `fixtures` | `tests/fixtures/` | 5 packet fixtures driving the negative-gate: good, bad_correctness, bad_quality, bad_security, bad_security_sast. |
-| `test_verdict` | `tests/test_verdict.py` | Pins verdict.py pure fns (merge/gate/should_refine/final_status) + PLAN V2 proof that a permanently-blocking critic halts at exactly 2 re-drafts and yields UNVERIFIED. |
-| `test_runcheck` | `tests/test_runcheck.py` | Largest single-module suite (574 lines) pinning the deterministic runcheck floor. |
-| `test_run_negative_gate` | `tests/test_run_negative_gate.py` | Largest test file (750 lines): the 6-lens fixture-driven negative-gate harness — lens mapping, deterministic blockers, fixture processing, main(). |
-| `test_run_weave_negative_gate` | `tests/test_run_weave_negative_gate.py` | Weave-level negative gate: 5/5 BLOCK scenarios (cyclic-DAG, dropped-requirement, gas-exhausted-partial...). |
-| `test_skillregistry` | `tests/test_skillregistry.py` | Pins registry build purity AND TestCommittedRegistry validates the committed references/skill-registry.json against a fresh rebuild. |
-| `test_skillextract` | `tests/test_skillextract.py` | Zip-slip / hostile-name extractor matrix (584 lines) + TestCommittedManifest/TestCommittedNamePolicy pin the committed sha256 manifest. |
-| `test_skillselect` | `tests/test_skillselect.py` | Advisory selector ranking behavior (347 lines). |
-| `test_scheduler` | `tests/test_scheduler.py` | Weave concurrency scheduler (430 lines) — <=3 concurrent inner runs, gas/lease handling. |
-| `test_plandag` | `tests/test_plandag.py` | Plan-DAG schema + criteria-conservation with cyclic/self-referential launder guards. |
-| `test_dogfood_weave` | `tests/test_dogfood_weave.py` | Self-certifying end-to-end weave proof: builds real temp git repos + JUnit-emitting scaffolds and runs 4 scenarios through the machine. |
-| `test_audit_findings` | `tests/test_audit_findings.py` | CROSS-CUTTING regression/red-team suite with NO same-name script — locks fixes across integrate, resume, plandag, scheduler. |
-| `test_ctxstore` | `tests/test_ctxstore.py` | Context store: canonical stage partition, idempotent immutable intent, ledger-backed refine counter, run isolation. |
-| `test_ctxstore_atomic` | `tests/test_ctxstore_atomic.py` | SUPPLEMENTARY ctxstore suite (no same-name script) — atomic write_artifact: roundtrip, full-content overwrite, no tmp-file leak. |
-| `test_check_artifact_naming` | `tests/test_check_artifact_naming.py` | Doc-naming gate behavior + TestMainRealRepo runs the gate over the real committed tree; TestSkillPackageExemption for vendored payloads. |
-| `test_inventory_drift` | `tests/test_inventory_drift.py` | Doc/link inventory drift detector + TestMainRealRepo asserts the live repo doc graph is in sync. |
-| `test_integrate` | `tests/test_integrate.py` | Weave integration: touched-files extraction, conflict detection, merge-shaped verdict. |
-| `test_differential` | `tests/test_differential.py` | Combined-tree differential: a suite green-alone but red-combined is the headline cross-change regression. |
-| `test_difftool` | `tests/test_difftool.py` | Diff capture in git and non-git trees; asserts capture does not mutate the index. |
-| `test_bestofn` | `tests/test_bestofn.py` | Best-of-N fanout + rank-key (gate-pass primary, then blocking, tokens, index). |
-| `test_budget` | `tests/test_budget.py` | Risk scoring, token-charge purity (ledger not mutated), funding floor. |
-| `test_leaseclock` | `tests/test_leaseclock.py` | Lease stamp/expiry; malformed lease degrades to expired; token omits timestamp (no rotation). |
-| `test_pathcheck` | `tests/test_pathcheck.py` | Cross-check backticked paths against disk/relevant files; ungrounded path flagged critical. |
-| `test_plugin_meta` | `tests/test_plugin_meta.py` | Smallest suite (49 lines) — pins the committed .kimi-plugin/plugin.json via parents[1]. |
-| `test_others` | `tests/{test_planstage,test_uniontree,test_resume,test_runcaps,test_quality,test_reqcoverage,test_sast,test_suiterun,test_validate,test_skillpkgs}.py` | 1:1 behavior+failure+boundary suites for the remaining pure cores (each pins its same-name script). |
-
-### Invariants that matter
-
-- The suite is green (verified by `make test`); the exact count is intentionally not baked into prose (F4).
-- No conftest.py and no tests/__init__.py — discovery relies on being run from repo root so cwd is on sys.path and `from scripts import X` resolves via scripts/__init__.py
-- No test does sys.path manipulation (grep sys.path in tests/ => NONE)
-- Some suites print their own stdout (weave gates), so the unittest summary must be read off stderr
-- Each dir = fixture.json (intent + success_criteria + verify_cmd + scope_paths + expected_verdict + expected_lens) + a subject module + a test_*.py
-- good/ expects OK with expected_lens null; each bad_* pins the specific failing lens
-- test_run_negative_gate discovers and processes these against expected outcome
-- No LLM computes pass/fail — gate/merge asserted pure
-- PermanentlyBlockingLoopTests drives the real ledger-backed refine loop, halts at exactly two re-drafts
-- CoveragePartitionTests: dropped requirement is blocking (RED-TEAM)
-- Behavior + failure-path + boundary + adversarial; generates its own AddTests/ShellcmdTests scaffolds
-- EvaluateOutcomeTests/ProcessFixtureTests assert each fixture reaches its expected_verdict and expected_lens
-
-### Where is what
-
-| if you want to change… | look here |
-|------------------------|-----------|
-| The real, current test count and green/red status | Run `python3 -m unittest discover -s tests 2>&1 \| grep -E '^(Ran\|OK\|FAILED)'` from repo root -> `Ran <N> tests` / `OK`. Reading `\| tail -5` is misleading because the weave-gate tests print their own stdout after the summary. |
-| Which scripts lack a test (coverage gap) | NONE — every scripts/*.py has tests/test_*.py. The only two test files without a same-name script are tests/test_audit_findings.py and tests/test_ctxstore_atomic.py (both intentional supplements). |
-| How tests import scripts without a conftest/path-shim | tests/ has no conftest.py, no __init__.py, no sys.path munging (grep sys.path tests/ => NONE). They do `from scripts import X`; scripts/__init__.py makes it a package and `discover -s tests` run from repo root puts cwd on sys.path. |
-| The end-to-end / real-repo pins | tests/test_check_artifact_naming.py:299 (TestMainRealRepo), tests/test_inventory_drift.py:206 (TestMainRealRepo test_repo_tree_is_in_sync), tests/test_skillregistry.py:440 (TestCommittedRegistry), tests/test_skillextract.py:524/552 (TestCommittedNamePolicy/TestCommittedManifest), tests/test_plugin_meta.py:9/test_planstage.py (_REPO_ROOT = parents[1] pin of .kimi-plugin/plugin.json). |
-| The 6-lens negative-gate fixtures and their expected outcomes | tests/fixtures/{good,bad_correctness,bad_quality,bad_security,bad_security_sast}/fixture.json (each carries expected_verdict + expected_lens); driven by tests/test_run_negative_gate.py (ProcessFixtureTests/EvaluateOutcomeTests). |
-| The verdict PLAN V2 / refine-loop proof | tests/test_verdict.py:233 PermanentlyBlockingLoopTests.test_loop_halts_at_exactly_two_redrafts (drives the real ledger via ctxstore). |
-| The self-certifying weave end-to-end proof | tests/test_dogfood_weave.py:142 DogfoodWeaveTest — builds real temp git repos + JUnit scaffolds, 4 scenarios (test_clean_multi_file_greens / test_hidden_overlap_blocks / test_combined_regression_blocks / test_one_node_degrade_equals_atlas). |
-| Why no literal test count lives in the docs | README/AGENTS never bake a `<N> tests` count — it always drifts (F4); the size is proven by `make test`, guarded by tests/test_doc_testcount.py. |
-
-**Entry points:** `python3 -m unittest discover -s tests  (from repo root — green)` · `scripts/run_negative_gate.py  (fixture-driven 6-lens gate; test_run_negative_gate mirrors it)` · `scripts/run_weave_negative_gate.py  (weave BLOCK scenarios; 5/5 matched)` · `tests/test_dogfood_weave.py  (self-certifying end-to-end weave proof on real temp repos)`
-
-
-### Notes
-
-- VERIFIED LIVE: the whole suite is green (`make test`).
-- Coverage is complete: 31 non-__init__ scripts, 31 same-name test files, plus 6 extra test modules (test_audit_findings, test_ctxstore_atomic — no same-name script; and the negative-gate/dogfood suites which pin scripts that also have direct tests).
-- Test counts are proven by `make test`, never baked into README/AGENTS prose (F4) — so there is no literal count to drift; the suite is authoritative.
-- Watch-out for future auditors: `python3 -m unittest discover -s tests 2>&1 \| tail -5` does NOT show the pass/fail summary because test_run_weave_negative_gate / test_dogfood emit their own stdout AFTER the run; grep '^(Ran\|OK\|FAILED)' or read stderr instead.
-- Two distinct assertion regimes coexist: (1) hermetic pure-function tests using tempfiles, and (2) real-artifact pins that will legitimately go RED if a committed artifact (skill-registry.json, skills-manifest.json, plugin.json, or the doc/link graph) drifts from source-of-truth — these are guardrails, not brittleness.
-- test_audit_findings.py is the 'regression museum' — its class names (IntegrateConflictFailOpenTests, ResumeTieBreakTests, PlandagConservationTests, RunStatusGasFrozenTests, FinalAggregateFalseGreenTests) map 1:1 to previously-fixed defects across 4 subsystems.
-- Largest suites by lines: test_run_negative_gate (750), test_skillextract (584), test_runcheck (574), test_skillregistry (511), test_scheduler (430) — the security/gate surfaces carry the most test weight.
-- The good/bad fixture design (fixture.json with expected_verdict + expected_lens) makes the negative gate table-driven: adding a new adversarial case is a data change, not a code change.
+| To change… | Go to |
+|---|---|
+| Canonical state machine | `scripts/ctxstore.py:35` `STAGES` (mirror `skills/atlas/SKILL.md:107`) |
+| Stage transition / refine counter | `ctxstore.advance` (`ctxstore.py:132`), `get_refine_passes` (`:184`) |
+| Ledger/rollback scan | `ctxstore._iter_log_records` (`:159`), `rollback_to` (`:227`), `last_green_stage` (`:209`) |
+| Halting bounds | `plandag.MAX_ATTEMPTS` (`plandag.py:20`), `charge_gas` (`:160`); `runcaps.seed_caps` (`runcaps.py:28`) |
+| Frontier / fixpoint | `plandag.ready_jobs` (`:177`), `is_fixpoint` (`:251`) |
+| Memory & concurrency model | `scheduler.py:18-32` consts, `can_admit` (`:70`), `plan_wave` (`:120`) |
+| Dispatch/lease/receipt | `scheduler.dispatch_wave` (`:164`), `apply_receipt` (`:211`), `reap_expired` (`:256`) |
+| Halting measure / final drain | `scheduler.measure` (`:279`), `final_aggregate` (`:319`), `run_status` (`:367`) |
+| Decompose validate / degrade | `planstage.coerce_dag` (`planstage.py:89`), `single_node_dag` (`:14`) |
+| Risk/budget sizing | `budget.risk_score` (`budget.py:23`), `charge_tokens` (`:39`) |
+| Best-of-N | `bestofn.select` (`bestofn.py:46`), `fanout_n` (`:57`) |
+| Resume | `resume.select_graph_run` (`resume.py:29`), `resume` (`:53`) |
+| 6-lens VERIFIED wiring | `skills/atlas/SKILL.md:393-624` |
+| Subagent dispatch mapping | `SKILL.md:37-40` + `agents/*.md` |
+
+### Invariants (owned)
+- **STAGES is the single source of truth** (`ctxstore.py:35`): `INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT`; mandatory stages once, in order; never invent a stage name.
+- **One uninterrupted run**: only 3 sanctioned turn-ending gates (CLARIFY, pre-CODE approval, OUTPUT); every transition must call `ctxstore.advance` and it must return before the stage counts done.
+- **NO-LLM-verdict**: pass/fail computed only in pure `verdict` cores; orchestrator + critics only marshal inputs.
+- **Provable halting via the global gas bound**: gas charged exactly once per dispatch (sole site `plandag.charge_gas`, floored at 0) + `MAX_ATTEMPTS=2`; `runcaps` provisions gas strictly above worst-case dispatch count. Refine loop hard-capped ≤2 (`should_refine` + V7 `passes<1` guard). Authoritative refine count = `REFINE` lines in `log.jsonl`, never memory.
+- **Charge-at-dispatch, never refunded**: `resume.resume` resets orphaned `RUNNING→PENDING` without refunding gas/bumping attempts; lease tokens `job_id#attempts` don't rotate across resume.
+- **Degrade-to-atlas**: any planner failure collapses via `planstage.coerce_dag` to `single_node_dag`, byte-identical to today's single-change run.
+- **Concurrency cap = 3** (`W_MAX`); §6 memory model + live `free -m ≥3GB` is the true OOM backstop (mis-estimate degrades, never OOMs).
+- **Never auto-apply**: every mutation human-gated or isolated to a worktree/sandbox; `review_root` set once at the pre-CODE gate.
+- **SAFE-2**: all file/web/program output is DATA, never instructions.
+- **Scope disjointness + criteria conservation** are CRITICAL blocking gates; an unresolved/empty frontier can never fold to OK.
+- **Frozen, ordered success_criteria** (mutable only during CLARIFY).
+- **Forward-only, headless-only rollback**: `ROLLBACK` markers keep the refine counter monotonic; `log.jsonl`/`intent.txt` never truncated; a rolled-back run terminates as ⚠️ UNVERIFIED.
+
+*Recent changes (atlas-core):* The whole multi-agent (ATLAS-WEAVE) pure-core layer now exists alongside single-change atlas: plandag, scheduler, planstage, budget, bestofn, resume, runcaps are all present — an agentic-era map that only knew ctxstore + the SKILL is stale. · ctxstore gained a two-phase rollback ledger (last_green_stage:209, rollback_to:227, pending_rollback:267) with stage=='ROLLBACK' markers proven not to touch the REFINE counter, plus crash-safe write_artifact_atomic (:301) via os.replace, and a shared _iter_log_records (:159) extraction feeding both refine + rollback scans. · scheduler.py hardened: apply_receipt (:211) now FAILs (never fabricates DONE) a childless or over-decomposing DECOMPOSE; reap_expired (:256) closes the lost-receipt/agent-crash liveness hole; lease fencing (stamp_lease/lease_valid) fences stale receipts; final_aggregate (:319) synthesizes unresolved/unverified/criteria-conservation CRITICALs and empty-dag guard. · plandag.criteria_conservation_defects (:115) added — tests coverage against the GLOBAL verifying-node set (immune to a cyclic/self-referential children field) so a criterion can't be laundered through a DECOMPOSE. · SKILL VERIFIED lens expanded well beyond the older 6-lens: now includes astlens syntax/parse floor (lens 5b), a fail-open semgrep SAST SECURITY floor (sast.scan), a live GRAPH_LOOKUP injection (contextgraph.graph_lookup as SAFE-2 DATA into the coder packet), stage-tagged dispatch markers via ctxevents.record feeding ContextGraph tool-use completeness, and skill-selection injection (skillselect). · The V7 conservative-refine rule (any CORRECTNESS/SECURITY defect at any severity forces exactly one pass, guarded passes<1) is layered on should_refine while still provably halting at ≤2. · Runtime re-pinned: SKILL revalidated live on Kimi Code v0.26.0 / k3 1M (authored on v0.23.5); runcheck timeouts raised to the 1M-era budgets (timeout_s=1500, mem_limit_mb=2048). · review_root made a load-bearing single-source value set once at the pre-CODE gate so headless worktree isolation no longer risks an empty diff / testing the unchanged main tree. · REFINE re-dispatch feedback is now SAFE-2-wrapped via safewrap.refine_feedback_block / coder_redispatch_packet so injected runcheck tails cannot alter coder scope/intent.
 
 ---
 
 ## verification-harness
 
-The verification-harness is kimi-atlas's 6-lens code-review gate. Three lenses are fully deterministic scripts (runcheck = DOES-IT-RUN; quality.lint_deliverable = TEST-ADEQUACY/CODE-QUALITY floor; reqcoverage = REQUIREMENTS-COVERAGE) plus grounding backstops (pathcheck for CORRECTNESS paths, sast for a partial SECURITY floor), and three are isolated model `plan` critics (CORRECTNESS, CODE-QUALITY, SECURITY) whose JSON is normalized by verdict.merge. The load-bearing invariant is that NO LLM ever computes pass/fail: verdict.merge/gate/should_refine/final_status/aggregate/coverage_partition are pure fold functions over defect severity, and quality.enforce_critic_schema mechanically validates critic shape. difftool.capture supplies the single reproducible diff every lens reads; runcaps.seed_caps provisions the halting caps + soft token budget for the multi-agent (WEAVE) variant; validate.py enforces data-artifact schemas. The harness has no CLI entry points — every module is a pure/thin-I/O library invoked from the atlas / atlas-weave SKILL.md orchestrator prose at the VERIFIED stage.
+The 6-lens gate that decides whether a code change is elite (`OK`) or degrades to `⚠️ UNVERIFIED`. Its defining property: **no LLM computes pass/fail** — the decision lives entirely in the pure functions of `scripts/verdict.py` (`merge` → `enforce_critic_schema` → `gate` → `should_refine`/`final_status`). Everything else is either a *deterministic floor* that mechanically blocks detectable sub-elite code, an *isolated model critic* that judges the residual, or the *rubric* they all score against.
 
+**The 6 lenses** (rubric.md): 1 CORRECTNESS, 2 CODE-QUALITY, 3 SECURITY (each a judgment critic with a *partial* deterministic floor), 4 TEST-ADEQUACY + 6 REQUIREMENTS-COVERAGE (advisory-deterministic, confirmed by the CORRECTNESS critic), 5 DOES-IT-RUN (fully deterministic). "6-eye" = 6 lenses, not 6 blind subagents — the real independence source is the mechanical gates, not critic multiplicity (V5).
 
-### Key components
+**Flow (VERIFIED stage).** `difftool.capture` produces the one reproducible diff → the deterministic lenses run at root Bash (`runcheck.run` + `astlens.lint` for lens 5; `quality.lint_deliverable` for 2/4; `sast.scan` for 3; `reqcoverage.coverage` for 6; `pathcheck.cross_check` grounding for 1/6) → 3 isolated `plan` critics judge lenses 1/2/3 → `verdict.merge(critics, script_defects)` normalizes all seven inputs into one canonical `{dimensions, defects, verdict}` → `quality.enforce_critic_schema` validates it → `verdict.gate(merged, gate_results)` returns `OK`/`UNVERIFIED` → `verdict.should_refine` (+ the SKILL's V7 clause) drives the provably-halting REFINE loop (`MAX_PASSES=2`, count read from the on-disk ledger).
 
-| id | path | responsibility |
-|----|------|----------------|
-| `verdict` | `scripts/verdict.py` | Pure decision cores for the harness: merge critic JSONs + script defects into one canonical critic, compute the composite PASS gate, refine-loop control, final status, and WEAVE aggregate/coverage-partition folds. |
-| `runcheck` | `scripts/runcheck.py` | Lens 5 DOES-IT-RUN: the one fully-deterministic lens — execute the frozen verify_cmd under a memory cap + wall-clock timeout, parse runner output so green means tests actually ran and reacted. |
-| `reqcoverage` | `scripts/reqcoverage.py` | Lens 6 REQUIREMENTS-COVERAGE advisory floor: literal keyword/identifier token-overlap between each frozen success criterion and the diff's added lines; also optional scope-creep detection. |
-| `pathcheck` | `scripts/pathcheck.py` | Deterministic path-grounding backstop for lenses 1/6: every backticked file-like citation in a draft/plan/diff must be a verified path (in ctx.relevant_files or existing on disk) or it is a CRITICAL CORRECTNESS defect. |
-| `quality` | `scripts/quality.py` | Deterministic quality layer: enforce_critic_schema mechanically validates the canonical critic shape; lint_deliverable is the config-driven MEDIUM-capped floor for lenses 2/4 (banned debug tokens + missing-tests). |
-| `sast` | `scripts/sast.py` | Partial deterministic SECURITY floor (lens 3): run semgrep over the change's scope_paths and map hits to canonical SECURITY defects, augmenting (never replacing) the judgment critic. |
-| `difftool` | `scripts/difftool.py` | Deterministic diff capture — the single reproducible diff source every lens reviews; crucially renders brand-new/untracked files and handles non-git trees, never mutating the tree/index. |
-| `validate` | `scripts/validate.py` | Structural data-contract enforcement: validate a kimi-atlas artifact against a named schema in references/schemas.json (required-field presence + type; optional fields type-checked only when present). |
-| `runcaps` | `scripts/runcaps.py` | Pure 'hand' turning a task packet into ATLAS-WEAVE halting caps (depth/node/gas) + a soft token budget, then handed to the scheduler. |
-| `differential` | `scripts/differential.py` | Differential mutation/regression signal consumed by the harness: computes regressions across a run-pair (referenced by runcheck's revert_red and WEAVE aggregate). |
-| `integrate` | `scripts/integrate.py` | WEAVE combined-tree integration critic: folds per-node defect lists into one integration verdict consumed by verdict.aggregate. |
-| `rubric.doc` | `references/rubric.md` | Canonical spec of the 6 falsifiable lenses, severity mapping, and which lens is deterministic vs judgment-with-floor. |
-| `schemas.json` | `references/schemas.json` | Source of truth for artifact schemas (validate.py) and the critic schema shape (quality.enforce_critic_schema). |
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | Single-change orchestrator; at VERIFIED it marshals inputs into the harness — captures the diff, runs the 4 deterministic lenses + sast, dispatches the 3 model critics, then calls the pure merge/gate/should_refine/final_status. It is the harness's real entry point. |
-| `weave.SKILL` | `skills/atlas-weave/SKILL.md` | Multi-agent meta-orchestrator; provisions halting caps via runcaps.seed_caps and folds per-node verdicts with verdict.aggregate + coverage_partition + integrate.integration_verdict + differential.regressions. |
+### Where is what
+| To change… | Go to |
+|---|---|
+| The composite PASS bar | `scripts/verdict.py:103` `gate()` |
+| Merge of critics + script defects | `scripts/verdict.py:65` `merge()` |
+| Refine trigger / halt cap | `scripts/verdict.py:44` `should_refine()`, `:25` `MAX_PASSES` |
+| Lens names / severities / blocking set | `scripts/rubric.py:16/26/27` (single source, F6) |
+| Critic-JSON schema rules | `scripts/quality.py:42` `enforce_critic_schema()` |
+| Debug-token / missing-test floor | `scripts/quality.py:116` `lint_deliverable()` |
+| verify_cmd execution / green bar / mem cap | `scripts/runcheck.py:396` `run()`, `:281` `green()`, `:150` `_build_wrapper()` |
+| AST syntax/undefined/unused floor | `scripts/astlens.py:244` `lint()` |
+| semgrep SAST floor + severity map | `scripts/sast.py:171` `scan()`, `:59` `_SEVERITY_MAP` |
+| Coverage / scope-creep heuristic | `scripts/reqcoverage.py:96` `coverage()` |
+| Path-grounding cross-check | `scripts/pathcheck.py:37` `cross_check()` |
+| Diff capture strategy | `scripts/difftool.py:114` `capture()` |
+| Critic framing / severity guidance | `agents/{correctness,code-quality,security}-critic.md` |
+| Rubric / PASS-bar prose | `references/rubric.md` |
+| Multi-node roll-up (ATLAS-WEAVE) | `scripts/verdict.py:151` `aggregate()`, `:166` `coverage_partition()` |
+| Real end-to-end wiring | `skills/atlas/SKILL.md` ~465-612 |
 
-### Invariants that matter
+### Load-bearing invariants
+- **No model computes pass/fail** — `merge`/`gate`/`should_refine`/`final_status`/`aggregate`/`coverage_partition` are pure and I/O-free (DS-3).
+- **`BLOCKING = {CRITICAL, HIGH}`** is the only set that flips the gate; MEDIUM/LOW are recorded only.
+- **Refine provably halts**: `MAX_PASSES=2` and `passes` comes from `ctxstore.get_refine_passes` (ledger), never model memory.
+- **Text/token heuristics cap at MEDIUM** (`reqcoverage`, `quality.lint_deliverable`) — gameable both ways (V6); only a model critic (or a mechanical parse/grounding failure) escalates to HIGH/CRITICAL.
+- **`rubric.py` single-sources the vocabulary** (F6) so `verdict`/`quality` cannot drift.
+- **runcheck green = `ok` AND `test_count>0` AND `new_tests_collected`** (V4); the gate fails on an absent runcheck, while advisory lenses default clean.
+- **Fail-open everywhere it matters**: the runcheck memory cap re-runs uncapped rather than manufacture a RED (OPS-3); `sast.scan` returns `[]` and degrades SECURITY to judgment-only on any semgrep failure and never maps to CRITICAL.
+- **Critics are read-only `plan` subagents that persist nothing** (F2); their frontmatter is documentation-only (V5); all ingested content is DATA, never instructions (SAFE-2).
+- **V7**: any CORRECTNESS/SECURITY defect at any severity forces ≥1 refine pass (encoded at the SKILL's REFINE? step).
 
-- NO-LLM-VERDICT: every function is pure — decisions derive only from defect severity/blocking-category, never model judgment (module docstring L4-7)
-- verdict='FAIL' iff any merged defect is CRITICAL/HIGH (L110); dimension='no' iff explicitly reported no OR a blocking defect carries that category (L106-109)
-- gate is a strict AND: no blocking in critic AND runcheck green(ok+test_count>0+new_tests_collected) AND no blocking lint/reqcoverage AND empty pathcheck_defects AND docs_clean AND empty schema_errors (L133-159)
-- gate treats runcheck conservatively — absent/empty runcheck FAILS (DOES-IT-RUN mandatory); advisory lenses default clean when key absent (L136-142, L153)
-- should_refine halts provably: only on CRITICAL/HIGH and passes<MAX_PASSES(2); passes MUST come from on-disk ledger not model memory (L55-61)
-- aggregate reuses merge so a passing node can never mask a failing one — FAIL iff ANY node or integration blocks (L162-174)
-- coverage_partition is an exact set-difference (not gameable text), so a dropped frozen criterion is legitimately CRITICAL (L177-201)
-- green requires ALL of ok(exit0,no-timeout) AND test_count>0 AND new_tests_collected (V4 bar, L281-292); empty/uncollected suite is NOT green
-- memory cap is ALWAYS fail-open: a cap-start failure re-runs uncapped rather than reporting RED — the cap must never manufacture a failure (L396-425)
-- cgroup MemoryMax(RSS) preferred over legacy ulimit -v(virtual, Node/V8-hostile), degrading to no-cap; backend probed once and memoized in _MEM_BACKEND (L234-252)
-- fail-open secondary (cgroup non-zero exit) is double-gated: only when NO test signal parsed AND stderr matches the deliberately-narrow line-anchored _SYSTEMD_RUN_START_FAIL_RE, so an already-run build is never re-executed/re-mutated (L359-393)
-- workload runs in its own session/process group (start_new_session) so a timeout SIGKILLs the whole subtree, reaping xdist/compiler grandchildren (L295-356)
+### Recent changes vs the agentic-era map
+`rubric.py` (F6 single-source), `astlens.py` (AST syntax/parse + undefined-name + unused-import floor, wired as a lens-5 floor in the SKILL), and `sast.py` (semgrep SECURITY floor, `--metrics off`) are all NEW. `runcheck` gained a Node-safe cgroup `MemoryMax` cap preferred over legacy `ulimit -v`. `verdict.gate` expanded to read `pathcheck_defects`/`docs_clean`/`schema_errors`. `verdict.aggregate` + `coverage_partition` are new for the ATLAS-WEAVE multi-agent roll-up. `difftool` now renders brand-new/untracked and non-git files as full new-file diffs.
+
+*Recent changes (verification-harness):* rubric.py is NEW: the 6-lens vocabulary, severity ladder, blocking set, and critic-schema key sets were hoisted out of verdict.py/quality.py into one stdlib-only single-source module (F6, commit 6b7f745), which both now import — an agentic-era map would show these constants duplicated inside verdict/quality. · astlens.py is NEW (commits 5fb502d, c99334b): a deterministic AST syntax/parse + py_compile floor (HIGH DOES-IT-RUN), an undefined-name pass (HIGH DOES-IT-RUN, skipped on star/dynamic-namespace modules), and an unused-import pass (MEDIUM CODE-QUALITY). It is wired into the SKILL VERIFIED stage as a lens-5 floor alongside runcheck (SKILL.md:490,590) but is NOT invoked by run_negative_gate. · sast.py is NEW (commit 0791641): semgrep as a partial deterministic SECURITY floor (ERROR→HIGH blocks even if the critic misses), mandatory fail-open; egress hardened with --metrics off (F3, commit 653967d). · runcheck's memory cap became multi-backend: a Node-safe cgroup systemd-run MemoryMax RSS cap is now PREFERRED over the legacy ulimit -v virtual cap (which false-RED'd Node/V8), probed once and cached, with a two-condition fail-open guard so it never double-executes a build that already ran (OPS-3). · verdict.gate's PASS bar expanded beyond the older 3-clause floor: it now also reads pathcheck_defects, docs_clean (check_artifact_naming/inventory_drift for touched docs), and schema_errors keys (verdict.py:139-146). · verdict.aggregate and coverage_partition are NEW for the ATLAS-WEAVE multi-agent extension: fold N per-node merged critics + one integration critic, and prove the frozen success_criteria partition is gap-free (a dropped criterion = CRITICAL). · difftool now renders brand-new untracked files and non-git trees as full new-file diffs (the common coder output a plain git diff omits) — a correctness fix over a naive tracked-only diff. · The critic markdown files now carry an explicit banner that their frontmatter (tools/model/temperature) is documentation-only and the runtime honors only the built-in plan type + orchestrator-set temperature (V5).
+
+---
+
+## atlas-weave
+
+The OUTER multi-agent meta-machine wrapping the single-change `atlas` inner machine. It decomposes a large multi-file request into a **file-disjoint plan-DAG**, drains it with a **flat pool of <=3 concurrent inner-atlas node runs**, and merges the node diffs through a **combined-tree INTEGRATE sink**. The hierarchy lives in the persisted `plan.dag.json` data, never in the agent tree — the orchestrator stays the sole root (star topology; subagents cannot spawn subagents). No LLM ever computes pass/fail; every verdict is a pure fold, and the run provably halts on `runcaps` gas. On a 1-node DAG it degrades byte-identically to one `atlas` run.
+
+**The INTEGRATE sink is three deterministic disjointness nets + one read-only seam critic:**
+1. `integrate.actual_conflicts` — a CRITICAL per file two changes ACTUALLY touched (a clean `git apply` is never credited as proof; same-file-different-hunk concatenates silently).
+2. `integrate.apply_failures` (**NEW**) — a CRITICAL per change the union `git apply` rejected, or a single `combined-tree-unbuildable` when the worktree could not be built. A change that never landed on the merged tree can never be credited green.
+3. `differential.regressions` — sorted tests green-in-isolation but non-`"pass"` on the merged tree (zero false positives).
+
+All three fold through `integrate.integration_verdict` (which reuses `verdict.merge`) alongside the `integration-critic` seam report, whose lens is only the residual the differential is sound-but-incomplete about (untested cross-node interaction).
+
+### Where is what
+| To change… | Go to |
+|---|---|
+| same-file overlap gate | `scripts/integrate.py:60` `actual_conflicts` |
+| NEW dropped/rejected-change net | `scripts/integrate.py:95` `apply_failures` |
+| diff → touched-path parser | `scripts/integrate.py:15` `touched_files` |
+| fold defect lists → one verdict | `scripts/integrate.py:136` `integration_verdict` |
+| combined-tree regression oracle | `scripts/differential.py:13` `regressions` |
+| union git-apply hand / worktree | `scripts/uniontree.py:41` `apply_union`, `:105` `cleanup` |
+| JUnit status / the `"pass"` token | `scripts/suiterun.py:24` `_CHILD_STATUS`, `:32` `parse_junit` |
+| lease token / TTL / expiry | `scripts/leaseclock.py:32` `stamp`, `:44` `expired` |
+| end-to-end CI proof | `scripts/dogfood_weave.py:91` `dogfood` |
+| outer FSM / wave loop / sink | `skills/atlas-weave/SKILL.md:72,103,138` |
+| seam critic lens / output schema | `agents/integration-critic.md:50,80` |
+
+### Invariants this subsystem owns
+- **No LLM computes pass/fail** — the seam critic only ADDS defects; the deterministic floor decides.
+- **Three-net disjointness** — declared `scope_paths` is trusted for nothing; a clean `git apply` is never credited.
+- **Green == exactly `"pass"`** — `parse_junit` emits it only for a childless testcase; any other spelling reads as a regression (keeps the oracle zero-false-positive).
+- **Fail-safe / degrade-toward-BLOCK** — failed worktree add ⇒ `worktree=None` + all `failed`; suite failure ⇒ `{}` (conservative `baseline_pass`); malformed lease ⇒ reaped. No false green is reachable.
+- **Lease no-rotation** — token `f"{job_id}#{attempts}"` has no timestamp, so post-resume in-flight receipts MUST be discarded.
+- **Provable halting** — `runcaps` gas + `dispatch_wave` as sole charge site + `MAX_ATTEMPTS`; `dogfood_weave` asserts a `gas0 + nodes + 5` safety bound.
+- **Byte-identical atlas degrade** — `planstage.coerce_dag` falls back to the 1-node atlas DAG on any planner failure.
+- **Detached, idempotent worktrees** — `git worktree add --detach` leaves no ref; `git -C <path>` never relies on process cwd.
+
+*Recent changes (atlas-weave):* NEW third disjointness net: integrate.apply_failures (scripts/integrate.py:95) — an agentic-era map predating it had only two nets (actual_conflicts + differential.regressions). It converts uniontree.apply_union's u['failed']/worktree-None into CRITICAL blockers decided in the deterministic floor, not deferred to the seam critic. Folded at SKILL.md:153-162 and dogfood_weave.py:187. · SKILL.md INTEGRATE section rewritten to a THREE-net story: L153-158 explicitly documents apply_failures as 'the promise L142 makes good' (a clean git apply is never credited; a dropped change can never fold to a false green). · uniontree switched to a DETACHED worktree (git worktree add --detach, scripts/uniontree.py:67) — no branch ref left in .git/refs, making a same-session re-run fully idempotent (docstring L45-56, cleanup L105). · dogfood_weave.py added apply_defects wiring (:187) and the 'combined_pass' return field (:214) so a green assertion can prove the combined suite actually RAN (not skipped); it folds conflicts + regression defects + apply_defects together at :195. · SKILL.md KIMI ADAPTATION revalidated live on Kimi v0.26.0 / k3 1M context (L28) — the older map was authored against v0.23.5's 256K-era assumptions; see references/live-validation.md. · SKILL.md receipt-synthesis clarified (L126): the orchestrator (not the node) forms the fenced receipt, attaching the RUNNING job's stamped lease and setting status from the completion OUTCOME (ok/timeout), NOT the 6-lens verdict — that travels in merged_critic.json and is folded later by final_aggregate. · integration-critic.md sharpened to explicitly DEFER to the deterministic sink (it does NOT recompute actual_conflicts / regressions) and to target only the residual the differential is sound-but-incomplete about (L18-30).
+
+---
+
+## agentic-backbone
+
+The Graph+Loop+Verification layer over ctxstore's append-only ledger. It projects run state into a graph, checks stage-transition legality, performs sanctioned rollbacks, and neutralizes untrusted text — all through narrow, invariant-guarded seams. Everything **reads** ctxstore's ledger (`state.json` / `log.jsonl` / `plan.dag.json` / `critic_*.json`); only the rollback ops and the two event writers mutate state.
+
+The spine is **ContextGraph** (`scripts/contextgraph.py`): `build()` is a pure, deterministic projection (no reducer, no I/O) that drops telemetry `ts` and preserves source-log append order via a monotonic `seq`, so two ledgers differing only in `ts` project byte-identically. Task/verdict/artifact nodes are *thin pointers* (plandag stays the sole DAG owner); tool/error text is quarantined under `untrusted_*` fields. The injection read path `graph_lookup()` **always** recomputes via `project()` (unconditional rebuild-from-ledger, re-caching byte-identically) so a REFINE re-dispatch never gets a stale first-pass graph; `load_or_rebuild()` keeps cache-when-valid semantics (schema+run_id match) for CLI/resume. `reconcile()` is the dispatch-integrity check that surfaces `PARTIAL` when a subagent dispatch has no covering stage-tagged `tool_call`.
+
+**SAFE-2** lives in one place (`scripts/safewrap.py`): both the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE→CODED feedback) delegate to `wrap_untrusted`, and contextgraph re-exports safewrap's delimiters instead of minting its own — the F6 duplication is gone. **fsm** (`scripts/fsm.py`) derives legal edges from `ctxstore.STAGES`/`CONDITIONAL_STAGES` plus the one declared `REFINE→CODED` loop; it is a test/negative-gate invariant, never enforced inside `advance`. **rollback_driver** (`scripts/rollback_driver.py`) does two-phase (`rollback_intent`→reset→`rollback_complete`), forward-only, idempotent rollback behind the monkeypatchable `_git_reset` seam, refusing unless `sanctioned_rollback` proves an isolated headless worktree + env token — so `--resume` can never reset the real tree. The two writers of `hooks.jsonl` are **ctxevents** (orchestrator, stage-tagged) and **telemetry.sh** (fail-open hook, stageless); neither touches `log.jsonl`, keeping `get_refine_passes` monotonic. **frontmatter** is the shared BOM+CRLF-aware YAML-fence regex.
 
 ### Where is what
 
-| if you want to change… | look here |
-|------------------------|-----------|
-| change the composite PASS bar (what makes a run OK vs UNVERIFIED) | scripts/verdict.py:114 gate() — the AND over blocking/runcheck/lint/reqcoverage/pathcheck/docs/schema |
-| change what counts as a 'blocking' severity | scripts/verdict.py:24 _BLOCKING={CRITICAL,HIGH}; mirrored in scripts/quality.py:35 and rubric.md:25 |
-| change the refine-loop halting cap | scripts/verdict.py:25 MAX_PASSES=2 and should_refine() L55-61 (passes sourced from ctxstore ledger) |
-| change what a green DOES-IT-RUN requires | scripts/runcheck.py:281 green() and gate()'s runcheck check at verdict.py:136-142 |
-| change how test counts are parsed from runner output | scripts/runcheck.py:56 parse_test_count / L80 parse_new_tests_collected; regexes L48-53 |
-| change the memory-cap backend / fail-open behavior | scripts/runcheck.py:234 _detect_mem_backend, L150 _build_wrapper, L359 _is_cap_start_failure, L396 run |
-| change verify_cmd discovery precedence | scripts/runcheck.py:101 discover_verify_cmd (make test -> npm test -> pytest) |
-| change the requirements-coverage token heuristic or stopwords | scripts/reqcoverage.py:33 STOPWORDS, L53 tokenize, L96 coverage; MEDIUM cap at L19 |
-| change path-grounding rules / recognized extensions | scripts/pathcheck.py:22 _KNOWN_EXTS, L30 _is_path_claim, L37 cross_check |
-| change the critic schema enforcement rules | scripts/quality.py:44 enforce_critic_schema; canonical vocab L26-37 |
-| change the deterministic lint (debug tokens / missing-tests floor) | scripts/quality.py:118 lint_deliverable; MEDIUM cap at L41 |
-| change the semgrep SECURITY floor / severity map / fail-open | scripts/sast.py:51 _SEVERITY_MAP, L83 parse_semgrep_json, L163 scan |
-| change how the reviewed diff is captured (new files, non-git) | scripts/difftool.py:114 capture; strategy branches L124-145 |
-| change artifact structural validation / schema resolution | scripts/validate.py:29 validate, L19 _SCHEMA_PATH, L21 _TYPES |
-| change WEAVE halting caps or soft token budget | scripts/runcaps.py:28 seed_caps; _DEPTH_MAX=4 L24, gas formula L49, budget L50 |
-| change the multi-node roll-up / coverage-partition fold | scripts/verdict.py:162 aggregate, L177 coverage_partition |
-| add/rename a lens or its severity meaning | references/rubric.md (6 lenses) + _DIMENSIONS tuple duplicated in verdict.py:29 and quality.py:26 |
+| To change… | Go to |
+|---|---|
+| Graph node shape / ordering / ts-drop | `contextgraph.py:build` (85-169) |
+| PARTIAL / dispatch-integrity rule | `contextgraph.py:reconcile` (57-82) |
+| Cache validity / rebuild-wins | `contextgraph.py:load_or_rebuild` (246-265), `project` (234-243) |
+| Always-fresh GRAPH_LOOKUP | `contextgraph.py:graph_lookup` (268-282) |
+| SAFE-2 fence / neutralization | `safewrap.py:wrap_untrusted` (25-62) |
+| REFINE→CODED re-dispatch packet | `safewrap.py:coder_redispatch_packet` / `refine_feedback_block` (79-114) |
+| Legal stage transitions | `fsm.py:_DECLARED_EDGES` (23), `_derived_edges` (36-55); sequence: `ctxstore.py:STAGES` (35-46) |
+| Rollback sanction gate | `rollback_driver.py:sanctioned_rollback` (45-67) |
+| Git-reset seam | `rollback_driver.py:_git_reset` (70-85) |
+| Fresh vs resume rollback | `rollback_driver.py:run_rollback` (102-132) / `resume_rollback` (135-166) |
+| Rollback ledger markers / recovery | `ctxstore.py:rollback_to` (227-264) / `pending_rollback` (267-288) |
+| Orchestrator event shape | `ctxevents.py:record` (28-43) |
+| Hook tagging / fail-open guards | `hooks/telemetry.sh` (26-90) |
+| YAML frontmatter (BOM/CRLF) | `frontmatter.py:FRONTMATTER_RE` (23-26) |
+| Where GRAPH_LOOKUP is injected | `skills/atlas/SKILL.md` CODED (351-377), OUTPUT (732-734), REFINE (674-701) |
 
-**Entry points:** `atlas.SKILL VERIFIED stage (skills/atlas/SKILL.md L385-622) — the single-change harness entry point; marshals every lens and calls the pure verdict cores` · `weave.SKILL combined-run fold (skills/atlas-weave/SKILL.md L52-167) — multi-agent entry point; runcaps.seed_caps + verdict.aggregate/coverage_partition` · `No module has a CLI main()/sys.exit — the 9 harness scripts are pure/thin-I/O libraries invoked only from SKILL.md orchestrator prose`
+### Load-bearing invariants
+- **Pure projection**: `build` never reads/writes disk; ctxstore's ledger is read-only to the graph.
+- **ts-drop determinism**: `ts` dropped from every node; append order preserved via `seq`.
+- **Thin-pointer ownership**: task/verdict/artifact nodes are refs; plandag owns the DAG.
+- **SAFE-2 single source**: one wrapper (`safewrap.wrap_untrusted`) for read + write paths; contextgraph re-exports its delimiters.
+- **Fresh-always injection**: `graph_lookup` always rebuilds; never serves a stale in-run cache.
+- **Rebuild-wins cache**: cache trusted only if it parses and schema+run_id match.
+- **fsm purity/additivity**: legality is derived from STAGES + one declared edge; never a hard error in `advance`.
+- **Rollback two-phase, forward-only, sanctioned**: intent-before / complete-after, headless-worktree-only, idempotent redo on resume, `ROLLBACK`-staged log lines keep the refine counter monotonic.
+- **Git seam isolation**: `_git_reset` is the only subprocess; ctxstore never shells out.
+- **Single-writer hooks.jsonl**: ctxevents + telemetry.sh write only `hooks.jsonl`, never `log.jsonl`.
+- **telemetry fail-open**: always exit 0, no-op outside a run, `ts` strictly from stdin.
+- **frontmatter single primitive**: one BOM+CRLF-aware regex (F7).
 
-
-### Notes
-
-- THE central invariant (no-LLM-verdict): every pass/fail decision lives in pure functions in verdict.py — merge, gate, should_refine, final_status, aggregate, coverage_partition. The orchestrator (SKILL.md) only marshals inputs; model critics only emit JSON defect lists that are folded by severity. Stated at verdict.py:4-7, rubric.md:14-15, weave SKILL L52-53.
-- Severity ceiling by design: the gameable text heuristics (reqcoverage, quality.lint_deliverable) are hard-capped at MEDIUM so they can NEVER flip the gate alone (V6). Only deterministic-with-certainty signals emit blocking severity: runcheck (DOES-IT-RUN), pathcheck (CRITICAL, exact path existence), sast ERROR->HIGH, and coverage_partition (CRITICAL, exact set-difference).
-- Two independent 'schema' checkers with different strictness: validate.py does structural required/type checks against schemas.json (loose, used for state artifacts); quality.enforce_critic_schema does value-level rule checks (yes/no dimensions, verdict-vs-defect consistency) on the MERGED critic. The merged critic is validated by enforce_critic_schema, and its errors feed gate() via gate_results['schema_errors'].
-- The _DIMENSIONS 6-lens tuple and _BLOCKING set are DUPLICATED verbatim in verdict.py (L29,24) and quality.py (L26,35) and echoed in rubric.md — a canonical vocabulary with no single shared constant. Adding/renaming a lens requires editing all three in lockstep (potential drift point, not a bug today).
-- Fail-open is a repeated deliberate stance: runcheck's memory cap re-runs uncapped rather than report RED (L396-425), and sast returns [] on any semgrep failure (L163-202). Both are argued as 'a broken tool can only lose coverage, never manufacture a blocking defect'. runcheck's secondary cgroup fail-open path (L359-393) is the most safety-sensitive code in the subsystem: a false positive would re-execute (and re-mutate) an already-run build, so it is double-gated by a no-test-signal check AND a deliberately narrow line-anchored regex.
-- revert_red is structurally always False inside a single runcheck.run — the differential (revert->RED) mutation signal is a run-PAIR property the orchestrator computes across two runs and is realized in differential.regressions; the harness core never computes it in one shot.
-- None of the 9 files is executable — no main(argv). This diverges from the repo-wide CLI pattern (main(argv=None)->int + sys.exit) noted for other scripts; the harness is a pure library layer whose only 'entry point' is SKILL.md orchestrator prose that inlines the calls. That prose (atlas SKILL L385-622) is effectively untested-by-CLI glue and is the real integration surface.
-- gate() reads a fixed gate_results dict whose keys must match EXACTLY what the orchestrator prose populates (runcheck, lint_defects, reqcoverage_defects, pathcheck_defects, docs_clean, schema_errors). A typo in the SKILL.md prose key would silently default a lens to 'clean' (advisory lenses default pass when absent) — a latent coupling worth noting, though runcheck absence conservatively fails.
-
----
-
-## Related
-
-- [`system-graph.json`](system-graph.json) — the machine-readable topology this map narrates.
-- [flaw register (2026-07-20)](../docs/superpowers/plans/2026-07-20-flaw-register.md) — verified defects from the same audit.
-- [agentic-architecture blueprint (2026-07-20)](../docs/superpowers/specs/2026-07-20-agentic-architecture-blueprint.md) — the Graph+Loop+Verification enhancement plan (exists-vs-gap), 6-lens-clean (v5).
-- [agentic-architecture implementation plan (2026-07-20)](../docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md) — the 31-task bite-sized TDD build of the blueprint.
-- [`architecture.md`](architecture.md), [`atlas-weave.md`](atlas-weave.md), [`orchestration.md`](orchestration.md), [`rubric.md`](rubric.md), [`skill-registry.md`](skill-registry.md), [`kimi-runtime.md`](kimi-runtime.md), [`live-validation.md`](live-validation.md) — the reference spine.
-- [`../AGENTS.md`](../AGENTS.md) — the fast-start project memory; [`../README.md`](../README.md); [`../PLAN.md`](../PLAN.md).
+*Recent changes (agentic-backbone):* ContextGraph now exists as a full pure read-time projection subsystem (contextgraph.py, 304 lines) — the older agentic-era map only proposed it as a gap (MEMORY: 'gaps = ContextGraph + explicit FSM/rollback'); build/reconcile/project/load_or_rebuild/graph_lookup are all implemented. · GRAPH_LOOKUP is wired into skills/atlas/SKILL.md CODED (SKILL.md:351-377) as architectural-state DATA (HINT, never a gate) and re-runs on every REFINE re-dispatch so the coder never gets a stale graph; also read at OUTPUT via contextgraph.project (SKILL.md:732-734). · SAFE-2 was de-duplicated into ONE canonical wrapper: contextgraph no longer mints its own fence — it re-exports safewrap.open_marker/CLOSE_MARKER and delegates wrap_untrusted (resolves the F6 duplication the reviewer flagged) (contextgraph.py:32-54). · safewrap gained the write-path helpers refine_feedback_block + coder_redispatch_packet, making the REFINE->CODED re-dispatch packet injection-invariant with runcheck tails as the only free text (safewrap.py:79-114). · Explicit FSM landed: fsm.legal_transition/legal_path derive edges from ctxstore.STAGES + the single declared REFINE->CODED loop, with an import-time node-existence assert; consumed by run_weave_negative_gate's illegal-transition scenario (fsm.py; run_weave_negative_gate.py:146-153). · Two-phase forward-only rollback landed as rollback_driver (198 lines) with the sanctioned_rollback headless-worktree gate and the monkeypatchable _git_reset seam, backed by ctxstore.rollback_to / pending_rollback / last_green_stage; wired into SKILL REFINE checkpoint/rollback machinery (rollback_driver.py; ctxstore.py:209-288; SKILL.md:674-701). · ctxevents added as the single non-hook writer of hooks.jsonl for stage-tagged tool_call/error events, complementing telemetry.sh; SKILL emits GROUNDED/CODED dispatch markers via ctxevents.record (ctxevents.py; SKILL.md:259,381-387). · telemetry.sh was extended with ContextGraph event tagging (Ph2): it now emits stageless tool_call/error records with UNTRUSTED payloads (truncated to 2000 chars) that feed the graph's event nodes (telemetry.sh:65-90). · frontmatter primitive extracted as the one BOM+CRLF-aware YAML fence regex, unifying skillregistry's and run_negative_gate's two former divergent copies (F7) (frontmatter.py).
 
 ---
 
-## The agentic backbone — Graph + Loop + Verification (added 2026-07-21)
+## skill-system
 
-Layered *around* the pure core (wraps, never replaces); merged in `da90f6c`, hardened through six rounds of the plugin's own 6-lens harness (`27→0` defects). Three subsystems:
+Vendors 115 official skill packages into the plugin and surfaces the right one at the right moment. An offline four-stage pipeline: **skillextract** unpacks the bundled `Skills/` zips byte-identically into a committed `skills/<name>/` tree and writes a sha256 **manifest**; **skillregistry** distils each package's `SKILL.md` into a compact **registry**; **skillselect** ranks that registry against the frozen task intent at the atlas `GROUNDED` stage (advisory-only, V6) and persists `.atlas/<run_id>/skills.json`, whose TOP-1 `SKILL.md` body is injected as the run's ACTIVE skill; **skillpkgs** is a shared walk that exempts skill-package payload markdown from the two doc gates. Every `SKILL.md` / zip member is third-party UNTRUSTED DATA (SAFE-2) — parsed for classification and path-confinement only, never interpreted.
 
+Counts: 117 zips → 115 packages (2 byte-identical duplicates coalesced); manifest v2 = 115 skills / 712 files; registry v2 = 115 skills; `skills/` on disk = 118 dirs (115 vendored + 3 first-party: `atlas`, `atlas-weave`, `atlas-resume`).
 
-### ContextGraph (live read-time projection)
+| To change… | Go to |
+|---|---|
+| Selector weights / scoring | `scripts/skillselect.py:61` constants, `:74` `_score_entry` |
+| Ranking + override semantics | `scripts/skillselect.py:113` `select()` |
+| Trigger extraction (E1) | `scripts/skillregistry.py:127` `extract_triggers` |
+| Frontmatter parse | `scripts/skillregistry.py:102` `parse_frontmatter` (shared `frontmatter.FRONTMATTER_RE`) |
+| Registry entry shape | `scripts/skillregistry.py:154` `classify_dir` + `skill-entry` schema |
+| First-party dirs | `scripts/skillregistry.py:70` `FIRST_PARTY_DIRS` |
+| Safe package-name pattern | `scripts/skillextract.py:87` `_NAME_RE` |
+| Zip-entry confinement | `scripts/skillextract.py:116` `_is_safe_entry`, `:210` `_confined_target` |
+| Manifest hashing / verify | `scripts/skillextract.py:252` `build_manifest`, `:286` `verify_manifest` |
+| Doc-gate package exemption | `scripts/skillpkgs.py:20/25` (used by `check_artifact_naming.py:137`, `inventory_drift.py:171`) |
+| Rebuild / re-extract | `Makefile` targets `skill-registry`, `skills-extract` |
+| Selection wiring into a run | `skills/atlas/SKILL.md:262-298` |
 
-The ContextGraph is a PURE read-time projection that assembles a single current-each-step architectural-state view of a run from already-read on-disk ledger facts — ctxstore's state.json + log.jsonl (read, never written) + the per-run hooks.jsonl + plan.dag.json + critic_*.json. The pure core `build()` emits deterministic nodes/edges (task pointers into plandag, tool_call/error events from root-observable hooks in append order, verdict pointers, artifact pointers), dropping every telemetry `ts` and neutralizing untrusted tool/error text through the shared SAFE-2 wrapper. Thin I/O hands cache the graph atomically (byte-identical to rebuild) and render GRAPH_LOOKUP, which atlas.SKILL injects at the CODED stage as architectural-state DATA (a HINT, never a gate) and re-runs on every REFINE re-dispatch. ctxevents is the single non-hook writer that appends root-observable {kind,ts,payload} events to hooks.jsonl, never touching log.jsonl or the get_refine_passes counter.
+**Invariants owned:** deterministic no-op rebuild (sorted, no timestamps); validate→audit→write with **no partial writes**; byte-identical extraction with forced member modes; manifest-anchored categories (an unrecorded dir is an audit failure); SEC-1 dual-layer path confinement; SAFE-2 untrusted-data handling; V6 advisory selection that can never gate a run; count reconciliation (registry-count == manifest-skill-count, file_count == member count); first-party dirs exempt from vendoring but tripwire-guarded.
 
+*Recent changes (skill-system):* Whole subsystem is NEW vs an agentic-era map: three feature commits added it — advisory selector + registry (0fb699e), then vendored 115 packages manifest-anchored (115fee7), then the shared BOM/CRLF frontmatter primitive (76f88e7). · skillselect gained explainable scoring (E2): weighted name>triggers>description with a category prior, per-token single-field counting, matched_tokens + why strings, and full pin/exclude/boost/categories overrides via references/skill-overrides.json. · The registry is now built from an on-disk extracted tree (skills/<name>/) rather than parsed live: entries carry a real skills/<name>/ package path, enabling the atlas flow to inject the TOP-1 SKILL.md body as the ACTIVE skill. · skillextract is a full importer+gate: byte-identical extraction, duplicate coalescing (117 zips → 115 packages), forced member modes, dual-layer SEC-1 path confinement, and a --verify integrity gate (missing/hash-drift/byte-drift/extra-file + stowaway package-dir sweep). · Both builders are now schema-validated (skill-registry/skill-entry, skills-manifest/skills-manifest-entry in references/schemas.json) and audit-gated with no partial writes. · The bundled Skills/ zip source has been removed from the tree after import — the extracted skills/ tree + manifest are the committed source of truth; skillextract's extract path is dormant while --verify (zip-free) remains the live integrity check. · skillregistry now shares frontmatter.FRONTMATTER_RE (F7 one BOM+CRLF-aware primitive) instead of a hand-rolled fence regex. · Both doc gates (check_artifact_naming, inventory_drift) were de-duplicated onto the single shared skillpkgs.walk_markdown walk that had previously drifted between them.
 
-| id | path | responsibility |
-|----|------|----------------|
-| `contextgraph` | `scripts/contextgraph.py` | Pure read-time ContextGraph projection over ctxstore ledger + hooks.jsonl, plus thin I/O hands that atomically cache the graph and render the SAFE-2 GRAPH_LOOKUP. No reducer, no per-action mutation; the pure core does zero I/O. |
-| `ctxevents` | `scripts/ctxevents.py` | The ONE non-hook writer of a run's hooks.jsonl: the orchestrator records root-observable stage-tagged tool_call/error events (which the shell PostToolUse telemetry hook cannot label with a stage) as {kind,ts,payload} lines. |
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | Orchestrator state machine that INJECTS GRAPH_LOOKUP at the CODED stage as architectural-state DATA in the elite-coder packet — a HINT, never a gate — and re-runs it on every REFINE re-dispatch (coder re-enters CODED). |
-| `safewrap` | `scripts/safewrap.py` | Canonical SAFE-2 untrusted-content wrapper shared by the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE->CODED runcheck tails); the single neutralization rule that cannot drift. |
-| `ctxstore` | `scripts/ctxstore.py` | The append-only run ledger owner (state.json / log.jsonl / plan.dag.json / critic_*.json) and atomic artifact writer; contextgraph reads its ledger and reuses its atomic writer for the cache. |
-| `hooks.jsonl` | `.atlas/<run_id>/hooks.jsonl` | Per-run append-only event log of root-observable {kind,ts,payload} tool_call/error events — the tool_call/error node SOURCE for the graph — dual-written by telemetry.sh and ctxevents. |
+---
 
-**Where is what:** Change how nodes/edges are projected (order, fields, seq, ts-dropping) → scripts/contextgraph.py:81-165 build() · Add/alter which ledger files feed the graph → scripts/contextgraph.py:196-223 load_ledger_facts() · Cache-validity / rebuild-wins semantics → scripts/contextgraph.py:238-257 load_or_rebuild(); project() 226-235 · How untrusted tool/error text is fenced (SAFE-2) → scripts/contextgraph.py:46-54 wrap_untrusted() -> scripts/safewrap.py:44-60 wrap_untrusted() · PARTIAL vs COMPLETE tool coverage detection → scripts/contextgraph.py:57-78 reconcile() · Where GRAPH_LOOKUP is injected into the coder packet (CODED, recurs on REFINE) → skills/atlas/SKILL.md:339-365 · CLI to print a SAFE-2 GRAPH_LOOKUP → scripts/contextgraph.py:260-284 graph_lookup()/main() · Record a root-observable event to hooks.jsonl → scripts/ctxevents.py:28-43 record(); CLI main() 46-73 · JSONL append-order read / torn-line tolerance → scripts/contextgraph.py:177-193 read_jsonl() · Atomic byte-identical cache write → scripts/contextgraph.py:234 -> scripts/ctxstore.py:296 write_artifact_atomic()
+## bench
 
+The `bench/` package is a standalone benchmark harness (new — absent from the old graphify) that measures kimi-atlas's distinctive property: not merely *did it solve the task*, but *when its 6-lens gate returned OK, was that true?* It mirrors the plugin's pure-core/hands split and couples to the rest of the system only through the on-disk run ledger.
 
-### FSM + two-phase rollback
+Two independent facts per task — atlas's self-verdict (`verdict_ok`, from `merged_critic.json` `verdict == "OK"`) and ground truth (`tests_pass`, from applying `diff.patch` to a clean baseline and running the hidden acceptance tests) — cross into a 2x2 confusion matrix:
 
-The explicit canonical FSM plus a two-phase, forward-only, headless-worktree-only rollback mechanism layered onto the kimi-atlas run ledger. `fsm.py` is a pure legality oracle: it derives the legal edge set from `ctxstore.STAGES` + `CONDITIONAL_STAGES` (single source of truth) plus one literal declared backward edge `REFINE->CODED`, guarded at import time. `rollback_driver.py` is the impure git seam — a pure `sanctioned_rollback` predicate gates a two-phase `run_rollback` (intent -> monkeypatchable `_git_reset` -> complete) with a ledger-derived `resume_rollback`; `ctxstore` stays pure persistence, appending ROLLBACK-stamped ledger ops (`last_green_stage`/`rollback_to`/`pending_rollback`) that provably never touch the REFINE counter. Both cores are enforced as pure-scenario negative-gate checks in `run_weave_negative_gate.py` (illegal-transition, rollback-refused) and wired into the atlas SKILL prose as checkpoints, manual headless rollback, and an interactive human revert/keep/discard choice at the OUTPUT gate.
+| | tests PASS (truth) | tests FAIL (truth) |
+|---|---|---|
+| verdict OK | TRUE_PASS | **FALSE_PASS** (must be 0) |
+| verdict UNVERIFIED | MISSED | TRUE_FAIL |
 
+Flow: `run_bench` (CLI) → `runner` reads a completed atlas run dir, grades the diff against hidden tests → `scorer` folds the boolean pairs into metrics → `report` renders Markdown. Tasks are materialised into throwaway git repos by `tasks`, whose `validate()` self-checks that the reference solution passes and the stub fails before any model runs.
 
-| id | path | responsibility |
-|----|------|----------------|
-| `fsm` | `scripts/fsm.py` | Pure canonical-transition legality oracle for the atlas stage machine; classifies single edges and whole trajectories as legal/illegal. Additive and PURE — never touches ctxstore.advance (the permissive recorder); legality is a test invariant + negative-gate check, never a hard error at runtime. |
-| `rollback_driver` | `scripts/rollback_driver.py` | The impure git seam under ctxstore's pure ledger: pure sanction predicate + two-phase forward-only rollback orchestration + idempotent resume. The ONLY subprocess in the rollback path; ctxstore never shells out. |
-| `ctxstore` | `scripts/ctxstore.py` | Run persistence + canonical STAGES source of truth. The rollback subsystem depends on it for (a) STAGES/CONDITIONAL_STAGES that fsm derives from, and (b) the additive PURE rollback ledger ops appended after get_refine_passes — no subprocess, append-only ledger. |
-| `run_weave_negative_gate` | `scripts/run_weave_negative_gate.py` | Combined-tree red-team negative gate that enforces the FSM and rollback guard as pure, deterministic scenarios (no agents/git/subprocess). Scenarios 6 (illegal-transition) and 7 (rollback-refused) prove the two cores block by construction, not just at runtime. |
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | Orchestrator prose that wires the checkpoint/rollback machinery into the CODED/VERIFIED/REFINE loop and the terminal OUTPUT human gate. Documents per-stage green checkpoints, manual headless-only rollback, and the interactive revert/keep/discard human choice — never a new stage transition. |
-| `test_fsm` | `tests/test_fsm.py` | Pins fsm legality: forward-adjacent + conditional-skip + declared REFINE->CODED are legal; forward skips, backward jumps, unknown stages, self-loops illegal; import-time node-membership guard; refine-loop path legality (tests/test_fsm.py:16-99). |
-| `test_rollback` | `tests/test_rollback.py` | Pins the sanction predicate (token/primary-tree/isolation-path refusals, path normalization) and the two-phase driver (both-markers-on-success, refusal writes no ledger, empty target_sha front gate, failed reset leaves recoverable intent, torn-then-resume idempotence) via monkeypatched _git_reset (tests/test_rollback.py:22-172). |
-| `test_skill_rollback_doc` | `tests/test_skill_rollback_doc.py` | Prose-pin test: asserts SKILL.md honestly documents checkpoints (last_green_stage), manual rollback (rollback_driver + rollback_intent/complete), headless-only + 'never auto-reset', and the interactive revert/keep/discard human choice; and that every ctxstore/rollback_driver symbol the prose names actually exists (tests/test_skill_rollback_doc.py:21-71). |
+### Where is what
+| To change… | Go to |
+|---|---|
+| confusion-matrix cell mapping | `bench/scorer.py:classify` (25-29) |
+| metrics / rounding (false_pass_rate, gate_precision…) | `bench/scorer.py:scorecard` (37-64), `_rate` (32-34) |
+| add/edit a benchmark task | `bench/tasks.py:TASKS` (16-159) |
+| task repo creation / baseline commit | `bench/tasks.py:materialize` (172-189) |
+| task soundness self-check | `bench/tasks.py:validate` (192-205) |
+| which ledger fields are read | `bench/runner.py:read_run` (19-50) |
+| ground-truth grading (patch + hidden tests) | `bench/runner.py:diff_passes_hidden_tests` (53-71) |
+| headless `kimi -p` invocation | `bench/runner.py:run_headless` (88-105) |
+| scorecard layout / trust headline | `bench/report.py:render` (15-38) |
+| CLI subcommands | `bench/run_bench.py:main` (69-77) |
 
-**Where is what:** Change what stage transitions are legal (add/remove/reorder stages) → scripts/ctxstore.py:35-49 STAGES/CONDITIONAL_STAGES (single source of truth) — fsm derives edges automatically; the ONE literal exception is scripts/fsm.py:23 _DECLARED_EDGES (REFINE->CODED), which the import guard at fsm.py:28-33 forces you to keep in lockstep · Ask whether a specific edge or a whole trajectory is legal → scripts/fsm.py:58 legal_transition(a,b) and scripts/fsm.py:69 legal_path(stages) · Decide whether a rollback reset is allowed to proceed (the guard) → scripts/rollback_driver.py:45-67 sanctioned_rollback — isolation-path + linked-worktree + env-token predicate; env var name at rollback_driver.py:38 SANCTION_ENV · Execute / resume the two-phase rollback and the actual git reset → scripts/rollback_driver.py:102 run_rollback (gate->intent->reset->complete), :135 resume_rollback, :70 _git_reset (the monkeypatchable subprocess seam), :157 main CLI · Append/read the pure rollback ledger markers and derive recovery state → scripts/ctxstore.py:212 rollback_to (intent/complete markers), :252 pending_rollback (torn-intent recovery), :194 last_green_stage (checkpoint target); constants at ctxstore.py:189-191 · Prove the FSM + rollback guard block adversarial input (negative gate) → scripts/run_weave_negative_gate.py:146-167 evaluators and :256-277 the illegal-transition / rollback-refused scenarios · How checkpoints, manual headless rollback, and the interactive human choice are wired into the orchestrator → skills/atlas/SKILL.md:651-678 (Checkpoints & rollback) and :680-719 (OUTPUT gate revert/keep/discard) · Tests that pin these invariants → tests/test_fsm.py (FSM legality + import guard), tests/test_rollback.py (sanction + two-phase + resume), tests/test_skill_rollback_doc.py (prose/code non-drift)
+### Invariants (owned)
+- **Pure scorer.** `classify`/`scorecard` are an I/O-, LLM-, clock-free fold over booleans; the same pairs always re-derive the same scorecard (`scorer.py:14-17`).
+- **Frozen 2x2 mapping.** OK+pass=TRUE_PASS, OK+fail=FALSE_PASS, UNV+pass=MISSED, UNV+fail=TRUE_FAIL. `false_pass_count` is THE trust metric; the thesis asserts it stays 0.
+- **None, not fake 0.** Empty-denominator ratios return `None` (`_rate`, 32-34) so "no VERIFIED runs" never masquerades as perfect precision.
+- **Independent ground truth.** `tests_pass` comes only from re-applying `diff.patch` to a fresh baseline + hidden tests — never from atlas's self-claim, never from whether a human kept the change (`runner.py:53-71`).
+- **Fail-safe reads.** Missing/degraded ledger → `verdict_ok=False`, empty patch; a diff that won't apply is a fail (`runner.py:22-24, 59, 67`).
+- **Ref never shipped.** `materialize` writes only stub + hidden test + brief; the reference solution is used solely inside `validate()` (`tasks.py:15, 172-189`).
+- **Soundness gate.** A task is valid only when ref passes AND stub fails; `--validate` is a zero-cost, no-model exit-code gate (`tasks.py:192-205`, `run_bench.py:22-31`).
 
+### Cross-subsystem coupling
+`bench.runner` consumes the atlas run ledger written by `scripts/ctxstore.py` / the atlas SKILL — `merged_critic.json` (verdict), `diff.patch`, and `log.jsonl` (stages, e.g. `OUTPUT`). This is the only link to plugin internals, and it is read-only and fail-safe; there is no code import from `scripts/` or `skills/`.
 
-### Verification additions + shared primitives
+*Recent changes (bench):* Entire bench/ package is NEW vs the agentic-era graphify — it did not exist there; adds a self-contained benchmark harness alongside the plugin. · Introduces the FALSE_PASS trust axis: benchmarks the GATE (when atlas says OK, is it true?) not just the coder, via false_pass_rate/false_pass_count as the headline (scorer.py, report.py). · Mirrors the plugin's pure-core/hands discipline outside the plugin: pure scorer/report vs I/O runner/tasks, with the scoring decision kept out of the I/O layer. · Self-validating task suite: validate() proves ref passes + stub fails before any model is run, so a broken grader is caught at zero cost (--validate). · Ground-truth grading by re-applying diff.patch to a fresh baseline and running HIDDEN tests, decoupled from whether the human kept the change and from atlas's own verdict. · Consumes the current atlas run-ledger contract (merged_critic.json verdict=='OK', diff.patch, log.jsonl stages) written by ctxstore/atlas — coupling to the post-agentic ledger format, with fail-safe defaults for degraded artifacts. · Optional headless end-to-end mode via `kimi -p` (Kimi v0.26.0 CLI), tolerant of atlas pausing at the OUTPUT human gate — it only needs the pre-gate ledger. · Backed by tests/test_bench_scorer.py pinning the matrix, metrics, None-denominator semantics, and counts-sum-to-n.
 
-The agentic-verification subsystem is the deterministic floor + shared primitives that back the 6-lens VERIFIED gate of the atlas orchestrator. Two new pure lenses/primitives shipped: astlens (an AST syntax/parse + lint-floor lens whose defects fold into verdict.merge and thus into gate/should_refine identically to any critic or SAST defect) and safewrap (the SINGLE canonical SAFE-2 untrusted-content wrapper that both the Ph2 read path — contextgraph — and the Ph4 REFINE write path now delegate to). Two dedup hoists back them: rubric (single-source rubric vocabulary imported by verdict, quality and run_negative_gate) and frontmatter (BOM+CRLF-aware fence primitive shared by skillregistry and run_negative_gate). All four are stdlib-only, pure (text in → data out), unit-testable without a filesystem, and carry zero model judgment — that purity is what makes the refine loop provably halt and the gate deterministic.
+---
 
+## build-ci
 
-| id | path | responsibility |
-|----|------|----------------|
-| `astlens` | `scripts/astlens.py` | Deterministic COMMIT-time AST lens over the {path:text} map of changed .py source: ast.parse+compile() syntax/parse floor plus a conservative undefined-name (DOES-IT-RUN) and unused-import (CODE-QUALITY) pass. Emits canonical {id,category,severity,location,fix} defects the backbone merges identically to a critic/sast defect. Labelled 'syntax/parse', never 'type-check'. |
-| `safewrap` | `scripts/safewrap.py` | The SINGLE canonical SAFE-2 untrusted-content wrapper. Encloses attacker-influenceable text in a uniquely-fenced UNTRUSTED-DATA block labelled DATA-only; neutralizes any embedded fence marker so untrusted text cannot forge the boundary. One pure function is what makes 'the same wrapper' literally true across the Ph2 read path and the Ph4 write path rather than two drifting prose copies. |
-| `rubric` | `scripts/rubric.py` | Single source of truth (F6) for the 6-lens rubric vocabulary (references/rubric.md): the ordered DIMENSIONS tuple, the SEVERITIES ladder, the BLOCKING (CRITICAL/HIGH) subset, and the critic-JSON key sets. Imported by verdict, quality and run_negative_gate so byte-identical literals cannot silently drift. |
-| `frontmatter` | `scripts/frontmatter.py` | The one canonical YAML-frontmatter fence primitive (F7). BOM-aware (optional leading U+FEFF) AND CRLF-aware (\r?\n), closing the opposite blind spots the two former copies (skillregistry's and run_negative_gate's) each had. Locates the fence only — never interprets content (SAFE-2 DATA). |
-| `verdict` | `scripts/verdict.py` | Pure decision functions for the 6-eye harness — the fold point where astlens (and every deterministic lens) defect enters the gate. merge() normalizes critic JSONs + script defect-lists into one canonical critic; gate() is the composite PASS bar; should_refine()/final_status() read ONLY the merged critic's blocking defects. No model judgment. |
-| `contextgraph` | `scripts/contextgraph.py` | Ph2 GRAPH_LOOKUP read path. Its own wrap_untrusted is now a thin delegation to safewrap.wrap_untrusted with a fixed 'context-graph' source label — the read path and the Ph4 REFINE-tail write path share ONE neutralization rule that cannot drift. |
-| `quality` | `scripts/quality.py` | TEST-ADEQUACY / critic-schema core. enforce_critic_schema validates the merged {dimensions,defects,verdict} shape against the rubric vocabulary; imports the single-sourced sets from rubric so it cannot drift from verdict/run_negative_gate. |
-| `run_negative_gate` | `scripts/run_negative_gate.py` | Injection/negative-gate harness that strips critic role-file frontmatter and asserts the deterministic floor. Consumes BOTH dedup primitives: rubric.BLOCKING and frontmatter.FRONTMATTER_RE. |
-| `skillregistry` | `scripts/skillregistry.py` | SKILL.md registry parser. parse_frontmatter builds on the shared frontmatter primitive so encoding handling is fixed in exactly one place. |
-| `atlas.SKILL` | `skills/atlas/SKILL.md` | The orchestrator prose that wires the pure cores into the runtime. Step 2 runs astlens.lint over changed_files as Lens 5b and persists astlens_defects into det_evidence.json; Step 4/5 folds ev['astlens_defects'] into script_defects passed to verdict.merge so a syntax/parse/undefined-name hit is BLOCKING for gate()/should_refine(). The Ph4 REFINE re-dispatch prose calls safewrap.refine_feedback_block(rc) / coder_redispatch_packet to wrap the failing-test tails as SAFE-2 DATA. |
+The quality gate + packaging layer. The Makefile is the spine: `make ci` (Makefile:38) is EXACTLY `check-strict test inventory-drift check-shell` and is the single thing `.github/workflows/check.yml` runs (it only sets up Python 3.12 and calls `make ci`). CI must stay deterministic — no Kimi, no network, no semgrep — so the two red-team negative-gate drivers are deliberately kept OUT of `ci` behind their own targets.
 
-**Where is what:** Change the AST syntax/parse floor or the undefined-name/unused-import lint rules → scripts/astlens.py — lint() astlens.py:244-289; check_syntax astlens.py:217-241; the _BUILTINS/_DYNAMIC_NS suppression sets astlens.py:29-38 · Add/adjust which annotation loads count as uses vs runtime loads (future-annotations handling) → scripts/astlens.py _ModuleScan.visit_Name / visit_Constant / _visit_annotation astlens.py:172-199 · Change how astlens (or any deterministic lens) defect blocks the gate → SKILL.md Step 4/5 script_defects assembly SKILL.md:556-577 feeding verdict.merge scripts/verdict.py:65-100; gate conditions verdict.py:103-148 · Edit the single SAFE-2 untrusted-content wrapper / fence markers / neutralization → scripts/safewrap.py — wrap_untrusted safewrap.py:44-62; _neutralize safewrap.py:31-36; markers safewrap.py:25-28 · Change the REFINE re-dispatch packet shape or which fields are trusted vs untrusted → scripts/safewrap.py coder_redispatch_packet safewrap.py:94-114 / refine_feedback_block safewrap.py:79-91; invoked from SKILL.md:637-638 · Change how the ContextGraph read path wraps untrusted tool/error text → scripts/contextgraph.py:30-54 (delegates to safewrap; do NOT re-implement a fence here) · Add or rename a rubric lens, severity, or critic-schema key → scripts/rubric.py DIMENSIONS/SEVERITIES/BLOCKING/CRITIC_TOP_KEYS/DEFECT_KEYS rubric.py:16-31 (single source; verdict/quality/run_negative_gate import it) · Fix YAML frontmatter parsing (BOM/CRLF) for SKILL.md or critic role files → scripts/frontmatter.py FRONTMATTER_RE frontmatter.py:23-26 (shared by skillregistry.py:74 and run_negative_gate.py:134) · Change the critic-schema value enforcement on the merged verdict → scripts/quality.py enforce_critic_schema quality.py:42-... using rubric sets quality.py:29-35
+Two machine-checked doc gates share one walk: **artifact-naming** (recursive lowercase/kebab-case/.md enforcement with an EXCLUSION_SET of fixture filenames and `--strict` promoting prefix warnings to errors) and **inventory-drift** (fails if the doc index built from `references/*.md` + `README.md` links drifts from the on-disk doc tree). Both descend via `skillpkgs.walk_markdown`, which prunes any SKILL.md-bearing package dir (vendored payload markdown) and the scratch workspaces `.superpowers`/`.atlas`. Two pure cores round out the checks: `validate.py` (required/optional field presence+type against `references/schemas.json`, consumed by the skills/verdict subsystems) and `plugin_meta.read_version` (manifest version, now 1.1.1).
 
+The red-team drivers PROVE the gate has teeth. `run_negative_gate.py` is the single-change E2E gate: for each `tests/fixtures/<name>/` it forces every deterministic gate green then dispatches the real judgment critic prose to Kimi, asserting a `bad_*` blocks on its intended lens (an OK is a RUBBER STAMP that fails the build), plus a deterministic semgrep SAST floor that blocks a mechanically-detectable vuln with no critic dispatched. `run_weave_negative_gate.py` is its pure combined-tree sibling: seven crafted adversarial scenarios (overlap, combined-red, cyclic-DAG, dropped-requirement, gas-exhausted, illegal-transition, rollback-refused) pushed straight through the real integration cores, each required to BLOCK — an evaluator that raises is ERROR, never a matched block.
+
+Packaging: `install.sh` git-archives HEAD into `$KIMI_CODE_HOME/plugins/kimi-atlas` and atomically registers the entry in `installed.json` (idempotent, `--uninstall` path). `hooks/guard-destructive.sh` is an opt-in, disabled-by-default, fail-open PreToolUse Bash guard that denies only a tight command-position destructive denylist and is intentionally NOT wired into `plugin.json`.
+
+| To change X | Go to |
+|---|---|
+| CI pipeline contents | Makefile:38 `ci:` |
+| Exempt a fixture filename | check_artifact_naming.py:48 EXCLUSION_SET |
+| Tracked-doc / skip-dir rules | inventory_drift.py:117 is_tracked_doc, :64 _SKIP_SEGMENTS |
+| Shared skill-package walk | skillpkgs.py:25 walk_markdown |
+| Schema field types | references/schemas.json + validate.py:29 |
+| Add judgment/SAST fixture | tests/fixtures/<name>/fixture.json; run_negative_gate.py |
+| Add combined-tree scenario | run_weave_negative_gate.py `_eval_*` |
+| Destructive denylist / enable guard | guard-destructive.sh:84 CMDPOS; plugin.json hooks[] |
+| Install/registration | install.sh:61 archive, :66 installed.json |
+
+**Invariants:** `make ci` must stay Kimi/network/semgrep-free and equal to check-strict+test+inventory-drift+check-shell; negative gates live outside it. EXCLUSION_SET (README.md, SKILL.md, LICENSE, Makefile, PLAN.md, AGENTS.md, CHANGELOG.md) is exempt from all naming rules. The skill-package exemption is owned once in skillpkgs. inventory-drift is phase-aware (never reads PLAN.md as a source). guard-destructive is opt-in, fail-open, never wired by default. A `bad_*` returning OK fails the build; a raising weave scenario is never a matched block. check-shell is a real `sh -n` gate (F1). rubric vocabulary is single-sourced via `rubric.BLOCKING` (F6).
+
+*Recent changes (build-ci):* check-shell is now a real `sh -n` shell-syntax gate over hooks/installer/probes (commit 25047aa, flaw F1) — the older map's decorative/no-op MEDIUM finding is fixed. · guard-destructive.sh closed the leading `VAR=val` command-position bypass and rewrote its header as an honest best-effort/defense-in-depth denylist (commit 3ec8363, F2). · run_negative_gate.py gained the deterministic SAST floor: it imports scripts.sast (semgrep) and now proves BOTH the judgment SECURITY critic AND a mechanically-detectable SAST blocker via `expected_blocker: deterministic-sast` fixtures (commit 0791641). · run_weave_negative_gate.py grew from 5 to 7 scenarios: added illegal-transition (fsm.legal_transition) and rollback-refused (rollback_driver.sanctioned_rollback) (commits 5b49540, 5ac49bc). · inventory_drift now also prunes the .atlas run-ledger scratch workspace (in addition to .superpowers) from _SKIP_SEGMENTS (built on commit 33eacc4). · EXCLUSION_SET added AGENTS.md and CHANGELOG.md as exempt project fixtures. · Makefile added `bench-validate` (python3 -m bench.run_bench --validate) wiring the new benchmark harness into the target list (commit 8dfa0a1). · rubric vocabulary is single-sourced: run_negative_gate uses rubric.BLOCKING instead of a local {CRITICAL,HIGH} set (F6); frontmatter parsing shares one BOM+CRLF-aware primitive (F7). · Plugin manifest version is now 1.1.1 (read by plugin_meta.read_version from .kimi-plugin/plugin.json).
+
+---
+
+## tests
+
+The tests/ subsystem is kimi-atlas's proof engine: **59 `test_*.py` unittest modules, 928 tests, all green** via `make test` (`python3 -m unittest discover -s tests -v`; `make ci` = `check-strict test inventory-drift check-shell`). Coverage is ~1:1 with the 39 `scripts/` modules — the only script without a same-named file is `rollback_driver.py`, deliberately covered by `test_rollback.py` (monkeypatched control flow) **and** `test_rollback_realgit.py` (real git) — plus the newer `bench/` harness and a set of doc/skill guards.
+
+### FROZEN-invariant pins
+- **STAGES machine** — `test_ctxstore.py:52` pins the 9-tuple `('INIT','INTENT_CAPTURED','CLARIFY','TRIAGED','GROUNDED','CODED','VERIFIED','REFINE','OUTPUT')`, `CONDITIONAL_STAGES=('CLARIFY','REFINE')`, and `MANDATORY_STAGES` as the disjoint order-preserving complement.
+- **FSM legality** — `test_fsm.py` asserts the transition graph on `fsm.py` alone (derived forward edges, `VERIFIED->REFINE` derived-legal, the declared `REFINE->CODED` loop edge, and illegal skips/backward-jumps/self-loops); it never asserts over `advance()` call sites.
+- **get_refine_passes** — `test_ctxstore.py:171-208`: ledger-derived (not state memory), monotonic, `==2` after two passes.
+- **Intent immutability** — idempotent `init_run`; a re-init with `intent="HIJACKED"` cannot clobber captured state; `intent.txt` survives rollback.
+- **Append-only ledger** — `test_ctxstore.py` RollbackLedgerTests + `test_ctxstore_atomic.py`: `log.jsonl` is append-only and never truncated; `rollback_to` is a two-phase append.
+
+### Red-team suites
+- `test_run_negative_gate.py` (64 tests) — single-tree fixture matrix: good→OK, every `bad_*`→UNVERIFIED, security floor bites.
+- `test_run_weave_negative_gate.py` — combined-tree gate: exactly **7** canonical scenarios (hidden-same-file-overlap, combined-red-while-leaves-green, cyclic-DAG, dropped-requirement, gas-exhausted-partial, illegal-transition, rollback-refused) each BLOCK; a clean input must not match (no rubber-stamp).
+- SAFE-2 injection — read path `test_contextgraph.py`, write path `test_write_path_injection_gate.py` (`safewrap.coder_redispatch_packet`).
+- `test_skillextract.py:159-279` — zip-slip / path confinement (../escape, absolute, backslash, symlink escape).
+- `test_guard_destructive.py` — closes the `VAR=val` denylist bypass (F2).
+
+### Real-git seam
+`test_rollback_realgit.py` drives `run_rollback`/`resume_rollback` against a real repo + real linked worktree (no monkeypatch): the primary tree REFUSES, the isolated `.atlas/<run_id>/worktree` SUCCEEDS, guarding HIGH-2.
+
+### New vs the agentic-era map
+- `test_bench_scorer.py` — pins the `bench.scorer` confusion matrix (TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL) and metrics (false_pass_rate, gate_precision/recall, honesty, solve_rate; empty denominators → `None`); the whole `bench/` package is new (`make bench-validate`).
+- `test_skill_ref_paths.py` — forbids a bare `references/rubric.md` read in `skills/atlas/SKILL.md`, requiring the plugin-root-relative `${KIMI_SKILL_DIR}/../../references/rubric.md` (a live-caught VERIFIED failure).
+
+### Doc/inventory guards
+`test_doc_testcount.py` forbids any hard-coded test count in README/AGENTS (F4, with a non-vacuous self-check); `test_tracked_docs_count.py` ties the "N tracked docs" claim to `inventory_drift`; `test_inventory_drift.py` fails on index drift.
+
+| To change… | Go to |
+|---|---|
+| canonical stages / partition | `scripts/ctxstore.py` STAGES — pin `test_ctxstore.py:52` |
+| transition legality | `scripts/fsm.py` — pin `test_fsm.py` |
+| refine accounting | `ctxstore.get_refine_passes` — pin `test_ctxstore.py:171` |
+| rollback ledger | `ctxstore.rollback_to` — pin `test_ctxstore.py` RollbackLedgerTests |
+| real-git rollback rules | `scripts/rollback_driver.py` — `test_rollback_realgit.py` |
+| single-tree fixtures | `scripts/run_negative_gate.py` — `test_run_negative_gate.py` |
+| combined-tree scenarios | `scripts/run_weave_negative_gate.py` scenarios() — `test_run_weave_negative_gate.py` |
+| SAFE-2 fencing | `contextgraph.py` (read) / `safewrap.py` (write) |
+| zip confinement | `scripts/skillextract.py` — `test_skillextract.py` |
+| SKILL rubric read path | `skills/atlas/SKILL.md` — `test_skill_ref_paths.py` |
+| bench scoring | `bench/scorer.py` — `test_bench_scorer.py` |
+| run the suite | `make test` / `make ci` (`Makefile`) |
+
+*Recent changes (tests):* NEW test_bench_scorer.py — pins the bench.scorer confusion-matrix core (classify -> TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL; scorecard metrics false_pass_count/rate, gate_precision, gate_recall, honesty, solve_rate; empty denominators reported as None not 0). This is the benchmark harness (bench/ package: scorer, runner, tasks, report, run_bench) that did not exist in the agentic-era map; `make bench-validate` runs `python3 -m bench.run_bench --validate`. · NEW test_skill_ref_paths.py — guards the plugin-root-relative rubric read path in skills/atlas/SKILL.md after a live-caught VERIFIED failure ('1 failed') where the critic packet read a bare references/rubric.md. · test_rollback_realgit.py added as the real-git seam closing the git-seam coverage gap left by test_rollback.py's monkeypatched control-flow tests (real repo + real linked worktree, exercises run_rollback and resume_rollback end-to-end). · test_run_weave_negative_gate.py added for the combined-tree ATLAS-WEAVE red-team (7 scenarios through integrate/differential/planstage/verdict/scheduler/plandag pure cores, no agents/git/subprocess). · Suite grew from the agentic-era ~713 to 928 tests across 59 files (proven by `make test`; the 713->877->... growth is exactly why test_doc_testcount.py forbids any literal count in the docs). · FSM/rollback/append-only pins are now first-class: test_fsm.py (legality graph), test_ctxstore.py RollbackLedgerTests, and test_ctxstore_atomic.py did not exist in the pre-FSM map — they encode the explicit state machine and two-phase append ledger from the agentic-architecture upgrade. · ContextGraph SAFE-2 coverage split across read path (test_contextgraph.py, test_contextgraph_schema.py, test_contextgraph_wiring.py) and write path (test_write_path_injection_gate.py) — the round-4 MEDIUM SECURITY defect is now pinned on both seams. · Wiring/dispatch-completeness guards added (test_astlens_wiring.py, test_contextgraph_wiring.py, test_dispatch_completeness_wiring.py) plus self-certifying dogfood (test_dogfood_weave.py).
+
+---
+
+## FROZEN / load-bearing invariants (consolidated)
+
+**atlas-core**
+- Canonical STAGES is the single source of truth: INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT (ctxstore.py:35). MANDATORY_STAGES each recorded exactly once in order; CLARIFY/REFINE conditional. Never invent a stage name.
+- INIT→OUTPUT is ONE uninterrupted run; the only legal turn-ending pauses are the 3 sanctioned gates (CLARIFY AskUserQuestion, pre-CODE approval, OUTPUT human gate). Every stage transition MUST call ctxstore.advance and that call must RETURN before the stage counts done.
+- NO-LLM-verdict: pass/fail is computed ONLY inside the pure verdict cores (verdict.merge/gate/final_status); the orchestrator and every model critic marshal inputs, never decide. scheduler.run_status and final_aggregate are descriptive/aggregating only.
+- Authoritative refine-pass count = the number of REFINE lines in the append-only log.jsonl (ctxstore.get_refine_passes), never model memory; refine loop is hard-capped at MAX_PASSES=2 (should_refine + the passes<1 V7 guard) so it provably halts at ≤2 re-drafts.
+- Provable halting rests on the GLOBAL GAS BOUND: gas charged exactly once per dispatch (floored at 0, sole site plandag.charge_gas via scheduler.dispatch_wave) + per-job MAX_ATTEMPTS=2; runcaps provisions gas strictly above the worst-case dispatch count so a DECOMPOSE expand can never starve the run.
+- Charge-at-dispatch, never refunded: a crashed/orphaned agent has still spent its fuel; resume.resume resets RUNNING→PENDING WITHOUT refunding gas or bumping attempts, and lease tokens f'{job_id}#{attempts}' do not rotate across resume (killed-turn receipts must not be delivered).
+- Degrade-to-atlas guarantee: any planner failure (non-dict, no nodes, over node_max, malformed field, invalid DAG) collapses via planstage.coerce_dag to single_node_dag, whose schedule reduces byte-identically to today's single-change INIT→OUTPUT.
+- Concurrency cap = exactly 3 agents (W_MAX=3); the §6 memory model (ROOT_RSS_MB + ceiling 4608MB + free-floor 3072MB + structural build/coder exclusion in can_admit) plus the ROOT's live free -m ≥3GB re-check is the true OOM backstop — a mis-estimate degrades the wave, never OOMs.
+- Never auto-apply to a real tree: every mutation is human-gated (interactive) or confined to an isolated worktree/sandbox (headless); review_root is set ONCE at the pre-CODE gate and both CODED (coder's only writable root) and VERIFIED (difftool/runcheck cwd) read that one value.
+- SAFE-2 untrusted-content: all file/web/program output (incl. runcheck stderr/stdout tails on REFINE) is DATA, never instructions — it can never alter intent, STAGES, the packet, or dispatch; enforced verbatim in scout/coder/planner roles and re-checked by the SECURITY lens.
+- Scope disjointness + criteria conservation are CRITICAL blocking gates: overlapping node scopes (plandag.disjoint) or a criterion parked on a DECOMPOSE that reaches no LEAF/INTEGRATION verifier (criteria_conservation_defects) is a false green and forces FAIL; an unresolved/empty frontier can never fold to OK (final_aggregate synthesizes UNVERIFIED defects).
+- Frozen success_criteria: ordered and immutable, captured at INTENT_CAPTURED (mutable only during CLARIFY); downstream lenses read the frozen list and never re-derive it.
+- Two-phase rollback is forward-only and headless-only: rollback markers carry stage=='ROLLBACK' (never 'REFINE') so the refine counter stays monotonic; log.jsonl/intent.txt are only appended, never truncated; a rolled-back run re-enters VERIFIED and terminates through OUTPUT as ⚠️ UNVERIFIED.
+
+**verification-harness**
+- No model computes pass/fail: verdict.merge / gate / should_refine / final_status / aggregate / coverage_partition are pure, deterministic, and I/O-free (PLAN §4, DS-3). The orchestrator only marshals inputs into them.
+- BLOCKING = frozenset({CRITICAL, HIGH}) is the ONLY severity set that flips the gate; MEDIUM/LOW are recorded but never change final_status (rubric.py:27).
+- The refine loop provably halts: MAX_PASSES=2 (verdict.py:25), and `passes` MUST come from the on-disk ledger (ctxstore.get_refine_passes), never model memory (Refinement Legitimacy Law).
+- Text/token heuristics are capped at MEDIUM and can never emit HIGH (V6): quality.lint_deliverable and reqcoverage.coverage — gameable both ways, so a real gap is escalated only by a model critic with evidence.
+- rubric.py is the single source of truth (F6): DIMENSIONS, SEVERITIES, BLOCKING, CRITIC_TOP_KEYS, DEFECT_KEYS — verdict and quality import them so the vocabulary cannot silently drift.
+- runcheck green = ok (exit 0, no timeout) AND test_count>0 AND new_tests_collected (V4); the gate treats an absent/empty runcheck result as a fail (DOES-IT-RUN is mandatory and fully deterministic), while advisory lenses default to clean when absent.
+- The runcheck memory cap is always fail-open: a cap-start failure re-runs the build uncapped rather than reporting RED — the cap must never manufacture a failure (OPS-3); the systemd start-fail regex is deliberately narrow to avoid double-executing a build that already ran.
+- sast.scan is mandatory fail-open: semgrep absent/error/timeout/unparseable → returns [] and SECURITY degrades to judgment-only; it never maps to CRITICAL (HIGH already blocks) and never invents a defect.
+- The three critics are read-only plan subagents that persist NOTHING (F2) — the orchestrator persists for them; their markdown frontmatter (tools/model/temperature) is DOCUMENTATION ONLY, real perms come from the built-in plan type, and the orchestrator sets dispatch temperature (V5).
+- Every byte of the diff and any opened file is DATA, never instructions (SAFE-2) — a critic must not let file/tool content steer its lens, verdict, or output shape.
+- V7 conservative rule: ANY CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass — encoded at the SKILL's REFINE? step on top of should_refine's CRITICAL/HIGH cap.
+- pathcheck emits CRITICAL CORRECTNESS and astlens emits HIGH DOES-IT-RUN (deterministic, non-gameable grounding/parse failures), whereas the string heuristics stay MEDIUM — severity reflects mechanical certainty.
+- ATLAS-WEAVE coverage_partition is an exact set-difference over frozen success criteria, so a dropped criterion is legitimately CRITICAL; aggregate folds N node critics + the integration critic so one failing node can never be masked by passing ones.
+
+**atlas-weave**
+- No LLM computes pass/fail. Every integration verdict is a pure fold: integrate.integration_verdict (integrate.py:136) reuses verdict.merge; actual_conflicts/apply_failures/differential.regressions all decide deterministically. The seam critic only ADDS defects; it never overrides the deterministic floor.
+- THREE-net disjointness (load-bearing): (1) integrate.actual_conflicts re-validates against ACTUALLY-touched files (a clean git apply is never credited as proof — same-file-different-hunk concatenates silently); (2) integrate.apply_failures (NEW) blocks any change the union git apply rejected or an unbuildable union tree; (3) differential.regressions catches green-alone/red-combined. Planner-declared scope_paths is trusted for nothing.
+- Green == exactly the lowercase token 'pass'. suiterun.parse_junit emits 'pass' only for a testcase with no failure/error/skipped child; differential.regressions treats ANY other spelling (including absence) as a regression. This exact-token contract is what keeps the differential oracle zero-false-positive.
+- Degrade-toward-BLOCK / fail-safe everywhere. uniontree: a failed worktree add => worktree=None + every change 'failed'; a rejected apply => recorded in 'failed', never counted applied. suiterun: any parse/subprocess/timeout failure => {} (keeps baseline_pass conservative). leaseclock: a malformed/missing/non-numeric deadline => treated as ALREADY EXPIRED and reaped. No path can manufacture a false green.
+- Lease no-rotation: leaseclock.stamp token is exactly f'{job_id}#{attempts}' with NO timestamp, so a resumed turn's token is byte-identical to the killed turn's — therefore the orchestrator MUST discard any in-flight receipt stamped before a resume (a stale receipt is otherwise indistinguishable from a fresh one).
+- Provable halting. runcaps.seed_caps provisions gas; scheduler.dispatch_wave is the SOLE gas-charging site; MAX_ATTEMPTS caps requeues; dogfood_weave asserts a safety bound gas0 + nodes + 5 so a broken-halting regression surfaces loudly instead of hanging. Never dispatch off-plan or refund gas.
+- Degrade byte-identically to atlas. planstage.coerce_dag returns the planner DAG only if validate_planner_dag passes (acyclic, file-disjoint, every frozen criterion covered); otherwise it degrades to the 1-node atlas DAG which runs exactly one inner atlas run with the same verdict and no extra spend.
+- The orchestrator is the SOLE root; hierarchy lives in plan.dag.json data, never in the agent tree. Subagents cannot spawn subagents (star topology); a node's inner atlas run never spawns a sub-orchestrator. Per-wave width is capped at <=3 (memory-bound); total node count is unbounded.
+- uniontree uses a DETACHED worktree (git worktree add --detach — no branch ref) so the union machinery is fully idempotent across re-runs with the same session; cleanup + prune returns the repo to its exact prior state. All git calls use `git -C <path>` — never process cwd (agent threads reset cwd between calls).
+
+**agentic-backbone**
+- PURE-PROJECTION: contextgraph.build is a deterministic projection over already-read on-disk facts — no reducer, no per-action mutation, no I/O. ctxstore's ledger (state.json / log.jsonl / plan.dag.json / critic_*.json) is READ, NEVER written by the graph (contextgraph.py:1-16,85-169).
+- TS-DROP DETERMINISM: build drops the telemetry `ts` from every node and preserves the APPEND ORDER of source logs via a monotonic `seq`, so two ledgers differing only in `ts` project to a byte-identical graph (contextgraph.py:13-15,89-92,109-138).
+- THIN-POINTER OWNERSHIP: task nodes are thin `{ref: plandag_id}` pointers — plandag stays the sole DAG owner; verdict/artifact nodes are likewise thin refs (contextgraph.py:11-12,104-107,140-159).
+- SAFE-2 SINGLE SOURCE: there is ONE canonical untrusted-content wrapper (safewrap.wrap_untrusted); both the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE->CODED re-dispatch) delegate to it, and contextgraph re-exports safewrap's delimiters rather than minting its own, so the neutralization rule cannot drift (safewrap.py:16-21; contextgraph.py:32-54).
+- SAFE-2 NON-ESCAPE: wrap_untrusted neutralizes any embedded fence marker and sanitizes the source label, so the output always contains exactly one open + one close marker and injected imperatives are quarantined as DATA (safewrap.py:25-62,70-76).
+- FRESH-ALWAYS INJECTION: graph_lookup ALWAYS recomputes via project (unconditional rebuild-from-ledger), never load_or_rebuild — within a run run_id is constant, so a REFINE re-dispatch never sees a stale first-pass graph (contextgraph.py:268-282).
+- REBUILD-WINS CACHE: a cached context-graph.json is trusted only if it parses AND is a dict with schema=="context-graph" AND matching run_id; a missing/torn/mismatched cache is stale/poisoned and the ledger is authoritative (contextgraph.py:246-265).
+- FSM PURITY/ADDITIVITY: fsm never touches ctxstore.advance (Part C frozen permissive recorder); legality is a test invariant + pure-scenario negative gate, never a hard error inside advance (fsm.py:12-15).
+- FSM DERIVED-FROM-STAGES: legal edges = forward-adjacent + conditional-skip edges DERIVED from ctxstore.STAGES/CONDITIONAL_STAGES, plus exactly ONE declared literal — the backward refine loop REFINE->CODED; an import-time assert breaks fsm if a declared node leaves STAGES (fsm.py:22-33,36-55).
+- ROLLBACK FORWARD-ONLY / TWO-PHASE: rollback records rollback_intent BEFORE the git reset and rollback_complete AFTER; a crash leaves an open intent that resume re-derives from the ledger (ctxstore.pending_rollback) and REDOES — resetting to an already-reset SHA is a no-op, so repeat is safe (rollback_driver.py:1-20,102-166).
+- ROLLBACK SANCTION GATE (headless-worktree-only): both run_rollback and resume_rollback refuse unless sanctioned_rollback holds — target path has `.atlas` AND `worktree` segments, git_common_dir != git_dir (real linked worktree), and a non-empty env token; so --resume can NEVER git reset --hard the real working tree (rollback_driver.py:45-67,123,153).
+- GIT SEAM ISOLATION: the only subprocess/git in the rollback path is the monkeypatchable _git_reset seam; ctxstore stays pure-persistence and never shells out (rollback_driver.py:70-85; ctxstore rollback_to "Contains no subprocess/git").
+- ROLLBACK COUNTER-SAFETY: rollback_to appends log lines with stage=="ROLLBACK" (never "REFINE"), so get_refine_passes stays monotonic however many rollbacks occur; a rolled-back run re-enters VERIFIED and terminates as UNVERIFIED (ctxstore.py:227-264).
+- SINGLE-WRITER hooks.jsonl: ctxevents is the ONE non-hook writer of hooks.jsonl (stage-tagged events); telemetry.sh is the hook writer (stageless, PARTIAL-by-construction); neither ever writes ctxstore's log.jsonl (ctxevents.py:1-9; telemetry.sh:65-68).
+- TELEMETRY FAIL-OPEN / GLOBAL BLAST-RADIUS: telemetry.sh ALWAYS exits 0 (EXIT/INT/TERM trap), no-ops when the session cwd has no active .atlas/<run_id>/, never calls `date` (ts strictly from stdin), honors KIMI_ATLAS_NO_HOOK, never shells out to kimi -p (telemetry.sh:9-29,53-54).
+- DISPATCH-INTEGRITY RECONCILIATION: reconcile flags a stage PARTIAL only when a subagent dispatch (log.jsonl agent=…) has no covering stage-tagged tool_call in hooks.jsonl; a missing marker surfaces PARTIAL at OUTPUT, never blocks the machine (contextgraph.py:57-82,161-169).
+- FRONTMATTER SINGLE PRIMITIVE: frontmatter.FRONTMATTER_RE is the one BOM-aware + CRLF-aware YAML-fence regex; both skillregistry and run_negative_gate build on it so encoding handling lives in exactly one place (F7) (frontmatter.py:1-26).
+
+**skill-system**
+- Determinism / no-op rebuild: extraction and registry are sorted by (category,name) with stable key order and carry no timestamps, so re-running over an unchanged tree is a zero diff (skillextract.build_manifest, skillregistry.build_entries sort).
+- No partial writes: both builders are validate→audit→write; the manifest/registry is written ONLY when schema-valid AND the audit is clean (skillextract.main / skillregistry.main return 1 before write on any failure).
+- Byte-identical extraction: member bytes are copied verbatim; member modes are forced (0o755 for *.sh, 0o644 otherwise — zip external_attr is never trusted); same-name zips must be byte-identical to coalesce, a byte-difference is an audit FAILURE (skillextract._MODE_*, plan_extractions).
+- Manifest-anchored categories: a package's category comes ONLY from the committed manifest; a skills/ dir the manifest does not record is an audit FAILURE, never silently categorized (skillregistry.build_entries; skillextract.verify_manifest stowaway sweep).
+- SEC-1 dual-layer path confinement: the frontmatter name must be a single safe segment (_NAME_RE, no first-party collision) AND each zip entry name must stay inside the package dir (_is_safe_entry), re-validated against out_root before any byte is written (_confined_target).
+- SAFE-2 untrusted data: every SKILL.md / zip member is third-party DATA — parsed for classification and confinement only, never interpreted as instructions.
+- V6 advisory selection: skillselect is a pure string/token heuristic that emits no verdicts and can never gate a run; an absent/unreadable registry or overrides, or any selection exception, degrades to no-selection (atlas try/except → []).
+- Count reconciliation: registry-count == manifest-skill-count and manifest file_count == summed member count are asserted by the audits; 117 zips → 115 packages (2 coalesced duplicates), skills/ holds 115 vendored + 3 first-party dirs (atlas, atlas-weave, atlas-resume).
+- First-party exemption: FIRST_PARTY_DIRS (atlas, atlas-weave, atlas-resume) are plugin machinery — excluded from extraction/registration and absent from the manifest by design; a NEW first-party dir must be added to the set or the audit tripwire fails it.
+
+**bench**
+- Scorer is pure: no I/O, no LLM, no clock — classify/scorecard are a fold over booleans so any (verdict_ok, tests_pass) set re-derives the identical scorecard (bench/scorer.py:14-17).
+- The 2x2 mapping is FROZEN: verdict OK+pass=TRUE_PASS, OK+fail=FALSE_PASS, UNVERIFIED+pass=MISSED, UNVERIFIED+fail=TRUE_FAIL (scorer.py:25-29). FALSE_PASS/false_pass_count is THE trust metric and atlas's thesis asserts it stays 0.
+- Undefined ratios (empty denominator) return None, never a fake 0.0 — _rate guards on den (scorer.py:32-34); false_pass_rate/gate_precision are None when nothing was VERIFIED.
+- Ground truth is independent of atlas's self-claim: tests_pass comes only from applying diff.patch to a CLEAN materialised baseline and running the hidden acceptance tests (runner.py:53-71).
+- Fail-safe reads: a missing/degraded ledger yields verdict_ok=False and an empty patch; a diff that does not apply counts as a fail (runner.py:22-24, 59, 67).
+- The reference solution is NEVER shipped into a task repo — materialize writes only stub + hidden test + brief; ref is used solely inside validate() (tasks.py:172-189, 15).
+- A task is only sound when ref_pass AND stub_fail both hold (validate, tasks.py:192-205); --validate is a no-model, no-cost gate that exits nonzero if any task is invalid (run_bench.py:22-31).
+- verdict_ok is True iff merged_critic.json's verdict == 'OK' (runner.py:33, 47) — the single coupling point to the atlas gate's output contract.
+
+**build-ci**
+- `make ci` is EXACTLY `check-strict test inventory-drift check-shell` (Makefile:38) and is what `.github/workflows/check.yml` runs — it must stay Kimi-free / network-free / semgrep-free. The two negative-gate drivers are DELIBERATELY excluded from `ci` (they need a live Kimi and/or semgrep) and live behind their own `make negative-gate` target.
+- EXCLUSION_SET (check_artifact_naming.py:48-49) — README.md, SKILL.md, LICENSE, Makefile, PLAN.md, AGENTS.md, CHANGELOG.md — are project fixtures exempt from EVERY naming rule so uppercase docs never fail CI. AGENTS.md and CHANGELOG.md are the newest additions.
+- The skill-package exemption (a directory holding a SKILL.md is vendored data whose payload .md is never scanned) is owned ONCE in scripts/skillpkgs.py:walk_markdown and shared by both doc gates; per-path decisions (check_file / is_tracked_doc) stay pure. Do not re-hand-copy the walk.
+- inventory-drift is phase-aware: the index is built only from references/*.md + README.md (never PLAN.md, which lists future paths) and the on-disk scan prunes .git/__pycache__/node_modules plus the git-ignored .superpowers (SDD scratch) and .atlas (run-ledger scratch) workspaces (inventory_drift.py:64-66).
+- guard-destructive.sh is OPT-IN and DISABLED BY DEFAULT — it is the only hook that can BLOCK and is intentionally NOT wired into .kimi-plugin/plugin.json hooks[]. It is FAIL-OPEN (any parse error / missing python3 / unexpected shape -> exit 0 allow) with no `trap 'exit 0' EXIT`, honors a KIMI_ATLAS_NO_HOOK recursion escape, and denies only a tight whole-system/raw-device denylist at command-position (CMDPOS anchor, guard-destructive.sh:84).
+- Negative-gate anti-rubber-stamp contract (run_negative_gate.py): a `bad_*` fixture that returns OK is a RUBBER STAMP and fails the build; every deterministic gate (incl. the SAST floor) MUST be green on a judgment fixture or the driver fails it loudly; a fixture whose evaluator raises is never a matched pass.
+- Weave negative-gate: every canonical scenario's expected outcome is BLOCK; an evaluator that RAISES is reported ERROR with matched=False and can never masquerade as a successful block (run_weave_negative_gate.py:51-53). Exit 0 iff all seven scenarios matched.
+- check-shell is a REAL syntax gate (F1): `sh -n` over .githooks/pre-commit, hooks/*.sh, probe/*.sh, scripts/*.sh (Makefile:23) — no longer decorative.
+- validate.validate enforces ONLY data-contract (required-field presence + type, optional type-checked when present) against the single source of truth references/schemas.json — it holds no orchestration knowledge.
+
+**tests**
+- STAGES pin: ctxstore.STAGES == ('INIT','INTENT_CAPTURED','CLARIFY','TRIAGED','GROUNDED','CODED','VERIFIED','REFINE','OUTPUT'); CONDITIONAL_STAGES == ('CLARIFY','REFINE'); MANDATORY_STAGES == STAGES minus conditionals with order preserved and disjoint — asserted in test_ctxstore.py:52 test_stages_are_canonical_and_partitioned.
+- FSM legality graph is pinned on fsm.py ALONE (test_fsm.py): forward-adjacent pairs legal, VERIFIED->REFINE derived-legal, REFINE->CODED declared-loop-legal (not derivable), forward-skips over a mandatory stage / arbitrary backward jumps / self-loops / unknown stages illegal; legal_path over MANDATORY_STAGES and full STAGES both legal. The suite never asserts over advance() call sites.
+- get_refine_passes is ledger-derived (reads log.jsonl, not state memory), monotonic, zero before any refine and == 2 after two passes — test_ctxstore.py:171-208.
+- Intent immutability: init_run is idempotent and a re-init with a different intent ('HIJACKED') must NOT clobber captured state; intent.txt is immutable across rollback — test_ctxstore.py:95 + RollbackLedgerTests.
+- Append-only ledger: log.jsonl is append-only and NEVER truncated by rollback; rollback_to is a two-phase append (intent then complete); get_refine_passes byte-for-byte unaffected by rollback — test_ctxstore.py RollbackLedgerTests (from line 259) + test_ctxstore_atomic.py.
+- SAFE-2 (prompt-injection) invariant is pinned on BOTH seams: read path (contextgraph, test_contextgraph.py) and write path (safewrap.coder_redispatch_packet, test_write_path_injection_gate.py) — injected imperatives in attacker-influenceable stdout/stderr tails appear ONLY inside the UNTRUSTED-DATA fence and cannot alter frozen scope/intent/target.
+- Real-git rollback guarantee (test_rollback_realgit.py, no monkeypatch): on the PRIMARY tree (git-common-dir == git-dir) run_rollback and resume_rollback REFUSE; inside an isolated .atlas/<run_id>/worktree linked worktree (common != git-dir) with a caller token they SUCCEED — never `git reset --hard` the real tree (guards HIGH-2).
+- Combined-tree red-team gate: exactly 7 canonical ATLAS-WEAVE scenarios (hidden-same-file-overlap, combined-red-while-leaves-green, cyclic-DAG, dropped-requirement, gas-exhausted-partial, illegal-transition, rollback-refused) must each BLOCK (outcome != 'OK'); a clean input fed to a BLOCK-expecting scenario must NOT match — proving the harness cannot rubber-stamp (test_run_weave_negative_gate.py).
+- Single-tree negative gate: the good fixture verdicts OK and every bad_* fixture verdicts UNVERIFIED; the security floor must bite (bad_security fails only when the floor is non-empty) — test_run_negative_gate.py (64 tests).
+- Zip-slip / path confinement: skillextract rejects '../evil', absolute paths, backslash traversal, and symlinked-package-dir escapes — test_skillextract.py:159-279.
+- Plugin read paths in skills/atlas/SKILL.md must be plugin-root-relative: a bare `references/rubric.md` is forbidden (resolves under skills/atlas/ from the target-repo cwd); the ${KIMI_SKILL_DIR}/../../references/rubric.md form must be present and the file must exist at plugin root — test_skill_ref_paths.py.
+- No hard-coded test count may appear in README.md / AGENTS.md (F4); the count is proven by `make test`, not prose — test_doc_testcount.py, with a self-check that its patterns are non-vacuous. 'N tracked docs' claim must equal the inventory_drift count (F5) — test_tracked_docs_count.py.
+
+---
+
+*Regenerated by an 8-agent graphify sweep, each mapping one subsystem of the live tree — the same multi-agent method that forged the original map, re-run on the evolved code.*
