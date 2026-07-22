@@ -204,5 +204,101 @@ class TestUntrustedConfigRead(unittest.TestCase):
             self.assertEqual(syntaxlens._read_package_type(path), "module")
 
 
+class TestPackageTypeResolutionMatrix(unittest.TestCase):
+    """Node-parity ESM/CJS resolution: the NEAREST ``package.json`` is authoritative
+    and the walk NEVER inherits an ancestor's ``type``. Node-INDEPENDENT (unit calls
+    to ``_nearest_package_type``/``_materialize_ext``); the live monorepo arm below
+    proves the SAME rule end to end on real node. Inverting any single row goes RED."""
+
+    def _mk(self, root, rel_dir, contents):
+        """Make ``root/rel_dir`` and drop a ``package.json`` with ``contents`` (None = none)."""
+        d = os.path.join(root, rel_dir) if rel_dir else root
+        os.makedirs(d, exist_ok=True)
+        if contents is not None:
+            with open(os.path.join(d, "package.json"), "w") as f:
+                f.write(contents)
+
+    def test_a_no_package_json_anywhere_is_cjs(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._mk(root, "src", None)   # a dir, but no package.json anywhere
+            self.assertIsNone(syntaxlens._nearest_package_type("src/app.js", root))
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".js")
+
+    def test_b_nearest_type_module_is_esm(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._mk(root, "", '{"type":"module"}')
+            self._mk(root, "src", None)
+            self.assertEqual(syntaxlens._nearest_package_type("src/app.js", root), "module")
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".mjs")
+
+    def test_c_nearest_type_commonjs_is_cjs(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._mk(root, "", '{"type":"commonjs"}')
+            self._mk(root, "src", None)
+            self.assertEqual(syntaxlens._nearest_package_type("src/app.js", root), "commonjs")
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".js")
+
+    def test_d_nearest_typeless_ancestor_module_is_cjs_THE_BUG(self):
+        # The regression: root type:module, sub/ type-LESS. Node stops at sub's
+        # package.json (CJS default) and NEVER inherits root's module. The old walk
+        # climbed PAST the type-less file and wrongly returned "module" -> .mjs ->
+        # false-block. Nearest-wins must return None (CJS) and materialize `.js`.
+        with tempfile.TemporaryDirectory() as root:
+            self._mk(root, "", '{"type":"module"}')
+            self._mk(root, "sub", '{"name":"sub"}')   # present but type-less -> CJS, STOP
+            self.assertIsNone(syntaxlens._nearest_package_type("sub/legacy.js", root))
+            self.assertEqual(syntaxlens._materialize_ext(".js", "sub/legacy.js", root), ".js")
+
+    def test_e_nearest_typeless_no_ancestor_is_cjs(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._mk(root, "", '{"name":"root"}')   # type-less, no ancestor
+            self._mk(root, "src", None)
+            self.assertIsNone(syntaxlens._nearest_package_type("src/app.js", root))
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".js")
+
+    def test_bom_prefixed_package_json_type_resolves_to_module(self):
+        # MEDIUM (BOM divergence): a BOM'd {"type":"module"} must resolve to ESM via
+        # the shared BOM-stripping helper, not be misread as type-absent (which would
+        # degrade ESM -> CJS `.js` and latently false-block on node 18/20).
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "package.json")
+            with open(path, "w") as f:
+                f.write("﻿" + '{"type":"module"}')   # leading UTF-8 BOM
+            self.assertEqual(syntaxlens._read_package_type(path), "module")
+            os.makedirs(os.path.join(root, "src"))
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".mjs")
+
+
+@unittest.skipUnless(shutil.which("node"), "node not installed")
+class TestMonorepoTypelessCjsLive(unittest.TestCase):
+    """End-to-end teeth for the CRITICAL fix on real node: a type-less sub-package
+    holding sloppy-mode CJS must NOT be false-blocked by an ancestor's type:module."""
+
+    def test_typeless_subpackage_sloppy_cjs_is_not_false_blocked(self):
+        # The exact CRITICAL repro: root {"type":"module"}, sub/ {"name":"sub"}
+        # (type-less -> CJS), sub/legacy.js = `var x = 0777;` — a legacy-octal literal
+        # that is VALID sloppy CJS (`node --check` exits 0) but a SyntaxError as .mjs.
+        # Nearest-wins materializes it `.js` and it stays GREEN.
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "package.json"), "w") as f:
+                f.write('{"type":"module"}')
+            os.makedirs(os.path.join(root, "sub"))
+            with open(os.path.join(root, "sub", "package.json"), "w") as f:
+                f.write('{"name":"sub"}')
+            d = syntaxlens.check({"sub/legacy.js": "var x = 0777;\n"}, cwd=root)
+            self.assertEqual(_blocking(d), [])
+
+
+class TestMalformedInputGuards(unittest.TestCase):
+    """`check()` never raises on a malformed changed_files map (contract is dict[str,str])."""
+
+    def test_non_str_key_is_skipped_not_raised(self):
+        # A non-str KEY must be skipped (symmetry with the non-str VALUE guard),
+        # never raise a TypeError out of check() at os.path.basename; the valid
+        # str-keyed entry still processes.
+        d = syntaxlens.check({123: "x", "ok.js": "const x=1;\n"}, cwd=".")
+        self.assertEqual(_blocking(d), [])   # did not raise; ok.js valid -> no block
+
+
 if __name__ == "__main__":
     unittest.main()

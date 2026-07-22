@@ -353,6 +353,12 @@ def run(
     ran_count = 0
     start = time.monotonic()
     for job in jobs:
+        # A non-dict jobs element (defensive) must not raise out of run() at the
+        # pre-loop .get() reads, which sit OUTSIDE _run_one's per-job guard: coerce
+        # it to {} so it flows through as a fail-open launch-failed result (rel="")
+        # and the batch continues (SECURITY-INVARIANT §4 / run never raises).
+        if not isinstance(job, dict):
+            job = {}
         argv = job.get("argv") or []
         tool_name = argv[0] if argv else ""
         # SECURITY-INVARIANT §4 / spec §2.7: budget check FIRST — no tool

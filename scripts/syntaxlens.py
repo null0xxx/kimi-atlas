@@ -76,6 +76,25 @@ def _d(did: str, category: str, severity: str, location: str, fix: str) -> dict:
             "location": location, "fix": fix}
 
 
+# A single leading UTF-8 BOM; npm and node's JSON loader strip it and accept the file.
+_BOM = "﻿"
+
+
+def _loads_json_bom(text: str):
+    """``json.loads`` after stripping a single leading UTF-8 BOM (npm/node parity).
+
+    The ONE JSON-parse entry point BOTH config paths share — ``_read_package_type``
+    (the on-disk ``package.json`` ``type``) and :func:`_config_defect` (a strict
+    JSON config) — so their BOM handling can never drift again. npm/node strip a
+    leading BOM and accept the file, so a valid BOM-prefixed ``package.json`` must
+    never be misread as type-absent (which would degrade ESM→CJS and latently
+    false-block on node 18/20) nor blocked as invalid config. Raises ``ValueError``
+    (``json.JSONDecodeError``) exactly like ``json.loads`` on malformed input; each
+    caller guards/interprets that raise. Pure.
+    """
+    return json.loads(text[1:] if text.startswith(_BOM) else text)
+
+
 def _read_package_type(path: str) -> str | None:
     """Return the ``"type"`` string of the ``package.json`` at ``path``, else None.
 
@@ -92,6 +111,10 @@ def _read_package_type(path: str) -> str | None:
       memory — at most the cap is read (an over-cap file is then almost always
       invalid-truncated JSON → treated as absent, never a raise).
 
+    A single leading UTF-8 BOM is stripped before parsing (npm/node parity, via
+    :func:`_loads_json_bom`) so a BOM-prefixed ``{"type":"module"}`` still resolves
+    to ``"module"`` (ESM) rather than being misread as type-absent.
+
     A missing/unreadable file (``OSError``), malformed JSON (``ValueError``), or a
     pathological input (``MemoryError``/``RecursionError``) is treated as absent, as
     is a non-object root or a non-string (or absent) ``type``. This is what makes
@@ -103,7 +126,7 @@ def _read_package_type(path: str) -> str | None:
     try:
         with open(path, "rb") as fh:
             raw = fh.read(_CONFIG_MAX_BYTES)
-        data = json.loads(raw.decode("utf-8", errors="replace"))
+        data = _loads_json_bom(raw.decode("utf-8", errors="replace"))
     except (OSError, ValueError, MemoryError, RecursionError):
         return None
     if isinstance(data, dict):
@@ -114,21 +137,38 @@ def _read_package_type(path: str) -> str | None:
 
 
 def _nearest_package_type(rel: str, cwd: str) -> str | None:
-    """Walk up from ``dirname(rel)`` to ``cwd`` for the nearest ``package.json`` ``type``.
+    """Walk up from ``dirname(rel)`` for the NEAREST ``package.json``, mirroring node.
 
-    Resolves node's ESM/CJS mode the way node itself does — the closest enclosing
-    ``package.json`` wins. Starts at the directory containing ``rel`` and reads
-    each ``package.json`` fail-safe (:func:`_read_package_type`); the first that
-    declares a string ``type`` returns it. Terminates at ``cwd`` (never reads
-    above it for an in-tree ``rel``) and is bounded at the filesystem root, so it
-    never loops. Returns ``None`` when no enclosing package declares a ``type``.
+    Resolves node's ESM/CJS mode EXACTLY the way node itself does: resolution stops
+    at the nearest enclosing ``package.json`` — that file is authoritative and the
+    walk NEVER inherits an ancestor's ``type``. At each directory:
+
+    * ``package.json`` PRESENT (``os.path.isfile``) → its type decides and the walk
+      STOPS here. ``"type":"module"`` → return ``"module"`` (ESM); a present file
+      that is type-less, ``"type":"commonjs"``, malformed, or unreadable →
+      :func:`_read_package_type` returns ``None`` and we return that ``None`` (CJS,
+      node's default) — crucially WITHOUT climbing to an ancestor.
+    * ``package.json`` ABSENT → continue to the parent directory.
+
+    This ``os.path.isfile`` presence check in the CALLER is what distinguishes
+    "present-but-type-less" (stop → CJS) from "absent" (keep climbing); the old code
+    conflated both as ``_read_package_type``'s ``None`` and wrongly kept climbing,
+    inheriting an ancestor ``type:module`` and false-blocking valid sloppy-CJS
+    ``.js`` (e.g. ``var x = 0777;``) materialized as ``.mjs``. ``os.path.isfile``
+    follows a symlink to its target, so a ``package.json`` pointing at ``/dev/zero``
+    (a char device) reads as absent and is skipped — no hang. Terminates at ``cwd``
+    (never reads above it for an in-tree ``rel``) and is bounded at the filesystem
+    root, so it never loops. Returns ``None`` (→ CJS default) when no enclosing
+    ``package.json`` selects ESM.
     """
     cwd_abs = os.path.abspath(cwd)
     cur = os.path.abspath(os.path.join(cwd_abs, os.path.dirname(rel)))
     while True:
-        found = _read_package_type(os.path.join(cur, "package.json"))
-        if found is not None:
-            return found
+        pkg = os.path.join(cur, "package.json")
+        if os.path.isfile(pkg):
+            # NEAREST package.json is authoritative: its type decides and the walk
+            # STOPS — "module" → ESM; type-less/commonjs/unreadable (None) → CJS.
+            return _read_package_type(pkg)
         if cur == cwd_abs:
             return None
         parent = os.path.dirname(cur)
@@ -184,9 +224,9 @@ def _config_defect(basename: str, location: str, parser: str, text: str) -> dict
         return None
     try:
         if parser == "json":
-            # npm/node strip a single leading BOM and accept the file; match that
-            # so a BOM-prefixed valid package.json never false-blocks.
-            json.loads(text[1:] if text.startswith("﻿") else text)
+            # npm/node strip a single leading BOM and accept the file; the shared
+            # helper does it so this path and _read_package_type cannot drift.
+            _loads_json_bom(text)
         else:  # "toml"
             tomllib.loads(text)
     except (ValueError, RecursionError, MemoryError) as exc:
@@ -213,6 +253,12 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
     source_jobs: list[dict] = []
 
     for rel, text in changed_files.items():
+        # Contract is dict[str, str]; a non-str KEY (defensive) is skipped rather
+        # than raising a TypeError out of check() at os.path.basename — symmetry
+        # with the non-str VALUE guard in _config_defect, so a malformed entry
+        # degrades rather than crashing the VERIFIED lens.
+        if not isinstance(rel, str):
+            continue
         basename = os.path.basename(rel)
         ext = os.path.splitext(basename)[1].lower()
 

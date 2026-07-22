@@ -27,8 +27,9 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
-from scripts import langfloor, syntaxlens
+from scripts import langfloor, nativefloor, proccap, syntaxlens
 
 
 def _blocking(defects):
@@ -59,6 +60,51 @@ class TestParseOnlyArgvPins(unittest.TestCase):
         # .jsx/.ts/.tsx have no SYNTAX_ARGV entry → never run, never a defect (advisory).
         for name, src in (("c.jsx", "<App/>;"), ("a.ts", "let x: number ="), ("b.tsx", "<X/>")):
             self.assertEqual(syntaxlens.check({name: src}, "."), [], name)
+
+
+class TestHermeticEnvIsReallyApplied(unittest.TestCase):
+    """NON-VACUOUS proof of SECURITY-INVARIANT #3 (child env built FROM SCRATCH).
+
+    The per-tool ``*_hook_does_not_leak`` tests below pass IDENTICALLY whether the
+    hermetic env is applied or the full parent env is inherited (a hook pointing at
+    a nonexistent path is a no-op either way), so they do NOT actually prove the env
+    is replaced. This test does: it spies :func:`proccap._launch_and_wait` and
+    asserts the ``env=`` it receives EQUALS :func:`nativefloor._hermetic_env` —
+    exactly ``{PATH,HOME,LANG,TMPDIR}`` and NONE of the hostile hooks set in the
+    parent — regardless of tool behavior (no real binary runs; the launcher is
+    mocked). This is the assertion that gives env-from-scratch teeth."""
+
+    def test_launch_receives_exactly_the_hermetic_env(self):
+        hostiles = {
+            "NODE_OPTIONS": "--require /evil.js",
+            "RUBYOPT": "-r/evil",
+            "BASH_ENV": "/evil.sh",
+            "LD_PRELOAD": "/evil.so",
+            "PHP_INI_SCAN_DIR": "/evil",
+        }
+        for key, value in hostiles.items():
+            os.environ[key] = value
+        captured: dict[str, object] = {}
+
+        def _spy(argv, cwd, timeout_s, env=None):
+            captured["env"] = env
+            return {"stdout": "", "stderr": "", "returncode": 0,
+                    "timed_out": False, "launched": True}
+
+        try:
+            with mock.patch.object(nativefloor, "tool_path", return_value="/bin/sh"), \
+                 mock.patch.object(proccap, "_launch_and_wait", side_effect=_spy):
+                nativefloor.run([{"rel": "ok.js", "text": "const x=1;\n",
+                                  "argv": ["node", "--check"], "ext": ".js"}])
+        finally:
+            for key in hostiles:
+                del os.environ[key]
+
+        self.assertIn("env", captured)                       # the launcher was actually reached
+        self.assertEqual(captured["env"], nativefloor._hermetic_env())
+        self.assertEqual(set(captured["env"]), {"PATH", "HOME", "LANG", "TMPDIR"})
+        for key in hostiles:                                 # no hostile hook reached the child
+            self.assertNotIn(key, captured["env"])
 
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")

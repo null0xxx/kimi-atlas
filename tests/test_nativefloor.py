@@ -202,6 +202,21 @@ class TestFailOpen(unittest.TestCase):
         self.assertEqual(results[0]["rel"], "broken.rb")   # best-effort identity preserved
         self.assertTrue(results[1]["ran"])                 # batch continued past the bad job
 
+    def test_non_dict_job_element_is_failopen_and_batch_continues(self):
+        # A non-dict jobs element (None, an int) must NOT raise out of run() at the
+        # pre-loop `.get()` reads, which sit OUTSIDE _run_one's per-job guard: each
+        # degrades to a fail-open launch-failed result (rel="") and a well-formed job
+        # later in the batch still runs.
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_stub(d, exit_code=0, echo_args=True)
+            jobs = [None, 42, {"rel": "ok.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs)  # must NOT raise on the non-dict elements
+        self.assertEqual(len(results), 3)
+        self.assertFalse(results[0]["ran"]); self.assertEqual(results[0]["skipped_reason"], "launch-failed")
+        self.assertFalse(results[1]["ran"]); self.assertEqual(results[1]["skipped_reason"], "launch-failed")
+        self.assertTrue(results[2]["ran"])   # batch continued; well-formed job ran
+
     def test_mkdtemp_failure_is_failopen_and_does_not_raise(self):
         def boom(*a, **k):
             raise OSError("TMPDIR full/unwritable")
