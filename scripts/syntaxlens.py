@@ -15,8 +15,8 @@ Two dispositions, decided per changed file (config is checked FIRST — a
 1. **Config (in-process, NO subprocess).** Only a file whose *basename* is in
    :data:`_STRICT_CONFIG` — a format that is GUARANTEED strict JSON/TOML, so a
    parse failure is a real syntax error — is parsed for BLOCKING. A parse failure
-   is a HIGH ``DOES-IT-RUN`` defect (``id="config-<basename>"``); valid → no
-   defect. The parse is byte-bounded (oversize → not parsed) and guarded against
+   is a HIGH ``DOES-IT-RUN`` defect (``id="SYN<n>-config-<basename>"``, the
+   ``SYN<n>-`` prefix minted per-file-unique after sorting); valid → no defect. The parse is byte-bounded (oversize → not parsed) and guarded against
    ``ValueError``/``RecursionError``/``MemoryError`` (``tomllib.TOMLDecodeError``
    is a ``ValueError`` subclass). Every OTHER ``.json``/``.toml`` — ``tsconfig.json``
    (JSONC: comments + trailing commas), ``yarn.lock``/``Gemfile.lock``/opaque
@@ -79,14 +79,32 @@ def _d(did: str, category: str, severity: str, location: str, fix: str) -> dict:
 def _read_package_type(path: str) -> str | None:
     """Return the ``"type"`` string of the ``package.json`` at ``path``, else None.
 
-    Fail-safe: a missing/unreadable file (``OSError``) or malformed JSON
-    (``ValueError``) is treated as absent, as is a non-object root or a non-string
-    (or absent) ``type``. Pure-ish: reads one file, no other effect.
+    Fail-safe AND bounded, because ``path`` is read straight from the UNTRUSTED
+    repo tree (reached via :func:`_nearest_package_type` for any changed ``.js``):
+
+    * ``os.path.isfile(path)`` is checked FIRST. It follows the ``package.json``
+      symlink to its target, so a link that points at ``/dev/zero`` (a character
+      device — an unbounded read that would HANG ``check()``), a FIFO, a directory,
+      or a dangling link is all rejected up front → ``None``. Only a real regular
+      file is ever opened.
+    * The read is capped at :data:`_CONFIG_MAX_BYTES` (the same byte cap the config
+      parse uses), so a genuinely huge regular ``package.json`` can never exhaust
+      memory — at most the cap is read (an over-cap file is then almost always
+      invalid-truncated JSON → treated as absent, never a raise).
+
+    A missing/unreadable file (``OSError``), malformed JSON (``ValueError``), or a
+    pathological input (``MemoryError``/``RecursionError``) is treated as absent, as
+    is a non-object root or a non-string (or absent) ``type``. This is what makes
+    the guarantee "``check()`` NEVER hangs or raises on any repo input" hold along
+    the ESM/CJS resolution path. Pure-ish: reads one file (bounded), no other effect.
     """
+    if not os.path.isfile(path):
+        return None
     try:
         with open(path, "rb") as fh:
-            data = json.loads(fh.read().decode("utf-8", errors="replace"))
-    except (OSError, ValueError):
+            raw = fh.read(_CONFIG_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except (OSError, ValueError, MemoryError, RecursionError):
         return None
     if isinstance(data, dict):
         value = data.get("type")
@@ -143,8 +161,9 @@ def _config_defect(basename: str, location: str, parser: str, text: str) -> dict
     """Return a BLOCKING defect if a STRICT config fails to parse, else ``None`` (pure).
 
     ``location`` is the real changed-files path (``rel``), so two same-named
-    configs in different dirs report distinct locations; ``id`` stays the
-    spec-mandated ``config-<basename>``. A non-``str`` ``text`` (contract is
+    configs in different dirs report distinct locations; the ``config-<basename>``
+    id built here is later made per-file-unique by :func:`check`'s ``SYN<n>-``
+    prefixing pass (so the two no longer collide). A non-``str`` ``text`` (contract is
     ``dict[str, str]``; defensive) is skipped — never raised — so a malformed
     entry degrades rather than crashing the VERIFIED lens.
 
@@ -237,5 +256,14 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
                     f"it cannot be imported or run — fix the syntax error.",
                 ))
 
+    # Per-file-unique, DETERMINISTIC ids (parity with astlens's ``AST<n>-*``).
+    # Defects are already sorted by their unique ``location`` above (each changed
+    # file yields at most one defect, so locations never collide), so a 1-based
+    # index over the sorted list mints a stable ``SYN<n>-*`` id. This is what makes
+    # two same-named broken configs in different dirs — both ``config-package.json``
+    # — report DISTINCT ids instead of colliding into one. The descriptive suffix
+    # (``config-<basename>`` / ``syntax-<ext>``) is preserved after the prefix.
     defects.sort(key=lambda defect: defect["location"])
+    for index, defect in enumerate(defects, start=1):
+        defect["id"] = f"SYN{index}-{defect['id']}"
     return defects

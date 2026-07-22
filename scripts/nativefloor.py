@@ -158,26 +158,25 @@ def _error_references_path(
     return False
 
 
-def _effective_backend(cgroup_only: bool) -> str:
+def _effective_backend() -> str:
     """Choose the proccap memory-cap backend for the syntax floor (IMPURE adapter).
 
     Consults the memoized host probe :func:`proccap._detect_mem_backend` (which
     runs a ``systemd-run`` probe on first call). Returns the cgroup RSS backend
-    when the host actually supports it; otherwise, when ``cgroup_only`` (the
-    default for this parse-only path), returns :data:`proccap._BACKEND_NONE` —
-    uncapped but still wall-clock-timeout-bounded. It NEVER returns the legacy
-    ``ulimit`` shell backend, so this path can never route a workload through a
-    ``sh -c`` script (SECURITY-INVARIANT §1). Impure (probes the host), so it is
-    kept out of the pure-helper group and is tested by monkeypatching the probe.
+    when the host actually supports it; otherwise degrades to
+    :data:`proccap._BACKEND_NONE` — uncapped but still wall-clock-timeout-bounded.
+    It NEVER returns the legacy ``ulimit`` shell backend, so this parse-only path
+    can never route a workload through a ``sh -c`` script (SECURITY-INVARIANT §1);
+    that NONE fallback is unconditional here (the host probe already decides
+    correctly). Impure (probes the host), so it is kept out of the pure-helper
+    group and is tested by monkeypatching the probe.
     """
     if proccap._detect_mem_backend() == proccap._BACKEND_CGROUP:
         return proccap._BACKEND_CGROUP
     # Not cgroup-capable. On this parse-only floor we NEVER fall through to the
     # legacy ``ulimit`` shell backend (it would route argv through ``sh -c``,
-    # violating SECURITY-INVARIANT §1): degrade to the uncapped-but-timeout-
-    # bounded NONE backend. ``cgroup_only`` is the default and only supported
-    # mode here; it is named to make that contract explicit at the call site.
-    _ = cgroup_only
+    # violating SECURITY-INVARIANT §1): degrade to the uncapped-but-timeout-bounded
+    # NONE backend.
     return proccap._BACKEND_NONE
 
 
@@ -208,7 +207,6 @@ def _result(
 def _run_one(
     job: dict,
     *,
-    cgroup_only: bool,
     per_file_timeout_s: int,
     mem_limit_mb: int,
     max_source_bytes: int,
@@ -278,7 +276,7 @@ def _run_one(
         # is the final positional; wrapped under cgroup-or-NONE (never ulimit sh).
         real_argv = [tool, *argv[1:], basename]
         wrapped = proccap._build_wrapper_argv(
-            real_argv, mem_limit_mb, _effective_backend(cgroup_only)
+            real_argv, mem_limit_mb, _effective_backend()
         )
         res = proccap._launch_and_wait(
             wrapped, cwd=tempdir, timeout_s=per_file_timeout_s, env=_hermetic_env()
@@ -328,7 +326,6 @@ def _coerce_tail(stderr: object) -> str:
 def run(
     jobs: list[dict],
     *,
-    cgroup_only: bool = True,
     file_budget: int = 40,
     wall_budget_s: float = 60.0,
     per_file_timeout_s: int = 10,
@@ -369,7 +366,6 @@ def run(
             continue
         result, launched = _run_one(
             job,
-            cgroup_only=cgroup_only,
             per_file_timeout_s=per_file_timeout_s,
             mem_limit_mb=mem_limit_mb,
             max_source_bytes=max_source_bytes,

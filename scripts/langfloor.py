@@ -20,9 +20,13 @@ Invariants (mirroring ``verdict.py``/``plandag.py`` discipline):
   * **Polyglot recipes → an ordered tuple of tags** (deduped, in first-appearance
     order); the caller folds per-tag pairs into the single gate result.
 
-``SYNTAX_ARGV`` and ``CONFIG_ALLOWLIST`` are declared here for P2's consumers
-(``nativefloor``/``syntaxlens``); in P1 they carry no behavior beyond being the
-one importable definition.
+``SYNTAX_ARGV`` is the one importable ext→argv registry P2's ``nativefloor``/
+``syntaxlens`` dispatch from. ``CONFIG_ALLOWLIST`` is DECLARED VOCABULARY ONLY: it
+was blueprint §9's original "configs whose parse BLOCKS" list, but for the actual
+blocking decision it is intentionally SUPERSEDED by ``syntaxlens._STRICT_CONFIG``
+(plan decision #1), because this list's ``tsconfig.json``/``*.lock`` entries would
+false-block valid repos. It is kept only as the importable §9 vocabulary (pinned by
+tests); no consumer decides blocking from it — see the note on its definition below.
 """
 from __future__ import annotations
 
@@ -59,7 +63,14 @@ SYNTAX_ARGV: dict[str, list[str]] = {
     ".bash": ["bash", "-n"],
 }
 
-# Config files whose in-process JSON/TOML parse is BLOCKING (blueprint §9); every
+# DECLARED VOCABULARY ONLY — NOT the blocking set. This is blueprint §9's original
+# "configs whose in-process JSON/TOML parse BLOCKS" list, but it is intentionally
+# SUPERSEDED for the real blocking decision by ``syntaxlens._STRICT_CONFIG`` (plan
+# decision #1): this list's ``tsconfig.json`` (JSONC — comments + trailing commas)
+# and bare ``*.lock`` (opaque lockfiles) entries would FALSE-BLOCK valid repos, so
+# syntaxlens must NOT consult it to decide what blocks. It remains here only as the
+# importable §9 vocabulary (and is pinned by ``tests/test_langfloor.py``). Do NOT
+# wire a new blocking consumer to it — use ``syntaxlens._STRICT_CONFIG``. Every
 # member is an ``fnmatch`` glob pattern (so ``*.lock`` covers ``Cargo.lock`` etc.).
 CONFIG_ALLOWLIST: frozenset[str] = frozenset({
     "package.json",

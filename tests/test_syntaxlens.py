@@ -11,7 +11,7 @@ Two tiers:
   materialized-extension proof and the broken/clean ``.js`` proofs exercise the
   real ``node --check`` end to end. They skip cleanly when node is absent.
 """
-import json, os, shutil, tempfile, unittest
+import json, os, shutil, signal, tempfile, unittest
 from scripts import syntaxlens
 
 def _blocking(defects):  # HIGH/CRITICAL count as blocking
@@ -53,13 +53,17 @@ class TestConfigParse(unittest.TestCase):
 
     def test_same_named_broken_configs_report_distinct_locations(self):
         # Two same-named broken configs in different dirs must yield two defects with
-        # distinct real-path locations (not the bare basename); id stays config-<basename>.
+        # distinct real-path locations (not the bare basename). Ids are now per-file
+        # UNIQUE (SYN<n>-config-<basename>, minted after sorting) so they no longer
+        # collide into one — each still carries the descriptive config-<basename> tail.
         d = syntaxlens.check({"vendor/package.json": "{ not json",
                               "a/package.json": "{ not json"}, cwd=".")
         blocking = _blocking(d)
         self.assertEqual(len(blocking), 2)
         self.assertEqual({b["location"] for b in blocking}, {"vendor/package.json", "a/package.json"})
-        self.assertEqual({b["id"] for b in blocking}, {"config-package.json"})
+        self.assertEqual(len({b["id"] for b in blocking}), 2)   # per-file-unique, not collided
+        for b in blocking:
+            self.assertRegex(b["id"], r"^SYN\d+-config-package\.json$")
 
     def test_oversize_config_is_not_parsed(self):
         self.assertFalse(_blocking(syntaxlens.check({"package.json": "{" + "0" * 2_000_000}, cwd=".")))
@@ -86,6 +90,118 @@ class TestNodeEsmLive(unittest.TestCase):
 
     def test_valid_cjs_js_clean(self):
         self.assertEqual(syntaxlens.check({"ok.js": "const x = 1;\n"}, cwd="."), [])
+
+
+class TestMaterializeExtDecision(unittest.TestCase):
+    """Non-vacuous, node-INDEPENDENT proof the .js ESM/CJS ext decision is load-bearing
+    in BOTH directions. Inverting `_materialize_ext` EITHER way flips an assertion RED.
+
+    Why a unit test and not two end-to-end node arms: Node 22+ auto-detects ESM
+    syntax inside a `.js` (top-level `import`/`export`/`await`/`import.meta` all parse
+    clean as a bare `.js`), which would MASK the `type:module -> .mjs` direction end to
+    end. Pinning the decision itself is the faithful both-directions guard; the
+    end-to-end CJS arm below adds real teeth against the always-`.mjs` mutation."""
+
+    def test_js_ext_decision_is_load_bearing_both_directions(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "src"))
+            # No package.json type -> CJS default -> materialize as `.js`.
+            # (Inverting to always-`.mjs` fails HERE.)
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".js")
+            with open(os.path.join(root, "package.json"), "w") as f:
+                f.write('{"type":"module"}')
+            # type:module -> ESM -> materialize as `.mjs`.
+            # (Inverting to always-`.js` fails HERE.)
+            self.assertEqual(syntaxlens._materialize_ext(".js", "src/app.js", root), ".mjs")
+            # Explicit .mjs/.cjs keep their mode regardless of the nearest package type.
+            self.assertEqual(syntaxlens._materialize_ext(".mjs", "src/app.js", root), ".mjs")
+            self.assertEqual(syntaxlens._materialize_ext(".cjs", "src/app.js", root), ".cjs")
+
+
+@unittest.skipUnless(shutil.which("node"), "node not installed")
+class TestEsmCjsMaterializationLive(unittest.TestCase):
+    """End-to-end teeth for the ext decision on real node — the false-block guard for
+    the one place `_nearest_package_type` is load-bearing."""
+
+    def test_cjs_sloppy_only_js_stays_green(self):
+        # `var x = 0777;` (legacy octal) is a SyntaxError under ESM/strict (.mjs) but
+        # VALID in sloppy-mode CJS. With NO type:module it MUST materialize as `.js`
+        # and stay GREEN. Inverting to always-`.mjs` makes node reject it -> RED. This
+        # is exactly the mutation the finding called out ("always-.mjs keeps the suite
+        # green"); with this arm it no longer does.
+        with tempfile.TemporaryDirectory() as root:
+            d = syntaxlens.check({"legacy.js": "var x = 0777;\n"}, cwd=root)
+            self.assertFalse(_blocking(d), "sloppy-mode CJS .js must NOT be materialized as ESM")
+
+    def test_esm_js_under_type_module_stays_green(self):
+        # Valid-repo guard: a valid ESM `.js` under type:module must stay GREEN (the
+        # floor must never false-block it). Node auto-detect makes this pass under
+        # either ext, so the both-directions inversion proof lives in the unit test
+        # above; this arm pins the end-to-end valid-repo contract.
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "package.json"), "w") as f:
+                f.write('{"type":"module"}')
+            os.makedirs(os.path.join(root, "src"))
+            d = syntaxlens.check(
+                {"src/app.js": "import path from 'node:path';\nexport const x = 1;\n"},
+                cwd=root,
+            )
+            self.assertFalse(_blocking(d))
+
+
+class TestUntrustedConfigRead(unittest.TestCase):
+    """CRITICAL: `_read_package_type` reads package.json straight from the untrusted
+    repo tree. It MUST be bounded and non-following so `check()` never hangs/raises."""
+
+    def _check_within(self, changed, cwd, seconds=8):
+        """Run syntaxlens.check under a hard SIGALRM deadline; fail (not hang) if slow."""
+        def _on_alarm(signum, frame):
+            raise TimeoutError("syntaxlens.check hung on an untrusted config read")
+        old = signal.signal(signal.SIGALRM, _on_alarm)
+        signal.alarm(seconds)
+        try:
+            return syntaxlens.check(changed, cwd=cwd)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    @unittest.skipUnless(os.path.exists("/dev/zero"), "/dev/zero unavailable")
+    def test_package_json_symlinked_to_dev_zero_does_not_hang(self):
+        # The exact DoS repro: a package.json symlinked to /dev/zero used to make the
+        # unbounded fh.read() HANG check() forever (an infinite stream of zero bytes).
+        # isfile() now rejects the char-device target up front, so ESM/CJS resolution
+        # returns promptly (type absent -> CJS default) and nothing blocks.
+        with tempfile.TemporaryDirectory() as root:
+            os.symlink("/dev/zero", os.path.join(root, "package.json"))
+            os.makedirs(os.path.join(root, "src"))
+            d = self._check_within({"src/app.js": "const x=1;\n"}, root)
+            self.assertEqual(_blocking(d), [])   # returned promptly, no hang, no raise
+
+    @unittest.skipUnless(os.path.exists("/dev/zero"), "/dev/zero unavailable")
+    def test_read_helper_rejects_dev_zero_symlink(self):
+        # Direct proof the helper returns None (bounded) for the char-device target.
+        with tempfile.TemporaryDirectory() as root:
+            link = os.path.join(root, "package.json")
+            os.symlink("/dev/zero", link)
+            self.assertIsNone(syntaxlens._read_package_type(link))
+
+    def test_oversize_package_json_is_treated_as_absent(self):
+        # A huge REGULAR package.json (a MemoryError vector for an unbounded read) is
+        # bounded to the byte cap; the truncated read is invalid JSON -> treated as
+        # absent (None), never raised — even with a valid {"type":"module"} prefix.
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "package.json")
+            with open(path, "w") as fh:
+                fh.write('{"type":"module","pad":"' + "x" * (syntaxlens._CONFIG_MAX_BYTES + 16) + '"}')
+            self.assertIsNone(syntaxlens._read_package_type(path))
+
+    def test_valid_package_json_esm_resolution_still_works(self):
+        # The bound/guard must NOT change a real, in-cap package.json: type resolves.
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "package.json")
+            with open(path, "w") as fh:
+                fh.write('{"type":"module"}')
+            self.assertEqual(syntaxlens._read_package_type(path), "module")
 
 
 if __name__ == "__main__":

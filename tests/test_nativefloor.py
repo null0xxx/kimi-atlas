@@ -37,6 +37,23 @@ def _write_stub(d: str, exit_code: int, echo_args: bool, fixed_msg: str = "") ->
     return p
 
 
+def _write_sleep_stub(d: str, sleep_s, exit_code: int = 0) -> str:
+    """An sh stub that NAMES its args on stderr, then sleeps ``sleep_s``, then exits.
+
+    It prints the materialized basename BEFORE the sleep, so a timed-out run's stderr
+    still references our path — the ONLY reason such a run is not a defect is the
+    ``not timed_out`` gate (SECURITY-INVARIANT §5). Also used to burn wall-clock time
+    so the ``wall_budget_s`` cap can be exercised."""
+    p = os.path.join(d, "sleep_stub.sh")
+    with open(p, "w") as f:
+        f.write("#!/bin/sh\n")
+        f.write('echo "err: $@" 1>&2\n')          # names the basename BEFORE any kill
+        f.write("sleep %s\n" % sleep_s)
+        f.write("exit %d\n" % exit_code)
+    os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return p
+
+
 class TestHermeticEnv(unittest.TestCase):
     def test_env_is_exactly_the_four_keys(self):
         hostiles = ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV")
@@ -120,15 +137,50 @@ class TestStubMechanics(unittest.TestCase):
             self.assertFalse(r["ran"])
             self.assertEqual(r["skipped_reason"], "budget-exhausted")   # unconditional
 
+    def test_timed_out_run_is_never_a_defect(self):
+        # SECURITY-INVARIANT §5 / the `not timed_out` signature gate: a run that is
+        # KILLED for exceeding per_file_timeout_s is fail-open — never a defect — even
+        # though its stderr literally names our file (the stub echoes the basename
+        # BEFORE sleeping past the timeout and being SIGKILLed mid-sleep). Without the
+        # `not timed_out` guard the path reference alone would (wrongly) match.
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_sleep_stub(d, sleep_s=30, exit_code=1)
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                [res] = nativefloor.run(
+                    [{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}],
+                    per_file_timeout_s=1,
+                )
+        self.assertTrue(res["ran"])
+        self.assertTrue(res["timed_out"])            # killed by the wall-clock timeout
+        self.assertFalse(res["signature_matched"])   # timed-out -> fail-open, no defect
+
+    def test_wall_budget_caps_the_batch(self):
+        # The wall-clock batch cap (spec §2.7): once elapsed > wall_budget_s every
+        # remaining job is a fail-open budget-exhausted no-op. Job 0 runs and burns
+        # ~0.3s, blowing the near-zero wall budget, so jobs 1+ are capped (mirrors
+        # test_file_budget_is_exact for the wall dimension).
+        with tempfile.TemporaryDirectory() as d:
+            stub = _write_sleep_stub(d, sleep_s=0.3, exit_code=0)
+            jobs = [{"rel": f"f{i}.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}
+                    for i in range(3)]
+            with mock.patch.object(nativefloor, "tool_path", return_value=stub):
+                results = nativefloor.run(jobs, wall_budget_s=0.05)
+        self.assertTrue(results[0]["ran"])           # first job runs before the cap trips
+        for r in results[1:]:
+            self.assertFalse(r["ran"])
+            self.assertEqual(r["skipped_reason"], "budget-exhausted")
+
     def test_no_tempdir_leak(self):
-        before = set(os.listdir(tempfile.gettempdir()))
         with tempfile.TemporaryDirectory() as d:
             stub = _write_stub(d, exit_code=0, echo_args=True)
             with mock.patch.object(nativefloor, "tool_path", return_value=stub):
                 nativefloor.run([{"rel": "a.rb", "text": "x", "argv": ["ruby", "-cw"], "ext": ".rb"}])
-        # nativefloor's own mkdtemp dirs are all rmtree'd; only our own `d` may remain (removed by the CM)
-        leaked = set(os.listdir(tempfile.gettempdir())) - before
-        self.assertEqual([x for x in leaked if x != os.path.basename(d)], [])
+        # Hermetic assertion: scope STRICTLY to nativefloor's OWN mkdtemp(prefix=
+        # "nativefloor-") dirs. A before/after diff of the whole shared tempdir would
+        # misattribute a concurrent process's /tmp activity as a leak (~8% flaky CI);
+        # nativefloor rmtree's every dir it creates, so none of its own must remain.
+        leaked = [x for x in os.listdir(tempfile.gettempdir()) if x.startswith("nativefloor-")]
+        self.assertEqual(leaked, [])
 
 
 class TestFailOpen(unittest.TestCase):
@@ -193,11 +245,15 @@ class TestSignatureTokenStrength(unittest.TestCase):
 
 
 class TestEffectiveBackend(unittest.TestCase):
-    def test_cgroup_only_falls_to_none_when_not_cgroup(self):
+    def test_effective_backend_falls_to_none_when_not_cgroup(self):
+        # Non-cgroup hosts NEVER route through the legacy ulimit sh backend (§1): the
+        # NONE fallback is unconditional (no cgroup_only knob — it was a dead param).
         with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_ULIMIT):
-            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_NONE)
+            self.assertEqual(nativefloor._effective_backend(), proccap._BACKEND_NONE)
+        with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_NONE):
+            self.assertEqual(nativefloor._effective_backend(), proccap._BACKEND_NONE)
         with mock.patch.object(proccap, "_detect_mem_backend", return_value=proccap._BACKEND_CGROUP):
-            self.assertEqual(nativefloor._effective_backend(cgroup_only=True), proccap._BACKEND_CGROUP)
+            self.assertEqual(nativefloor._effective_backend(), proccap._BACKEND_CGROUP)
 
 
 # ---- Live-tool proofs (skipUnless). node/php/bash present here; ruby/gofmt skip. ----
