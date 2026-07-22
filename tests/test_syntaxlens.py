@@ -45,6 +45,22 @@ class TestConfigParse(unittest.TestCase):
     def test_valid_config_no_defect(self):
         self.assertEqual(syntaxlens.check({"package.json": json.dumps({"name": "x"})}, cwd="."), [])
 
+    def test_bom_prefixed_valid_package_json_is_NOT_blocked(self):
+        # A leading UTF-8 BOM (﻿) is stripped/accepted by npm and node's loader.
+        # A valid package.json carrying one must NOT false-block (strip before json.loads).
+        bom_config = "﻿" + json.dumps({"name": "x"})
+        self.assertEqual(syntaxlens.check({"package.json": bom_config}, cwd="."), [])
+
+    def test_same_named_broken_configs_report_distinct_locations(self):
+        # Two same-named broken configs in different dirs must yield two defects with
+        # distinct real-path locations (not the bare basename); id stays config-<basename>.
+        d = syntaxlens.check({"vendor/package.json": "{ not json",
+                              "a/package.json": "{ not json"}, cwd=".")
+        blocking = _blocking(d)
+        self.assertEqual(len(blocking), 2)
+        self.assertEqual({b["location"] for b in blocking}, {"vendor/package.json", "a/package.json"})
+        self.assertEqual({b["id"] for b in blocking}, {"config-package.json"})
+
     def test_oversize_config_is_not_parsed(self):
         self.assertFalse(_blocking(syntaxlens.check({"package.json": "{" + "0" * 2_000_000}, cwd=".")))
 

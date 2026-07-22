@@ -139,25 +139,40 @@ def _materialize_ext(ext: str, rel: str, cwd: str) -> str:
     return ext
 
 
-def _config_defect(basename: str, parser: str, text: str) -> dict | None:
+def _config_defect(basename: str, location: str, parser: str, text: str) -> dict | None:
     """Return a BLOCKING defect if a STRICT config fails to parse, else ``None`` (pure).
 
+    ``location`` is the real changed-files path (``rel``), so two same-named
+    configs in different dirs report distinct locations; ``id`` stays the
+    spec-mandated ``config-<basename>``. A non-``str`` ``text`` (contract is
+    ``dict[str, str]``; defensive) is skipped — never raised — so a malformed
+    entry degrades rather than crashing the VERIFIED lens.
+
     Byte-bounded: a config larger than :data:`_CONFIG_MAX_BYTES` is NOT parsed
-    (advisory at most → no defect). The parse (``json.loads`` / ``tomllib.loads``)
-    is guarded against ``ValueError`` (covers ``json.JSONDecodeError`` and
-    ``tomllib.TOMLDecodeError``, both subclasses), ``RecursionError``, and
-    ``MemoryError``; any of those → a HIGH ``DOES-IT-RUN`` defect. Valid → ``None``.
+    (advisory at most → no defect). For JSON, a single leading UTF-8 BOM is
+    stripped before parsing — npm and node's loader strip it and accept the file,
+    so a BOM-prefixed valid ``package.json`` must NOT false-block. (The TOML branch
+    does NOT strip: ``tomllib`` rejecting a BOM matches cargo/tomllib behavior, so
+    that is correct, not a false-block.) The parse (``json.loads`` /
+    ``tomllib.loads``) is guarded against ``ValueError`` (covers
+    ``json.JSONDecodeError`` and ``tomllib.TOMLDecodeError``, both subclasses),
+    ``RecursionError``, and ``MemoryError``; any of those → a HIGH ``DOES-IT-RUN``
+    defect. Valid → ``None``.
     """
+    if not isinstance(text, str):
+        return None
     if len(text.encode("utf-8", errors="replace")) > _CONFIG_MAX_BYTES:
         return None
     try:
         if parser == "json":
-            json.loads(text)
+            # npm/node strip a single leading BOM and accept the file; match that
+            # so a BOM-prefixed valid package.json never false-blocks.
+            json.loads(text[1:] if text.startswith("﻿") else text)
         else:  # "toml"
             tomllib.loads(text)
     except (ValueError, RecursionError, MemoryError) as exc:
         return _d(
-            f"config-{basename}", _DOES_IT_RUN, "HIGH", basename,
+            f"config-{basename}", _DOES_IT_RUN, "HIGH", location,
             f"{basename} is not valid {parser.upper()} ({exc}); the build cannot "
             f"read it, so nothing downstream can run — fix the syntax error.",
         )
@@ -184,7 +199,7 @@ def check(changed_files: dict[str, str], cwd: str) -> list[dict]:
 
         # 1) Config FIRST — a .json/.toml is config, not source.
         if basename in _STRICT_CONFIG:
-            defect = _config_defect(basename, _STRICT_CONFIG[basename], text)
+            defect = _config_defect(basename, rel, _STRICT_CONFIG[basename], text)
             if defect is not None:
                 defects.append(defect)
             continue
