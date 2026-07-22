@@ -42,7 +42,7 @@ RUNNERS: tuple[dict, ...] = (
     {"marker": ("Makefile",), "cmd": "make test", "runner_tag": "make test", "prec": 0},
     {"marker": ("package.json",), "cmd": "npm test", "runner_tag": "npm test", "prec": 1},
     {"marker": ("Cargo.toml",), "cmd": "cargo test", "runner_tag": "cargo test", "prec": 2},
-    {"marker": ("go.mod",), "cmd": "go test ./...", "runner_tag": "go test", "prec": 3},
+    {"marker": ("go.mod",), "cmd": "go test -json ./...", "runner_tag": "go test", "prec": 3},
     {"marker": ("Gemfile", ".rspec"), "cmd": "bundle exec rspec", "runner_tag": "rspec", "prec": 4},
 )
 

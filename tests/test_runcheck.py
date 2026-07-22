@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts import runcheck
+from scripts import langfloor, runcheck, runsignal
 
 
 def _cgroup_backend_works() -> bool:
@@ -121,8 +121,43 @@ class TestDiscoverVerifyCmd(unittest.TestCase):
             "module example.com/x\n\ngo 1.21\n", encoding="utf-8"
         )
         self.assertEqual(
-            runcheck.discover_verify_cmd("", str(self.root)), "go test ./..."
+            runcheck.discover_verify_cmd("", str(self.root)), "go test -json ./..."
         )
+
+    def test_go_mod_discover_resolve_count_end_to_end(self):
+        # END-TO-END: discover -> resolve -> count must wire a green Go repo through.
+        # A *passing* `go test ./...` (no -json) prints only `ok  pkg  0.002s` per
+        # package -- no events, no `--- PASS:` lines -- so a bare command would count
+        # (0, False) => UNVERIFIED for a green repo. The discovered command therefore
+        # carries `-json`, whose per-test events runsignal.count reads.
+        (self.root / "go.mod").write_text(
+            "module example.com/x\n\ngo 1.21\n", encoding="utf-8"
+        )
+        cmd = runcheck.discover_verify_cmd("", str(self.root))
+        self.assertEqual(cmd, "go test -json ./...")
+        tags = langfloor.resolve_runner_tag(cmd, str(self.root))
+        self.assertEqual(tags, ("go test",))
+
+        # A passing `go test -json` stream => test_count>0, collected=True (green).
+        green_json = (
+            '{"Action":"run","Test":"TestA"}\n'
+            '{"Action":"pass","Test":"TestA"}\n'
+            '{"Action":"pass","Test":"TestB"}\n'
+            '{"Action":"pass","Package":"example.com/x"}\n'
+        )
+        test_count, collected = runsignal.count(green_json, tags)
+        self.assertEqual(test_count, 2)
+        self.assertTrue(collected)
+
+        # A build-failure `-json` stream (compile error, NO pass events) => the
+        # exit is real-red but even if masked (`|| true`) it stays (0, False) =>
+        # UNVERIFIED (safe): never a fabricated pass for a repo that failed to build.
+        build_fail_json = (
+            '{"Action":"output","Package":"example.com/x",'
+            '"Output":"# example.com/x\\n./main.go:3:1: syntax error\\n"}\n'
+            '{"Action":"fail","Package":"example.com/x"}\n'
+        )
+        self.assertEqual(runsignal.count(build_fail_json, tags), (0, False))
 
     def test_default_pytest(self):
         # RE-BASELINED CONTRACT CHANGE (blueprint §3/§6): an unmarked repo now

@@ -55,8 +55,8 @@ class TestRunnersRegistry(unittest.TestCase):
         self.assertEqual(by_cmd["npm test"]["prec"], 1)
         self.assertIn("Cargo.toml", by_cmd["cargo test"]["marker"])
         self.assertEqual(by_cmd["cargo test"]["prec"], 2)
-        self.assertIn("go.mod", by_cmd["go test ./..."]["marker"])
-        self.assertEqual(by_cmd["go test ./..."]["prec"], 3)
+        self.assertIn("go.mod", by_cmd["go test -json ./..."]["marker"])
+        self.assertEqual(by_cmd["go test -json ./..."]["prec"], 3)
         gemfile = by_cmd["bundle exec rspec"]
         self.assertIn("Gemfile", gemfile["marker"])
         self.assertIn(".rspec", gemfile["marker"])
@@ -65,7 +65,7 @@ class TestRunnersRegistry(unittest.TestCase):
     def test_direct_runner_entries_agree_with_resolver(self):
         # For the direct-language entries the table's runner_tag must equal what
         # the resolver derives from the same cmd (single source of truth).
-        for cmd in ("cargo test", "go test ./...", "bundle exec rspec"):
+        for cmd in ("cargo test", "go test -json ./...", "bundle exec rspec"):
             entry = next(e for e in langfloor.RUNNERS if e["cmd"] == cmd)
             self.assertEqual(
                 (entry["runner_tag"],), langfloor.resolve_runner_tag(cmd, ".")
@@ -148,8 +148,10 @@ class TestResolveRunnerTagDirect(unittest.TestCase):
         )
 
     def test_go_test(self):
+        # The discovered command carries `-json` (so a green `go test` emits the
+        # `-json` events runsignal counts); the `\bgo\s+test\b` token still matches.
         self.assertEqual(
-            langfloor.resolve_runner_tag("go test ./...", "."), ("go test",)
+            langfloor.resolve_runner_tag("go test -json ./...", "."), ("go test",)
         )
 
     def test_cargo_test_does_not_leak_go_test(self):
