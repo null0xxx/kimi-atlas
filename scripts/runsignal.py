@@ -69,6 +69,7 @@ _MOCHA_FAILING_RE = re.compile(r"(\d+) failing")
 
 # --- rspec ------------------------------------------------------------------
 _RSPEC_RE = re.compile(r"(\d+) examples?, (\d+) failures?")
+_RSPEC_ERR_OUTSIDE_RE = re.compile(r"(\d+) errors? occurred outside of examples")
 
 # --- phpunit ----------------------------------------------------------------
 _PHPUNIT_OK_RE = re.compile(r"^OK \((\d+) tests?", re.MULTILINE)
@@ -214,12 +215,21 @@ def _count_mocha(output: str) -> tuple[int, int]:
 
 
 def _count_rspec(output: str) -> tuple[int, int]:
-    """``(passed, fail)`` for rspec — ``N examples, M failures`` (passed = N − M)."""
+    """``(passed, fail)`` for rspec — ``N examples, M failures`` (passed = N − M).
+
+    A trailing ``, K errors occurred outside of examples`` — emitted when a spec
+    file fails to load or a ``before(:suite)`` hook raises — makes rspec exit
+    non-zero, but a ``bundle exec rspec || true`` recipe masks that, so the tail
+    is the SOLE fail signal and MUST join ``fail`` or the run false-passes.
+    ``N pending`` is NOT a failure and is deliberately left untouched.
+    """
     m = _RSPEC_RE.search(output)
     if m is None:
         return (0, 0)
     examples, failures = int(m.group(1)), int(m.group(2))
-    return (max(examples - failures, 0), failures)
+    err = _RSPEC_ERR_OUTSIDE_RE.search(output)
+    fail = failures + (int(err.group(1)) if err is not None else 0)
+    return (max(examples - failures, 0), fail)
 
 
 def _count_phpunit(output: str) -> tuple[int, int]:

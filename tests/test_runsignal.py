@@ -30,6 +30,12 @@ PYTEST_COLLECTED = "collected 5 items\n5 passed in 1s"
 PYTEST_Q_RULE = "===== 5 passed in 0.1s ====="
 # A smoke/build log that merely echoes "5 passed" — no pytest structure.
 PYTEST_SMOKE = "Summary: 5 passed in 3.2s"
+# A stray deploy line echoing "5 passed" — no pytest structural marker → count 0.
+PYTEST_STRAY_PASSED = "deploying 5 passed"
+# `5 passed, 3 failed` WITH a `collected N items` marker (exit-masked mixed run).
+PYTEST_MIXED_FAILED = "collected 8 items\n5 passed, 3 failed in 0.20s"
+# A pytest collection error: nothing collected, one import/collection error.
+PYTEST_COLLECT_ERROR = "collected 0 items / 1 error"
 # Broken imports: `5 passed, 2 errors` under `pytest || true` (exit masked).
 PYTEST_ERRORS_MASKED = (
     "platform linux -- Python 3.12.1, pytest-7.4.4, pluggy-1.3.0\n"
@@ -140,6 +146,16 @@ MOCHA_PASS = "  5 passing (20ms)"
 MOCHA_FAIL = "  4 passing (18ms)\n  1 failing"
 RSPEC_PASS = "Finished in 0.02 seconds\n5 examples, 0 failures"
 RSPEC_FAIL = "Finished in 0.02 seconds\n5 examples, 2 failures"
+# A spec file failed to load / a before(:suite) hook raised — rspec exits non-zero
+# but a `|| true` recipe masks it; the `errors occurred outside of examples` tail
+# is the ONLY fail signal (0 failures). Must NOT false-pass.
+RSPEC_ERR_OUTSIDE = (
+    "An error occurred while loading ./spec/broken_spec.rb.\n"
+    "Finished in 0.008 seconds\n"
+    "3 examples, 0 failures, 1 error occurred outside of examples"
+)
+# Pending examples are NOT failures — this genuine pass must stay collected.
+RSPEC_PENDING = "Finished in 0.02 seconds\n5 examples, 0 failures, 2 pending"
 PHPUNIT_OK = "OK (5 tests, 12 assertions)"
 PHPUNIT_FAIL = "FAILURES!\nTests: 5, Assertions: 12, Failures: 2."
 
@@ -179,6 +195,19 @@ class TestPytest(unittest.TestCase):
 
     def test_no_tests_ran(self):
         self.assertEqual(runsignal.count(PYTEST_NO_TESTS, ("pytest",)), (0, False))
+
+    def test_stray_passed_line_has_no_structure(self):
+        # `deploying 5 passed` — a stray non-structural line → count 0.
+        self.assertEqual(runsignal.count(PYTEST_STRAY_PASSED, ("pytest",)), (0, False))
+
+    def test_mixed_passed_and_failed_with_marker(self):
+        # `5 passed, 3 failed` + a `collected N items` marker → failed vetoes.
+        count, collected = runsignal.count(PYTEST_MIXED_FAILED, ("pytest",))
+        self.assertFalse(collected)
+
+    def test_collection_error(self):
+        # `collected 0 items / 1 error` — the error joins fail_count → not collected.
+        self.assertEqual(runsignal.count(PYTEST_COLLECT_ERROR, ("pytest",)), (0, False))
 
 
 class TestUnittest(unittest.TestCase):
@@ -243,6 +272,16 @@ class TestMochaRspecPhpunit(unittest.TestCase):
         count, collected = runsignal.count(RSPEC_FAIL, ("rspec",))
         self.assertEqual(count, 3)
         self.assertFalse(collected)
+
+    def test_rspec_error_outside_examples_is_not_a_pass(self):
+        # `3 examples, 0 failures, 1 error occurred outside of examples` — the
+        # load error is the SOLE fail signal; must NOT fabricate a pass.
+        _, collected = runsignal.count(RSPEC_ERR_OUTSIDE, ("rspec",))
+        self.assertFalse(collected)
+
+    def test_rspec_pending_stays_collected(self):
+        # `5 examples, 0 failures, 2 pending` — pending is not a failure.
+        self.assertEqual(runsignal.count(RSPEC_PENDING, ("rspec",)), (5, True))
 
     def test_phpunit_ok(self):
         self.assertEqual(runsignal.count(PHPUNIT_OK, ("phpunit",)), (5, True))
