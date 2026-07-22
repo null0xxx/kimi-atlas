@@ -4,6 +4,48 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-07-23
+
+The **syntax floor**: a hermetic, argv-only, **parse-only** deterministic lens (Lens 5c) that checks
+each changed file is *grammatically valid* in its language — **Ruby, PHP, Go, shell** — plus in-process
+**JSON/TOML config validation**, folded into the VERIFIED gate exactly like `astlens`. It can **never
+execute untrusted repo code** and **never false-blocks a valid repo**. Backward-compatible — the FROZEN
+pure gate (`verdict.merge`/`gate`), the P1 run-signal floor, and `sast` are all untouched. Test suite
+**1073 → 1151**.
+
+The one hard call: **JavaScript syntax-checking is deliberately NOT covered.** Six rounds of the plugin's
+own 6-lens — running adversarial code against its own new floor — proved `node --check` cannot distinguish
+valid **JSX/Flow** (ubiquitous inside `.js` files) from invalid JS, so checking it would false-block the
+entire React/Flow ecosystem. JS is still verified through the P1 run-signal floor (its tests must run and
+pass); only the unreliable *syntax* check is dropped. Disclosed like the blueprint's other residuals.
+
+### Added
+- **`scripts/nativefloor.py`** — a hermetic, argv-only parse runner (the security core): each file is
+  materialized into a fresh empty tempdir used as the child cwd, run under a **from-scratch environment**
+  (`{PATH,HOME,LANG,TMPDIR}` only, so `NODE_OPTIONS`/`RUBYOPT`/`BASH_ENV`/`LD_PRELOAD` cannot reach the
+  child), never through a shell, memory-capped (cgroup-or-uncapped) and wall-clock-bounded, with a
+  monkeypatchable `tool_path` seam. A syntax **defect** requires a non-zero exit whose error text names
+  our materialized file (signature-gated) — anything else fails open. `ruby -cw` (check), never `ruby -w`.
+- **`scripts/syntaxlens.py`** — the sole `nativefloor` consumer: dispatches Ruby/PHP/Go/shell source and
+  validates config via an explicit `_STRICT_CONFIG` basename→parser map (`package.json`/`composer.json`/
+  `package-lock.json`/`composer.lock`→JSON; `pyproject.toml`/`Cargo.toml`/`Cargo.lock`/`poetry.lock`→TOML;
+  a leading BOM is stripped for JSON). `tsconfig.json` (JSONC), `yarn.lock`/`Gemfile.lock` (opaque), and
+  arbitrary data files are never blocking. Folded into VERIFIED as **Lens 5c**.
+- Optional GitHub CI lane (`.github/workflows/native-floor.yml`) that installs node/ruby/php/go and runs
+  the non-execution red-team suite against the real interpreters.
+
+### Changed
+- `scripts/proccap._launch_and_wait` gained an optional hermetic `env` parameter (byte-equivalent when
+  `None`, so `runcheck` is unaffected). `langfloor.SYNTAX_ARGV` now covers `.rb`/`.php`/`.go`/`.sh`/`.bash`
+  (JS extensions removed). The blueprint's coverage table + residuals document the JS-syntax exclusion.
+
+### Security
+- The syntax floor is **parse-only by construction** — argv-only (never `sh -c`), from-scratch child env,
+  fresh-tempdir cwd, `ruby -cw`. Proven end-to-end by **self-certifying** non-execution tests (each first
+  proves the malicious payload *would* create a sentinel under real execution, then proves the floor does
+  not) against real node/php/bash. An untrusted `package.json` symlinked to `/dev/zero` can no longer hang
+  the review (the node-resolution read that enabled it was removed with JS).
+
 ## [1.2.0] — 2026-07-22
 
 The **universal run-signal floor**: the DOES-IT-RUN gate now recognizes a genuine test run in
@@ -142,6 +184,7 @@ First public release.
   manual overrides via `references/skill-overrides.json`.
 - **713 unit tests**, `make ci` as the mechanical floor; MIT licensed.
 
+[1.3.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.3.0
 [1.2.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.2.0
 [1.1.1]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.1
 [1.1.0]: https://github.com/null0xxx/kimi-atlas/releases/tag/v1.1.0

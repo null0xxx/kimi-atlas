@@ -1,6 +1,6 @@
 {
   "name": "kimi-atlas",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Turns a rough coding request into elite, verified, human-gated implemented code. A root orchestrator drives a deterministic state machine over the built-in coder/explore/plan subagents — carried on a first-class agentic backbone (a live ContextGraph, an explicit finite-state machine, and forward-only worktree rollback) — gated by a 6-lens verification harness and a deterministic quality backbone. No LLM ever computes pass/fail.",
   "keywords": [
     "orchestrator",
