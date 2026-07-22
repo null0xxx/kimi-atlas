@@ -4,8 +4,10 @@ This is the one *fully deterministic* verification lens (rubric.md lens 5). It
 runs at root (a ``plan`` critic has no Bash), wraps the command in an explicit
 memory cap (a cgroup ``systemd-run --scope -p MemoryMax=`` RSS limit when the
 host supports it, else a legacy ``ulimit -v`` virtual-address cap) plus a hard
-wall-clock timeout, and parses the runner's own collection output so a green
-result provably means *tests ran and reacted*, not merely "exit 0".
+wall-clock timeout, and delegates PASS-only run recognition to
+:mod:`scripts.runsignal` (keyed by the runner tag :mod:`scripts.langfloor`
+resolves from the frozen ``verify_cmd``) so a green result provably means *tests
+ran and passed*, not merely "exit 0".
 
 MEMORY-CAP BACKENDS (OPS-3). ``ulimit -v`` caps *virtual* address space, which
 Node/V8 (vitest, esbuild, tsc) reserves in bulk regardless of real use — a
@@ -33,8 +35,9 @@ Per V4 a green ``runcheck`` requires **all of** ``ok`` (exit 0, no timeout) AND
 mutation signal) is a run-pair property the orchestrator computes across two
 invocations; a single ``run`` reports it as ``False``.
 
-The subprocess wrapper is the only side effect; every parsing/argv helper is a
-pure function so the logic is unit-testable without launching a build.
+The subprocess wrapper is the only side effect; run-signal recognition
+(``runsignal.count``) and runner resolution (``langfloor.resolve_runner_tag``)
+are pure so the logic is unit-testable without launching a build.
 
 The memory-cap + subprocess mechanics (``_build_wrapper``/``_launch_and_wait``/
 ``_is_cap_start_failure`` and the systemd-run detection) now live in
@@ -48,6 +51,8 @@ import pathlib
 import re
 import subprocess
 
+from scripts import langfloor, runsignal
+
 # The cap/subprocess primitives now live in scripts.proccap (extracted
 # byte-equivalent). ``_wrap_command`` is re-exported for back-compat callers/tests.
 from scripts.proccap import (
@@ -60,53 +65,14 @@ from scripts.proccap import (
     _wrap_command,
 )
 
-# Runner-output signatures (pure regexes over combined stdout+stderr).
-_COLLECTED_RE = re.compile(r"collected (\d+) items?")   # pytest collection line
-_RAN_RE = re.compile(r"Ran (\d+) tests? in")            # unittest summary line
-_PASSED_RE = re.compile(r"(\d+) passed")                # pytest short summary
-_FAILED_RE = re.compile(r"(\d+) failed")
-_ERROR_RE = re.compile(r"(\d+) errors?")
+# A Makefile ``test:`` target header (start-of-line ``test`` then ``:``), matched
+# per-line. This is the only runner-facing regex ``runcheck`` still owns: the
+# run-signal recognizer now lives in :mod:`scripts.runsignal` (PASS-only, keyed by
+# the runner tag) and the runner registry / marker probes in
+# :mod:`scripts.langfloor`. ``parse_test_count`` / ``parse_new_tests_collected``
+# (the old unanchored pytest/unittest-only parsers) are RETIRED — the gate's two
+# fields now come from one source, ``runsignal.count`` (blueprint §2.2).
 _TEST_TARGET_RE = re.compile(r"^test\s*:", re.MULTILINE)
-
-
-def parse_test_count(output: str) -> int:
-    """Return the number of collected/run tests parsed from runner output.
-
-    Precedence: an explicit pytest ``collected N items`` count wins, then a
-    unittest ``Ran N tests`` count, then the sum of the pytest short-summary
-    ``passed``/``failed``/``errors`` figures. Returns ``0`` when no test signal
-    is present (empty suite, ``pytest -k`` typo, build-only command).
-    """
-    cols = _COLLECTED_RE.findall(output)
-    if cols:
-        return int(cols[-1])
-    rans = _RAN_RE.findall(output)
-    if rans:
-        return int(rans[-1])
-    total = 0
-    found = False
-    for regex in (_PASSED_RE, _FAILED_RE, _ERROR_RE):
-        matches = regex.findall(output)
-        if matches:
-            found = True
-            total += int(matches[-1])
-    return total if found else 0
-
-
-def parse_new_tests_collected(output: str) -> bool:
-    """Return True iff the runner reported collecting/running at least one test.
-
-    Guards the empty-suite / zero-collection false green: ``collected 0 items``
-    or ``Ran 0 tests`` yields ``False``. When no explicit collection marker is
-    present, falls back to whether any test count could be inferred at all.
-    """
-    cols = _COLLECTED_RE.findall(output)
-    if cols:
-        return int(cols[-1]) > 0
-    rans = _RAN_RE.findall(output)
-    if rans:
-        return int(rans[-1]) > 0
-    return parse_test_count(output) > 0
 
 
 def _makefile_has_test_target(makefile_text: str) -> bool:
@@ -115,12 +81,23 @@ def _makefile_has_test_target(makefile_text: str) -> bool:
 
 
 def discover_verify_cmd(explicit_cmd: str, cwd: str) -> str:
-    """Resolve the verify command by fixed precedence (DS-6).
+    """Resolve the verify command by fixed precedence (blueprint §3, DS-6).
 
     An explicit ``verify_cmd`` always wins. Otherwise the fixed probe order is
     ``make test`` (only when a Makefile with a ``test`` target exists) →
-    ``npm test`` (when a ``package.json`` exists) → ``pytest``. The chosen
-    command is what the orchestrator freezes into the task packet.
+    ``npm test`` (when a ``package.json`` exists) → **``pytest`` iff
+    :func:`langfloor.collectable_pytest`** (a declared pytest config section, or
+    any ``test_*.py``/``*_test.py`` anywhere under ``cwd``) → the remaining
+    language markers from :data:`langfloor.RUNNERS` (``Cargo.toml`` → cargo,
+    ``go.mod`` → go, ``Gemfile``/``.rspec`` → rspec) → **``''``**.
+
+    Language markers are consulted only AFTER pytest declines (R6 COR-1), so a
+    Python repo that also carries a ``Cargo.toml`` (maturin/pyo3) or a ``go.mod``
+    still resolves to ``pytest``. An unmarked repo yields ``''`` — no positive
+    runner signal, so the gate degrades to ``UNVERIFIED`` rather than false-RED'ing
+    a repo whose runner we cannot identify (the retired ``'pytest'`` default did
+    exactly that). The chosen command is what the orchestrator freezes into the
+    task packet.
     """
     if explicit_cmd and explicit_cmd.strip():
         return explicit_cmd.strip()
@@ -132,7 +109,16 @@ def discover_verify_cmd(explicit_cmd: str, cwd: str) -> str:
         return "make test"
     if (root / "package.json").is_file():
         return "npm test"
-    return "pytest"
+    if langfloor.collectable_pytest(cwd):
+        return "pytest"
+    # Positive language markers (cargo/go/rspec) — ``make test``/``npm test`` are
+    # handled above (before pytest); the rest are consulted only now.
+    for entry in langfloor.RUNNERS:
+        if entry["cmd"] in ("make test", "npm test"):
+            continue
+        if any((root / marker).is_file() for marker in entry["marker"]):
+            return entry["cmd"]
+    return ""
 
 
 # Host-probe/cache seam for the memory cap. The backend *mechanics*
@@ -276,11 +262,20 @@ def run(cmd: str, cwd: str, timeout_s: int, mem_limit_mb: int) -> dict:
     stdout, stderr = res["stdout"], res["stderr"]
     returncode, timed_out = res["returncode"], res["timed_out"]
     combined = stdout + "\n" + stderr
+
+    # Positively identify the runner from the (frozen) verify ``cmd`` + ``cwd``,
+    # then recognize the run signal PASS-only via ``runsignal.count`` — the ONE
+    # source of the gate's two fields (``test_count`` / ``new_tests_collected``).
+    # An unresolved runner → ``()`` → ``(0, False)`` → the gate degrades to
+    # UNVERIFIED; ``returncode==0`` is kept as an additional AND (via ``ok``),
+    # never the sole pass signal (a ``|| true``-masked exit must not pass).
+    runner_tags = langfloor.resolve_runner_tag(cmd, cwd)
+    test_count, new_tests_collected = runsignal.count(combined, runner_tags)
     return {
         "ok": (returncode == 0) and not timed_out,
         "returncode": returncode,
-        "test_count": parse_test_count(combined),
-        "new_tests_collected": parse_new_tests_collected(combined),
+        "test_count": test_count,
+        "new_tests_collected": new_tests_collected,
         "revert_red": False,
         "stdout_tail": _tail(stdout),
         "stderr_tail": _tail(stderr),

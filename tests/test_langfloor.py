@@ -109,6 +109,27 @@ class TestCollectablePytest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(langfloor.collectable_pytest(d))
 
+    def test_stray_test_file_in_denylisted_dirs_is_not_collectable(self):
+        # A dependency's own ``test_*.py`` vendored under ``.venv``/``node_modules``
+        # (or copied into ``build``/``dist``/``__pycache__``) must NOT make a
+        # non-Python repo resolve to pytest — those trees are pruned mid-walk.
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), ".venv/lib/python3.12/site-packages/x/test_dep.py",
+                   "def test_x():\n    pass\n")
+            _write(Path(d), "node_modules/pkg/test_bundled.py",
+                   "def test_y():\n    pass\n")
+            _write(Path(d), "build/lib/foo_test.py", "def test_z():\n    pass\n")
+            _write(Path(d), "src/app.py", "print('hi')\n")
+            self.assertFalse(langfloor.collectable_pytest(d))
+
+    def test_genuine_test_file_beside_a_denylisted_dir_is_collectable(self):
+        # Pruning must not over-reach: a real ``test_*.py`` in a normal package
+        # still counts even when a ``.venv`` sits alongside it.
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), ".venv/lib/site.py", "x = 1\n")
+            _write(Path(d), "tests/test_real.py", "def test_a():\n    pass\n")
+            self.assertTrue(langfloor.collectable_pytest(d))
+
 
 class TestResolveRunnerTagDirect(unittest.TestCase):
     """Direct runner tokens map to their canonical tag (cwd unused)."""

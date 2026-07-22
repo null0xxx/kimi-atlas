@@ -27,6 +27,7 @@ one importable definition.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 
@@ -97,6 +98,21 @@ _TEST_TARGET_RE = re.compile(r"^test\s*:")
 # Declared pytest config sections (TOML/cfg), matched at line start.
 _PYTEST_SECTION_RE = re.compile(r"^\s*\[tool\.pytest\.ini_options\]", re.MULTILINE)
 _PYTEST_CFG_SECTION_RE = re.compile(r"^\s*\[tool:pytest\]", re.MULTILINE)
+
+# Directories pruned during pytest discovery: vendored/build/cache trees that a
+# real ``pytest`` invocation never collects from. A stray ``test_*.py`` shipped
+# inside one of these (a dependency's own tests under ``.venv``/``node_modules``,
+# a copied fixture under ``build``/``dist``) must NOT make a non-Python repo
+# resolve to pytest (Task-2 reviewed Minor). Every dot-prefixed directory
+# (``.venv``/``.git``/``.tox``/…) is pruned in addition to these explicit names.
+_PYTEST_PRUNE_DIRS: frozenset[str] = frozenset({
+    "node_modules", "build", "dist", "__pycache__", "venv",
+})
+
+
+def _is_pruned_dir(name: str) -> bool:
+    """Return True iff a directory ``name`` is skipped by pytest discovery (pure)."""
+    return name.startswith(".") or name in _PYTEST_PRUNE_DIRS
 
 
 def _tags_from_command(cmd: str) -> tuple[str, ...]:
@@ -216,8 +232,11 @@ def collectable_pytest(cwd: str) -> bool:
     ``[tool.pytest.ini_options]`` (pyproject.toml) or ``[tool:pytest]``
     (setup.cfg) section is declared, OR any ``test_*.py``/``*_test.py`` file
     exists ANYWHERE under ``cwd`` (recursive — NOT only ``tests/``; R7
-    COR-COLLECTABLE). Fail-safe: unreadable trees simply stop contributing
-    matches rather than raising. Reading the config files is I/O.
+    COR-COLLECTABLE). Vendored/build/cache directories (``.venv``/``node_modules``/
+    ``build``/``dist``/``__pycache__`` and any dot-dir) are pruned mid-walk so a
+    stray test file shipped inside a dependency cannot make a non-Python repo
+    resolve to pytest (Task-2 reviewed Minor). Fail-safe: unreadable trees simply
+    stop contributing matches rather than raising. Reading the config files is I/O.
     """
     root = pathlib.Path(cwd)
     pyproject = _safe_read(root / "pyproject.toml")
@@ -227,10 +246,13 @@ def collectable_pytest(cwd: str) -> bool:
     if setup_cfg is not None and _PYTEST_CFG_SECTION_RE.search(setup_cfg):
         return True
     try:
-        for path in root.rglob("*.py"):
-            name = path.name
-            if name.startswith("test_") or name.endswith("_test.py"):
-                return True
+        for _dirpath, dirnames, filenames in os.walk(str(root)):
+            # Prune in-place so os.walk never descends into denylisted trees.
+            dirnames[:] = [d for d in dirnames if not _is_pruned_dir(d)]
+            for name in filenames:
+                if (name.startswith("test_") and name.endswith(".py")) or \
+                        name.endswith("_test.py"):
+                    return True
     except OSError:
         return False
     return False

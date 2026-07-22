@@ -66,57 +66,9 @@ def _best_effort_kill(pid: int) -> None:
         pass
 
 
-class TestParseTestCount(unittest.TestCase):
-    """Pure parsing of collected-test counts from runner output."""
-
-    def test_pytest_collected(self):
-        self.assertEqual(runcheck.parse_test_count("collected 7 items"), 7)
-
-    def test_pytest_collected_singular_item(self):
-        self.assertEqual(runcheck.parse_test_count("collected 1 item"), 1)
-
-    def test_unittest_ran(self):
-        self.assertEqual(runcheck.parse_test_count("Ran 3 tests in 0.01s\n\nOK"), 3)
-
-    def test_unittest_single_test(self):
-        self.assertEqual(runcheck.parse_test_count("Ran 1 test in 0.00s"), 1)
-
-    def test_pytest_summary_fallback(self):
-        self.assertEqual(runcheck.parse_test_count("=== 2 passed, 1 failed in 0.1s ==="), 3)
-
-    def test_empty_output_is_zero(self):
-        self.assertEqual(runcheck.parse_test_count("build succeeded"), 0)
-
-    def test_collected_zero(self):
-        self.assertEqual(runcheck.parse_test_count("collected 0 items"), 0)
-
-    def test_collected_takes_precedence_over_summary(self):
-        self.assertEqual(
-            runcheck.parse_test_count("collected 5 items\n5 passed in 0.2s"), 5
-        )
-
-
-class TestParseNewTestsCollected(unittest.TestCase):
-    """Pure detection of whether any test was actually collected/run."""
-
-    def test_collected_positive(self):
-        self.assertTrue(runcheck.parse_new_tests_collected("collected 4 items"))
-
-    def test_collected_zero_is_false(self):
-        self.assertFalse(runcheck.parse_new_tests_collected("collected 0 items"))
-
-    def test_ran_zero_is_false(self):
-        self.assertFalse(runcheck.parse_new_tests_collected("Ran 0 tests in 0.0s"))
-
-    def test_ran_positive(self):
-        self.assertTrue(runcheck.parse_new_tests_collected("Ran 2 tests in 0.0s"))
-
-    def test_no_signal_is_false(self):
-        self.assertFalse(runcheck.parse_new_tests_collected("nothing here"))
-
-
 class TestDiscoverVerifyCmd(unittest.TestCase):
-    """cmd-discovery precedence: explicit -> make test -> npm test -> pytest."""
+    """cmd-discovery precedence (blueprint §3): explicit -> make test -> npm test
+    -> pytest (iff collectable) -> language markers (cargo/go/rspec) -> ''."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -146,8 +98,39 @@ class TestDiscoverVerifyCmd(unittest.TestCase):
         (self.root / "package.json").write_text("{}", encoding="utf-8")
         self.assertEqual(runcheck.discover_verify_cmd("", str(self.root)), "npm test")
 
-    def test_default_pytest(self):
+    def test_python_with_cargo_toml_still_resolves_pytest(self):
+        # A Python repo carrying a Cargo.toml (maturin/pyo3) must resolve to pytest:
+        # language markers are consulted only AFTER pytest declines (R6 COR-1).
+        (self.root / "Cargo.toml").write_text(
+            "[package]\nname = \"x\"\n", encoding="utf-8"
+        )
+        (self.root / "test_thing.py").write_text(
+            "def test_z():\n    pass\n", encoding="utf-8"
+        )
         self.assertEqual(runcheck.discover_verify_cmd("", str(self.root)), "pytest")
+
+    def test_bare_cargo_repo_resolves_cargo_test(self):
+        # No pytest signal -> the Cargo.toml language marker resolves cargo test.
+        (self.root / "Cargo.toml").write_text(
+            "[package]\nname = \"x\"\n", encoding="utf-8"
+        )
+        self.assertEqual(runcheck.discover_verify_cmd("", str(self.root)), "cargo test")
+
+    def test_bare_go_mod_repo_resolves_go_test(self):
+        (self.root / "go.mod").write_text(
+            "module example.com/x\n\ngo 1.21\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            runcheck.discover_verify_cmd("", str(self.root)), "go test ./..."
+        )
+
+    def test_default_pytest(self):
+        # RE-BASELINED CONTRACT CHANGE (blueprint §3/§6): an unmarked repo now
+        # resolves to '' (empty) -> the gate sees no run signal -> UNVERIFIED. The
+        # old default was 'pytest', which false-RED'd every non-Python repo whose
+        # runner we could not identify. `pytest` is now emitted only when
+        # `langfloor.collectable_pytest` is positive.
+        self.assertEqual(runcheck.discover_verify_cmd("", str(self.root)), "")
 
     def test_makefile_has_test_target_helper(self):
         self.assertTrue(runcheck._makefile_has_test_target("test:\n\techo hi\n"))
@@ -449,8 +432,10 @@ class TestRunFailOpen(unittest.TestCase):
         self.addCleanup(setattr, runcheck, "_detect_mem_backend", orig_detect)
         self.addCleanup(setattr, runcheck, "_build_wrapper", orig_build)
 
+        # The trailing `# pytest` shell comment tags the faked output as pytest so
+        # the resolver identifies the runner (the echo emits pytest structure).
         result = runcheck.run(
-            'echo "collected 3 items"; echo "3 passed"', ".",
+            'echo "collected 3 items"; echo "3 passed"  # pytest', ".",
             timeout_s=30, mem_limit_mb=2048,
         )
         self.assertTrue(result["ok"], result)          # not a false RED
@@ -484,11 +469,18 @@ class TestGreen(unittest.TestCase):
 
 
 class TestRun(unittest.TestCase):
-    """End-to-end execution (mem cap disabled for determinism)."""
+    """End-to-end execution (mem cap disabled for determinism).
+
+    The commands ``echo`` a faked runner output and carry a trailing shell-comment
+    runner tag (``# unittest`` / ``# pytest``) so ``run`` can positively identify
+    the runner and thread it into ``runsignal.count`` without launching a real
+    toolchain.
+    """
 
     def test_passing_suite_is_green(self):
         result = runcheck.run(
-            'echo "Ran 3 tests in 0.01s"; echo OK', ".", timeout_s=30, mem_limit_mb=0
+            'echo "Ran 3 tests in 0.01s"; echo OK  # unittest', ".",
+            timeout_s=30, mem_limit_mb=0,
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["returncode"], 0)
@@ -499,7 +491,7 @@ class TestRun(unittest.TestCase):
 
     def test_empty_suite_is_not_green(self):
         result = runcheck.run(
-            'echo "Ran 0 tests in 0.00s"; echo "NO TESTS RAN"', ".",
+            'echo "Ran 0 tests in 0.00s"; echo "NO TESTS RAN"  # unittest', ".",
             timeout_s=30, mem_limit_mb=0,
         )
         self.assertTrue(result["ok"])          # exit 0 ...
@@ -508,7 +500,8 @@ class TestRun(unittest.TestCase):
 
     def test_nonzero_exit_not_ok(self):
         result = runcheck.run(
-            'echo "collected 2 items"; exit 1', ".", timeout_s=30, mem_limit_mb=0
+            'echo "collected 2 items"; exit 1  # pytest', ".",
+            timeout_s=30, mem_limit_mb=0,
         )
         self.assertFalse(result["ok"])
         self.assertEqual(result["returncode"], 1)
@@ -526,6 +519,82 @@ class TestRun(unittest.TestCase):
             "revert_red", "stdout_tail", "stderr_tail",
         ):
             self.assertIn(key, result)
+
+
+class TestRunSignalWiring(unittest.TestCase):
+    """``run`` threads the resolved runner tag into ``runsignal.count`` (blueprint
+    §2.2). Python stays byte-identical; go now verifies (was 0 under the retired
+    pytest/unittest-only parser); a ``|| true``-masked all-failed go run stays RED.
+
+    Each command emits a captured-real fixture via ``printf`` and carries a
+    trailing shell-comment runner tag; the mem cap is disabled for determinism.
+    """
+
+    def _run(self, cmd):
+        return runcheck.run(cmd, ".", timeout_s=30, mem_limit_mb=0)
+
+    def test_pytest_q_golden_is_byte_identical(self):
+        # pytest -q: `collected N items` + short summary. Old parse_test_count read
+        # the collected count (5); the new runsignal.count must agree exactly.
+        result = self._run(
+            "printf '%s\\n' 'collected 5 items' '5 passed in 0.03s'  # pytest"
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["test_count"], 5)
+        self.assertTrue(result["new_tests_collected"])
+        self.assertTrue(runcheck.green(result))
+
+    def test_pytest_q_bare_rule_summary_is_structural(self):
+        # Bare `-q` run whose ONLY structure is the `=+ … =+` rule line.
+        result = self._run("printf '%s\\n' '===== 5 passed in 0.1s ====='  # pytest")
+        self.assertEqual(result["test_count"], 5)
+        self.assertTrue(runcheck.green(result))
+
+    def test_unittest_golden_is_byte_identical(self):
+        # Real `python -m unittest -v` tail: `Ran N tests in …` + `OK`.
+        result = self._run(
+            "printf '%s\\n' 'Ran 2 tests in 0.000s' '' 'OK'  # unittest"
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["test_count"], 2)
+        self.assertTrue(result["new_tests_collected"])
+        self.assertTrue(runcheck.green(result))
+
+    def test_go_json_now_verifies(self):
+        # `go test -json` PASS events — 0 under the retired parser, now 2/collected.
+        cmd = (
+            "printf '%s\\n' "
+            "'{\"Action\":\"run\",\"Test\":\"TestA\"}' "
+            "'{\"Action\":\"pass\",\"Test\":\"TestA\"}' "
+            "'{\"Action\":\"pass\",\"Test\":\"TestB\"}'  # go test"
+        )
+        result = self._run(cmd)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["test_count"], 2)
+        self.assertTrue(result["new_tests_collected"])
+        self.assertTrue(runcheck.green(result))
+
+    def test_go_all_failed_masked_by_or_true_is_not_collected(self):
+        # `go test ./... || true` masks the exit to 0, but the run FAILED — the
+        # PASS-only recognizer must keep new_tests_collected False (false-pass shut).
+        cmd = (
+            "printf '%s\\n' "
+            "'{\"Action\":\"run\",\"Test\":\"TestA\"}' "
+            "'{\"Action\":\"fail\",\"Test\":\"TestA\"}'  # go test ./... || true"
+        )
+        result = self._run(cmd)
+        self.assertTrue(result["ok"])                 # exit 0 (masked) ...
+        self.assertEqual(result["test_count"], 0)
+        self.assertFalse(result["new_tests_collected"])
+        self.assertFalse(runcheck.green(result))      # ... but NOT green
+
+    def test_unresolved_runner_degrades_to_unverified(self):
+        # No identifiable runner (bare shell) -> () tags -> (0, False) -> UNVERIFIED.
+        result = self._run("echo 'collected 5 items'; echo '5 passed'")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["test_count"], 0)
+        self.assertFalse(result["new_tests_collected"])
+        self.assertFalse(runcheck.green(result))
 
 
 class TestRunProcessGroupCleanup(unittest.TestCase):
