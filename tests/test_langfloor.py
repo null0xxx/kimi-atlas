@@ -15,6 +15,7 @@ Reading the Makefile / package.json is the ONLY I/O and must fail SAFELY
 """
 import fnmatch
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -300,6 +301,61 @@ class TestResolveRunnerTagWrapper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _write(Path(d), "package.json", '{"scripts": {"build": "tsc"}}\n')
             self.assertEqual(langfloor.resolve_runner_tag("npm test", d), ())
+
+
+class TestResidualScanReDoS(unittest.TestCase):
+    """SEC ReDoS: a hostile committed Makefile/package.json recipe blob must
+    resolve in LINEAR time, not hang the harness.
+
+    The residual ``<word> test`` scan's former greedy ``\\S+[ \\t]+test`` backtracks
+    quadratically on a large non-whitespace blob (``'x'*16000`` → a ~2.5s hang in
+    ``resolve_runner_tag``, unbounded since ``_safe_read`` has no size cap). The
+    fix bounds the input (a length cap, mirroring ``runsignal._CARGO_LINE_MAX``)
+    AND makes the token non-backtracking (a possessive ``\\S++``).
+    """
+
+    _BUDGET_S = 0.5
+
+    def test_pathological_recipe_blob_resolves_fast_and_unresolved(self):
+        # A ~16k non-whitespace `test:` recipe body used to make `resolve_runner_tag`
+        # hang ~2.5s. Now it is well under budget AND the un-analyzable blob
+        # degrades to UNRESOLVED `()` (fail-closed → UNVERIFIED), never a pass.
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\t" + "x" * 16000 + "\n")
+            start = time.perf_counter()
+            result = langfloor.resolve_runner_tag("make test", d)
+            elapsed = time.perf_counter() - start
+            self.assertLess(elapsed, self._BUDGET_S, f"residual ReDoS: {elapsed:.3f}s")
+            self.assertEqual(result, ())
+
+    def test_long_residual_word_test_blob_is_linear(self):
+        # A long non-whitespace blob that DOES end in a residual `<word> test`
+        # (kept UNDER the length cap so the possessive `\S++` — not the length
+        # guard — does the work): must be linear and, as an uncountable residual
+        # sub-invocation, mark the command unsupported → the recipe is `()` (COR-1).
+        blob = "x" * 6000 + " test"
+        start = time.perf_counter()
+        result = langfloor._has_unsupported_runner(blob)
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"possessive ReDoS: {elapsed:.3f}s")
+        self.assertTrue(result)
+
+    def test_cor1_preserved_supported_polyglot_recipe(self):
+        # The fix must not regress COR-1: an all-SUPPORTED polyglot recipe still
+        # resolves to BOTH tags in order.
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\tpytest && go test -json ./...\n")
+            self.assertEqual(
+                langfloor.resolve_runner_tag("make test", d),
+                ("pytest", "go test"),
+            )
+
+    def test_cor1_preserved_unsupported_residual_recipe(self):
+        # And a recipe with an uncountable `<word> test` residual (gradle) stays
+        # UNRESOLVED rather than trusting the recognized `pytest` subset.
+        with tempfile.TemporaryDirectory() as d:
+            _write(Path(d), "Makefile", "test:\n\tpytest && ./gradlew test\n")
+            self.assertEqual(langfloor.resolve_runner_tag("make test", d), ())
 
 
 class TestSyntaxArgv(unittest.TestCase):

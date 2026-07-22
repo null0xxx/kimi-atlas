@@ -242,6 +242,29 @@ GO_PLAIN_OK_PKGS = "ok  \texample/foo\t0.002s\nok  \texample/bar\t0.003s"
 # Plain `go test ./...` where one package builds-fails: an `ok` beside a bare
 # `FAIL … [build failed]` (no `--- PASS:`/`--- FAIL:`) — the FAIL must veto (COR-2).
 GO_PLAIN_OK_PLUS_BUILD_FAIL = "ok example/a\nFAIL example/b [build failed]"
+# Old Go (<1.20) MIXED stream: package `foo` emits a json PASS event while a
+# build-failed package prints ONLY a raw top-level `FAIL\tbar [build failed]`
+# line — NO json fail event. Gating the plain-text FAIL check behind
+# `if not saw_event` returns (1, True) → a FABRICATED pass under a masked recipe;
+# the UNCONDITIONAL plain-text check vetoes (LOW correctness).
+GO_JSON_PLUS_RAW_BUILD_FAIL = "\n".join([
+    '{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"foo","Test":"TestA"}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"foo","Test":"TestA","Elapsed":0.01}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"foo","Elapsed":0.02}',
+    "FAIL\tbar [build failed]",
+])
+# Modern Go (>=1.20): the same `FAIL\tbar [build failed]` text arrives INSIDE a
+# json `"Output"` string (ONE physical line beginning with `{`), alongside a
+# package-level `fail` event. The `^FAIL` (MULTILINE) anchor does NOT match the
+# embedded text, and `fail` is OR-ed (max, never summed) — so the unconditional
+# plain-text check adds NO double-count; the package fail event alone vetoes.
+GO_JSON_MODERN_BUILD_FAIL = "\n".join([
+    '{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"foo","Test":"TestA"}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"foo","Test":"TestA","Elapsed":0.01}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"foo","Elapsed":0.02}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"output","Package":"bar","Output":"FAIL\\tbar [build failed]\\n"}',
+    '{"Time":"2024-01-01T00:00:00Z","Action":"fail","Package":"bar"}',
+])
 
 MOCHA_PASS = "  5 passing (20ms)"
 MOCHA_FAIL = "  4 passing (18ms)\n  1 failing"
@@ -392,6 +415,24 @@ class TestGo(unittest.TestCase):
             runsignal.count(GO_JSON_RECURSION_BOMB + "\n", ("go test",)), (0, False)
         )
 
+    def test_json_pass_plus_raw_build_fail_vetoes(self):
+        # LOW: old Go (<1.20) — foo emits a json pass event while a build-failed
+        # package prints ONLY a raw `FAIL\tbar [build failed]` line (no json fail
+        # event). The plain-text FAIL check now runs UNCONDITIONALLY (not gated on
+        # `not saw_event`), so it vetoes instead of fabricating a green run.
+        count, collected = runsignal.count(GO_JSON_PLUS_RAW_BUILD_FAIL, ("go test",))
+        self.assertEqual(count, 1)
+        self.assertFalse(collected)
+
+    def test_modern_json_build_fail_not_double_counted(self):
+        # The `^FAIL` anchor matches only a raw TOP-LEVEL FAIL line; modern go's
+        # `FAIL\tbar` lives inside a json `"Output"` string (line starts with `{`)
+        # beside a package-level fail event. count stays the single foo pass and
+        # the run is vetoed — no double-count from the unconditional plain check.
+        count, collected = runsignal.count(GO_JSON_MODERN_BUILD_FAIL, ("go test",))
+        self.assertEqual(count, 1)
+        self.assertFalse(collected)
+
 
 class TestCargo(unittest.TestCase):
     def test_two_crate_sum_empty_last(self):
@@ -540,6 +581,26 @@ class TestReDoSHardening(unittest.TestCase):
         runsignal.count(hostile, ("cargo test",))
         elapsed = time.perf_counter() - start
         self.assertLess(elapsed, self._BUDGET_S, f"cargo ReDoS: {elapsed:.3f}s")
+
+    def test_pytest_platform_redos_line_is_linear(self):
+        # `'platform '*30000` (NO `-- Python`): the old un-anchored
+        # `platform .* -- Python` restarts the greedy `.*` from EVERY `platform `
+        # occurrence → O(n^2). The `^`-anchored MULTILINE form has ONE start
+        # position (column 0) on this single crafted line → linear.
+        hostile = "platform " * 30000
+        start = time.perf_counter()
+        result = runsignal.count(hostile, ("pytest",))
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"pytest platform ReDoS: {elapsed:.3f}s")
+        # No `-- Python` and no other structural marker → not a fabricated pass.
+        self.assertEqual(result, (0, False))
+
+    def test_real_platform_header_still_structural(self):
+        # The `^`-anchor must not break the genuine pytest header (which sits at
+        # column 0) — it is the sole structural marker for this capture.
+        self.assertEqual(
+            runsignal.count(PYTEST_PLATFORM_HEADER, ("pytest",)), (5, True)
+        )
 
 
 class TestDegradeToUnverified(unittest.TestCase):

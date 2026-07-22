@@ -104,7 +104,23 @@ _UNSUPPORTED_RUNNER_PATTERNS: tuple[re.Pattern[str], ...] = (
 # test``) left over AFTER the known ``go test``/``cargo test`` spans are blanked
 # out. ``test`` must be a standalone argument (a following space / end / command
 # separator), so ``bash test.sh`` or ``pytest tests/`` does NOT trip it.
-_RESIDUAL_TEST_SUBCMD_RE = re.compile(r"\S+[ \t]+test(?=[ \t]|$|[;&|)])")
+#
+# ``\S++`` is POSSESSIVE (Python 3.11+): it never gives characters back, so the
+# former greedy ``\S+`` cannot backtrack quadratically over a large non-whitespace
+# blob committed to an untrusted Makefile/package.json (``'x'*16000`` → a ~2.5s
+# hang, SEC ReDoS). Matching is behaviorally identical: a match needs ``\S+`` to be
+# a WHOLE non-whitespace run immediately followed by ``[ \t]+test`` — any shorter
+# prefix of that run is still followed by non-whitespace, so greedy backtracking
+# could never satisfy the ``[ \t]+`` and the possessive form matches the same set.
+_RESIDUAL_TEST_SUBCMD_RE = re.compile(r"\S++[ \t]+test(?=[ \t]|$|[;&|)])")
+
+# Length cap for the residual-runner scan, mirroring ``runsignal._CARGO_LINE_MAX``.
+# A real ``test:`` recipe (even polyglot) is short; ``_safe_read`` imposes no size
+# cap, so a pathological non-whitespace blob in an untrusted committed recipe would
+# otherwise feed the scan an unbounded string. Over the cap → treat the command as
+# UNSUPPORTED (fail-closed → ``()`` → UNVERIFIED) rather than analyze the blob;
+# never silently trust a recognized subset we could not fully scan.
+_RECIPE_MAX = 8192
 
 # Wrapper commands whose real runner lives in an on-disk recipe (the only I/O).
 _MAKE_TEST_RE = re.compile(r"\bmake\s+test\b")
@@ -145,7 +161,13 @@ def _has_unsupported_runner(cmd: str) -> bool:
     the recipe makes the whole recipe unresolved rather than trusting the
     recognized subset — which would fabricate a pass when the unknown runner's
     failure is exit-masked (``|| true``). Pure over ``cmd``.
+
+    An over-long ``cmd`` (a pathological committed-recipe blob past ``_RECIPE_MAX``)
+    is treated as unsupported: we cannot faithfully scan it, so it degrades to
+    UNRESOLVED (fail-closed) rather than being trusted or scanned unbounded.
     """
+    if len(cmd) > _RECIPE_MAX:
+        return True
     residue = cmd
     for pattern, _tag in _DIRECT_TAG_PATTERNS:
         residue = pattern.sub(" ", residue)

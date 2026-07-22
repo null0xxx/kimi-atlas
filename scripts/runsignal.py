@@ -47,7 +47,14 @@ _FAILED_RE = re.compile(r"(\d+) failed")
 
 # --- pytest -----------------------------------------------------------------
 _PY_COLLECTED_RE = re.compile(r"collected (\d+) items?")     # collection line
-_PY_PLATFORM_RE = re.compile(r"platform .* -- Python")       # verbose header
+# ``^``-anchored (MULTILINE) verbose header. pytest's real header always begins a
+# line (``platform linux -- Python 3.12.0, …``), so the anchor is faithful; it also
+# forces the greedy ``.*`` to start ONLY at column 0. The former un-anchored
+# ``platform .* -- Python`` restarts ``.*`` from EVERY ``platform `` occurrence on a
+# crafted line (``'platform '*30000`` with no ``-- Python``) → O(n^2) backtracking,
+# a multi-second hang inside the verify timeout on untrusted repo stdout (SEC
+# ReDoS). One start position per line → linear.
+_PY_PLATFORM_RE = re.compile(r"^platform .* -- Python", re.MULTILINE)
 _PY_ERRORS_RE = re.compile(r"(\d+) errors?")
 _PY_NO_TESTS_RE = re.compile(r"no tests ran")
 # A tally token identifies pytest's summary line when there is no `=+…=+` rule.
@@ -258,8 +265,22 @@ def _count_go(output: str) -> tuple[int, int]:
         elif action == "fail":                      # test-level OR package-level
             fail += 1
             saw_event = True
+    # The raw-text FAIL summary / `[build failed]` check runs UNCONDITIONALLY — even
+    # when json events were seen. An old Go (<1.20) mixed stream can emit a json
+    # PASS event for one package while a build-failed package prints ONLY a raw
+    # top-level `FAIL\tbar [build failed]` line (NO json fail event); gating this
+    # behind `if not saw_event` returned (passed, 0) → a fabricated pass under a
+    # masked recipe (LOW). `^FAIL` is line-anchored (MULTILINE), so on modern go —
+    # where the same `FAIL\tbar` text arrives INSIDE a json `"Output"` string, not
+    # at line start — it does not match, and a modern build failure already emits a
+    # package-level fail event; `fail` is OR-ed via `max` (never summed), so no
+    # double-count. Only a FAIL is ever ADDED here, so pass counting stays strictly
+    # json-vs-plain exclusive.
+    plain_fail = bool(
+        _GO_FAIL_SUMMARY_RE.search(output) or _GO_BUILD_FAILED_RE.search(output)
+    )
     if saw_event:
-        return (passed, fail)
+        return (passed, max(fail, 1) if plain_fail else fail)
     p = len(_GO_PASS_LINE_RE.findall(output))
     f = len(_GO_FAIL_LINE_RE.findall(output))
     # Plain `go test ./...` prints no `--- PASS:` line — only `ok <pkg>` per
@@ -268,7 +289,7 @@ def _count_go(output: str) -> tuple[int, int]:
     # so `go test -v` (which prints BOTH) is never double-counted.
     if p == 0:
         p = len(_GO_OK_PKG_RE.findall(output))
-    if _GO_FAIL_SUMMARY_RE.search(output) or _GO_BUILD_FAILED_RE.search(output):
+    if plain_fail:
         f = max(f, 1)
     return (p, f)
 
