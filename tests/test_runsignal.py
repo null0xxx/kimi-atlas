@@ -603,6 +603,71 @@ class TestReDoSHardening(unittest.TestCase):
         )
 
 
+class TestUniversalUntrustedBound(unittest.TestCase):
+    """Whole-class ReDoS floor: ``_bound_untrusted`` caps every untrusted line.
+
+    Individual per-regex ReDoS bugs were fixed one by one; this single input
+    normalizer at the top of ``count`` closes the class so a future/overlooked
+    regex cannot hang the harness on a pathological line — while remaining a
+    strict no-op for every real (short) capture.
+    """
+
+    _BUDGET_S = 0.5
+
+    def test_bound_truncates_long_line_keeps_short_intact(self):
+        # A `'x'*100000` line is truncated to `_MAX_LINE`; the short lines around
+        # it pass through byte-for-byte.
+        bounded = runsignal._bound_untrusted("ok\n" + "x" * 100000 + "\ntail")
+        lines = bounded.split("\n")
+        self.assertEqual(lines[0], "ok")
+        self.assertEqual(len(lines[1]), runsignal._MAX_LINE)
+        self.assertEqual(lines[1], "x" * runsignal._MAX_LINE)
+        self.assertEqual(lines[2], "tail")
+
+    def test_bound_is_noop_for_normal_output(self):
+        # THE guarantee: the normalizer must not alter any genuine capture, so
+        # counting results are unchanged. Every result-bearing fixture is short.
+        for fixture in (
+            PYTEST_COLLECTED, PYTEST_ERRORS_MASKED, GO_JSON_3_PASS, GO_PLAIN_V,
+            CARGO_TWO_CRATE, JEST_CLEAN, VITEST_PASS, MOCHA_PASS, RSPEC_PASS,
+            PHPUNIT_OK, POLYGLOT_PYTEST_GO_PASS,
+        ):
+            self.assertEqual(runsignal._bound_untrusted(fixture), fixture)
+
+    def test_five_mb_middle_blob_keeps_tail_summary_and_is_fast(self):
+        # A 5MB blob wedged BETWEEN the collection marker and the summary. The
+        # per-line cap shrinks the blob to `_MAX_LINE`, so the pytest summary
+        # ('5 passed') survives and the count is unchanged — fast, not a hang.
+        hostile = "collected 5 items\n" + "A" * 5_000_000 + "\n5 passed in 0.1s"
+        start = time.perf_counter()
+        result = runsignal.count(hostile, ("pytest",))
+        elapsed = time.perf_counter() - start
+        self.assertEqual(result, (5, True))
+        self.assertLess(elapsed, self._BUDGET_S, f"5MB blob: {elapsed:.3f}s")
+
+    def test_crafted_pathological_line_through_count_is_linear(self):
+        # A 1MB single line of a ReDoS-classic shape (`(=+ )+`-bait) fed through
+        # the full count() path. The normalizer caps it to `_MAX_LINE` before any
+        # regex runs, so even an overlooked backtracking pattern sees <=8192
+        # chars. Must return fast and safe (never a fabricated pass).
+        hostile = "= " * 500_000
+        start = time.perf_counter()
+        result = runsignal.count(hostile, ("pytest",))
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"universal ReDoS: {elapsed:.3f}s")
+        self.assertEqual(result, (0, False))
+
+    def test_total_size_cap_is_tail_preserving(self):
+        # A flood of many short lines summing >`_MAX_OUTPUT`: the total cap keeps
+        # the LAST `_MAX_OUTPUT` chars, so the trailing summary survives.
+        flood = ("noise\n" * 400_000) + "===== 5 passed in 0.1s ====="
+        self.assertGreater(len(flood), runsignal._MAX_OUTPUT)
+        bounded = runsignal._bound_untrusted(flood)
+        self.assertLessEqual(len(bounded), runsignal._MAX_OUTPUT)
+        self.assertTrue(bounded.endswith("===== 5 passed in 0.1s ====="))
+        self.assertEqual(runsignal.count(flood, ("pytest",)), (5, True))
+
+
 class TestDegradeToUnverified(unittest.TestCase):
     def test_empty_tags(self):
         self.assertEqual(runsignal.count("anything", ()), (0, False))

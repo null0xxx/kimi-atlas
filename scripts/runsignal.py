@@ -406,6 +406,56 @@ def _count_phpunit(output: str) -> tuple[int, int]:
     return (0, 0)
 
 
+# --- universal untrusted-input bound (whole-class ReDoS floor) --------------
+# ``output`` is untrusted test-runner stdout+stderr; every per-runner counter
+# below applies regexes to it. Individual per-regex ReDoS bugs were fixed one by
+# one (SEC-1/SEC-2), but a future or overlooked pattern could still
+# catastrophically backtrack on a pathological line. These two caps close the
+# whole class in one place, BEFORE any counting: no regex — regardless of its
+# shape — can ever see a single line longer than ``_MAX_LINE`` or a total larger
+# than ``_MAX_OUTPUT``, so per-line and overall work are bounded. Real runner
+# summary/marker lines are short and real logs are small, so this is a strict
+# no-op for every genuine capture — it only bounds anomalous, hostile input.
+_MAX_LINE = 8192            # chars: cap any single line to this (real lines are short)
+_MAX_OUTPUT = 2_000_000     # chars (~2MB): cap total, TAIL-preserving (summaries are last)
+
+
+def _bound_untrusted(output: str) -> str:
+    """Bound pathological untrusted ``output`` so no regex can backtrack, WITHOUT
+    changing any result for normal (small) output.
+
+    Two caps, defense-in-depth:
+
+    1. **Per-line length.** Any ``\\n``-delimited line longer than ``_MAX_LINE``
+       is truncated to it. A single multi-KB line is THE ReDoS vector (a greedy
+       ``.*`` straddling two anchors backtracks over the whole line); real runner
+       summary/marker lines are far shorter than 8KB, so truncation leaves every
+       genuine line untouched while bounding any regex's per-line work.
+    2. **Total size (tail-preserving).** If the per-line-capped result still
+       exceeds ``_MAX_OUTPUT``, keep only the LAST ``_MAX_OUTPUT`` chars. Test
+       summaries live at the END of a run's output, so the tail preserves every
+       marker; a >2MB test log is already anomalous. This bounds total work even
+       for a flood of many short lines.
+
+    The result is that no downstream regex ever sees a line >``_MAX_LINE`` and
+    total scanned length is <=``_MAX_OUTPUT``. ``\\n`` is the correct split unit:
+    ``.`` never matches ``\\n`` and MULTILINE ``^``/``$`` anchor at ``\\n``, so a
+    line between newlines is exactly the span a pattern can backtrack across.
+    """
+    # Fast path: an output no longer than one capped line cannot exceed either
+    # bound, so return it untouched (the overwhelmingly common real case) — no
+    # split, no allocation, a guaranteed no-op.
+    if len(output) <= _MAX_LINE:
+        return output
+    bounded = "\n".join(
+        ln if len(ln) <= _MAX_LINE else ln[:_MAX_LINE]
+        for ln in output.split("\n")
+    )
+    if len(bounded) > _MAX_OUTPUT:
+        bounded = bounded[-_MAX_OUTPUT:]
+    return bounded
+
+
 # Tag → per-runner PASS-only counter. A tag with no counter contributes nothing
 # (fail-closed → the run degrades to UNVERIFIED rather than false-passing).
 _COUNTERS = {
@@ -432,6 +482,10 @@ def count(output: str, runner_tags: tuple[str, ...]) -> tuple[int, bool]:
     """
     if not runner_tags or not output:
         return (0, False)
+    # Bound untrusted input ONCE up front so no per-runner regex below can
+    # catastrophically backtrack, whatever its shape (whole-class ReDoS floor).
+    # A strict no-op for every real (short) capture; only anomalous input moves.
+    output = _bound_untrusted(output)
     total_passed = 0
     any_passed = False
     any_fail = False
