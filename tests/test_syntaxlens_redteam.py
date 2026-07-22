@@ -28,6 +28,7 @@ Two tiers:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -57,11 +58,13 @@ def _certify_payload_is_live(interp_argv: list, src: str, ext: str, sentinel: st
         script = os.path.join(scratch, "payload" + ext)
         with open(script, "w") as fh:
             fh.write(src)
-        subprocess.run([*interp_argv, script], cwd=scratch, capture_output=True, timeout=30)
+        proc = subprocess.run([*interp_argv, script], cwd=scratch,
+                               capture_output=True, text=True, timeout=30)
     if not os.path.exists(sentinel):
         raise AssertionError(
-            "sentinel payload is INERT under direct execution; the non-execution "
-            "proof would be vacuous — fix the payload before trusting the parse-only assert"
+            "sentinel payload is INERT under direct execution (rc=%d); the non-execution "
+            "proof would be vacuous — fix the payload before trusting the parse-only assert.\n"
+            "interpreter stderr: %s" % (proc.returncode, (proc.stderr or "").strip()[:500])
         )
     os.remove(sentinel)
 
@@ -267,8 +270,11 @@ class TestGofmtEndToEnd(unittest.TestCase):
             self.skipTest("go toolchain needed to self-certify the .go payload has teeth")
         with tempfile.TemporaryDirectory() as outside:
             sentinel = os.path.join(outside, "PWNED")
-            src = ('package main\nimport "os"\nfunc main() { os.WriteFile(%r, []byte("x"), 0644) }\n'
-                   % sentinel)
+            # Go string literals need DOUBLE quotes — Python's %r emits single quotes, which
+            # Go reads as a (multi-char, invalid) rune literal. json.dumps gives a Go-valid
+            # double-quoted, escaped string. (Single quotes were fine for ruby/php/bash above.)
+            src = ('package main\nimport "os"\nfunc main() { os.WriteFile(%s, []byte("x"), 0644) }\n'
+                   % json.dumps(sentinel))
             _certify_payload_is_live(["go", "run"], src, ".go", sentinel)   # `go run` compiles+writes
             syntaxlens.check({"evil.go": src}, outside)
             self.assertFalse(os.path.exists(sentinel))  # gofmt -e only formats, never ran it
