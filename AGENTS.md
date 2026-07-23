@@ -119,7 +119,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (`make test`) · `make ci` clean · 28 tracked docs, no inventory drift · v1.3.0 released (P2 syntax floor merged: `nativefloor`/`syntaxlens` Lens 5c — Ruby/PHP/Go/shell syntax + JSON/TOML config; JS syntax-check dropped)
+unit-test suite green (`make test`) · `make ci` clean · 29 tracked docs, no inventory drift · v1.3.0 released (P2 syntax floor merged: `nativefloor`/`syntaxlens` Lens 5c — Ruby/PHP/Go/shell syntax + JSON/TOML config; JS syntax-check dropped)
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
 `fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;
