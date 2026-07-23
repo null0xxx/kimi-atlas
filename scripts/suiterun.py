@@ -19,6 +19,17 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
+from scripts import langfloor, runsignal
+
+# Reserved test-id representing "the whole suite" when a runner cannot emit per-test
+# JUnit. It uses characters no real test-id contains, so it never collides. The same
+# sentinel is produced for baselines and the combined tree, so differential.regressions
+# compares whole-suite green→red with ZERO change to the oracle.
+_WHOLE_SUITE_ID = "::weave-whole-suite::"
+
+# Runner tags for which we have a per-test JUnit convention available.
+_JUNIT_PYTEST_TAGS = frozenset({"pytest"})
+
 # A JUnit ``<testcase>`` child tag → the status token we emit. Anything with none
 # of these children is green and maps to the literal ``"pass"``.
 _CHILD_STATUS = {"failure": "fail", "error": "error", "skipped": "skip"}
@@ -65,15 +76,32 @@ def parse_junit(xml_text: str) -> dict:
 
 
 def run_suite(cmd: str, cwd: str, timeout_s: int = 1800) -> dict:
-    """Shell ``cmd`` so it writes JUnit, then parse it (I/O hand, fail-safe).
+    """Run ``cmd`` and return ``{test_id: status}`` — runner-aware, fail-safe.
 
-    A ``{junit}`` placeholder in ``cmd`` is substituted with the JUnit output path
-    (for commands that already know how to write JUnit); otherwise
-    ``--junit-xml=<path>`` is appended (the pytest convention). The command's exit
-    status is intentionally ignored — pytest exits non-zero on failing tests but
-    still writes the report — the report file is the source of truth. Any
-    subprocess/timeout/read failure degrades to ``{}``.
+    * pytest (or a ``{junit}`` placeholder) → per-test JUnit via ``--junit-xml``
+      (byte-equivalent to the prior behavior); ``parse_junit`` gives per-test ids.
+    * any other runner → NO per-test JUnit exists, so degrade to a WHOLE-SUITE
+      signal: run the command, and if ``runsignal.count`` confirms a green run
+      (PASS-only, structural), return ``{_WHOLE_SUITE_ID: "pass"}``; otherwise
+      ``{}`` (unconfirmed → the caller stays conservative, never a false green).
+
+    Any subprocess/timeout/read failure degrades to ``{}``. ``differential.regressions``
+    consumes either shape unchanged (the sentinel flows through it).
     """
+    tags = ()
+    try:
+        tags = langfloor.resolve_runner_tag(cmd, cwd)
+    except Exception:  # noqa: BLE001 — detection failure → treat as whole-suite path.
+        tags = ()
+
+    use_junit = ("{junit}" in cmd) or bool(set(tags) & _JUNIT_PYTEST_TAGS)
+    if use_junit:
+        return _run_junit(cmd, cwd, timeout_s)
+    return _run_whole_suite(cmd, cwd, timeout_s, tags)
+
+
+def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
+    """The per-test JUnit path (the prior run_suite body, unchanged)."""
     fd, junit_path = tempfile.mkstemp(suffix=".xml", prefix="suiterun-")
     os.close(fd)
     try:
@@ -104,3 +132,26 @@ def run_suite(cmd: str, cwd: str, timeout_s: int = 1800) -> dict:
             os.remove(junit_path)
         except OSError:
             pass
+
+
+def _run_whole_suite(cmd: str, cwd: str, timeout_s: int, tags: tuple) -> dict:
+    """Whole-suite green/red via runsignal (fail-safe): sentinel dict or ``{}``."""
+    try:
+        proc = subprocess.run(cmd, shell=True, cwd=cwd, timeout=timeout_s,
+                              capture_output=True)
+    except (subprocess.SubprocessError, OSError):
+        return {}
+    out = b""
+    for stream in (proc.stdout, proc.stderr):
+        if stream:
+            out += stream if isinstance(stream, bytes) else stream.encode()
+    text = out.decode("utf-8", errors="replace")
+    try:
+        _passed, collected = runsignal.count(text, tags)
+    except Exception:  # noqa: BLE001 — recognizer failure → unconfirmed.
+        return {}
+    # Gate on `collected` (runsignal's PASS-only AND-fold: any tag passed>0 AND NO tag
+    # failed) — NOT the raw passed-count. A `5 passed, 2 failed` run yields count ->
+    # (5, False); keying off passed>0 would fabricate a green and mask a real
+    # cross-change regression. runsignal is the PASS-only oracle; trust its fold.
+    return {_WHOLE_SUITE_ID: "pass"} if collected else {}
