@@ -103,10 +103,18 @@ set needs them because the repo is untrusted even when the *command* is consente
   (unprivileged container), proceed — the hermetic env already removed the token vector, and the run is
   advisory + never-raise, so a network-dependent linter simply yields an empty advisory. For the safe-AUTO
   set, network is irrelevant (they don't fetch). For Go GATED commands the launch also sets
-  `CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `GOFLAGS=-mod=vendor` (kills toolchain fetch X-09).
-- **Resource caps beyond mem/time** — add PID cap (`TasksMax`) so an RSS cap does not permit a fork bomb
-  (X-05); a TMPDIR disk quota (X-06 / C2-06); and `RLIMIT_NOFILE` (fd exhaustion, X-06). These extend the
-  existing proccap mem/time cap without changing proccap's runcheck path.
+  `CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly` (kills toolchain/module fetch X-09;
+  `-mod=readonly` not `-mod=vendor`, which would false-error a non-vendored repo — `GOTOOLCHAIN=local`
+  + network-off are the real fetch blocks).
+- **Resource caps beyond mem/time** — the cgroup caps travel on `systemd-run --scope` (`MemoryMax` +
+  `TasksMax` — an RSS cap does not bound fork count, X-05); these ARE valid for scope units, whereas
+  namespace/sandbox properties (`PrivateNetwork`/`PrivateTmp`) are NOT, so network-off is a separate
+  `unshare -n` tier and tmp isolation is the throwaway `TMPDIR`. `RLIMIT_NOFILE` is applied via
+  `ulimit -n` on the GATED `sh -c` lane (fd exhaustion, X-06). A hard block-level TMPDIR **disk quota**
+  needs a privileged size-limited tmpfs mount and is **out of scope** — the residual is bounded
+  best-effort by the throwaway TMPDIR plus `MemoryMax` (cgroup-v2 charges tmpfs pages to the cap) and the
+  never-raise wall-budget. These extend the existing proccap mem/time cap without changing proccap's
+  runcheck path.
 - **review_root confinement** — run with cwd inside review_root; **deny symlinks** that escape review_root
   and **reject** absolute / `..` config paths (kills FS-escape X-04). (Full FS sandboxing is out of scope;
   symlink-deny + path-reject is the required floor.)

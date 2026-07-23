@@ -41,8 +41,11 @@ hands, `sys.stdout.write` (never `print(` in `skill*` modules — but the SKILL 
 **Global interface map (names later tasks rely on):**
 - `lintlens.SAFE_AUTO: dict[str, dict]` — the allowlist registry (tool → {ext-trigger, argv, parser}).
 - `lintlens._plan_jobs(changed_files, cwd, lint_cmd) -> list[dict]` — pure lane/job planner.
-- `lintlens._hermetic_env(home, tmpdir) -> dict[str,str]`, `lintlens._confine_ok(path, root) -> bool`.
-- `lintlens._run_job(job, *, budget…) -> list[dict]` — hardened, never-raising launch of one job.
+- `lintlens._hermetic_env(home, tmpdir) -> dict[str,str]`, `lintlens._confine_ok(path, root) -> bool`
+  (wired into `check()` target selection — drops escaping paths).
+- `lintlens._harden_argv(workload, mem_mb) -> list` (cgroup-cap + netns tiers);
+  `lintlens._launch(job, review_root, timeout_s, mem_mb) -> dict` — hardened, never-raising launch of
+  one job IN `review_root` (throwaway HOME/TMPDIR via env).
 - `lintlens.check(changed_files: dict[str,str], cwd: str, lint_cmd: str | None = None) -> list[dict]`.
 - Advisory record shape: `{"id","tool","lane","path","line","message","rule"}`.
 - `langfloor.test_glob_for_runner(tag: str) -> str`.
@@ -310,6 +313,7 @@ class TestHardeningHelpers(unittest.TestCase):
             # Go isolation knobs are present (harmless for non-Go tools).
             self.assertEqual(env["CGO_ENABLED"], "0")
             self.assertEqual(env["GOTOOLCHAIN"], "local")
+            self.assertEqual(env["GOFLAGS"], "-mod=readonly")  # -mod=vendor would false-error
         finally:
             del os.environ["GITHUB_TOKEN"], os.environ["NODE_OPTIONS"]
 
@@ -350,10 +354,12 @@ def _hermetic_env(home: str, tmpdir: str) -> dict:
 
     NOT ``os.environ.copy()`` minus a denylist — a fresh dict, so hostile hooks
     (GITHUB_TOKEN/NPM_TOKEN/AWS_*/NODE_OPTIONS/RUBYOPT/LD_PRELOAD) simply do not
-    exist in the child. HOME/TMPDIR are the caller's throwaway dirs.
+    exist in the child. HOME/TMPDIR are the caller's throwaway dirs. The Go knobs
+    block the cgo/toolchain/module-fetch vector (X-09) for a GATED Go linter:
+    ``-mod=readonly`` (NOT ``-mod=vendor``, which would false-error a non-vendored
+    repo) forbids go.mod edits; ``GOTOOLCHAIN=local`` + network-off are the real
+    fetch blocks.
     """
-    import tempfile
-    tmp = tempfile.gettempdir()
     return {
         "PATH": os.environ.get("PATH", os.defpath),
         "HOME": home,
@@ -361,7 +367,7 @@ def _hermetic_env(home: str, tmpdir: str) -> dict:
         "TMPDIR": tmpdir,
         "CGO_ENABLED": "0",
         "GOTOOLCHAIN": "local",
-        "GOFLAGS": "-mod=mod",
+        "GOFLAGS": "-mod=readonly",
     }
 
 
@@ -411,58 +417,137 @@ EOF
 **Interfaces:**
 - Consumes: `proccap._detect_mem_backend`, `proccap._launch_and_wait`, `proccap._BACKEND_CGROUP`,
   `_hermetic_env`.
-- Produces: `_harden_argv(workload_argv, mem_mb, hardened) -> list[str]`, `_sandbox_available() -> bool`,
-  `_launch(job, timeout_s, mem_mb) -> dict` (returns `{"stdout","stderr","returncode","timed_out"}`,
-  output byte-capped + UTF-8-sanitized; NEVER raises — returns an empty-output dict on any failure).
+- Produces: `_cgroup_cap_available() -> bool`, `_netns_available() -> bool`,
+  `_harden_argv(workload_argv, mem_mb) -> list[str]` (cgroup-cap + netns tiers, each degrading
+  independently), `_launch(job, review_root, timeout_s, mem_mb) -> dict` (runs the workload with
+  `cwd=review_root`; returns `{"stdout","stderr","returncode","timed_out"}`, output byte-capped +
+  UTF-8-sanitized; NEVER raises — returns an empty-output dict on any failure).
 
 - [ ] **Step 1: Write the failing test** (append)
 
+Add `import subprocess` and `from scripts import proccap` to the test module's imports.
+
 ```python
 class TestLauncher(unittest.TestCase):
-    def test_harden_argv_cgroup_adds_isolation_props(self):
-        argv = lintlens._harden_argv(["ruff", "check"], 2048, hardened=True)
+    def setUp(self):
+        lintlens._reset_probe_caches()
+
+    def _stub_tool_path(self):
+        # Force _tool_path to resolve so the launch reaches the stubbed seam even on a
+        # host WITHOUT ruff/gofmt installed. Without this the stdlib-only CI runner short-
+        # circuits at `_tool_path(...) is None` and the cap/sanitize/never-raise asserts
+        # are vacuous (the D10 finding).
+        self._orig_tp = lintlens._tool_path
+        lintlens._tool_path = lambda name: "/usr/bin/true"
+
+    def _restore_tool_path(self):
+        lintlens._tool_path = self._orig_tp
+
+    def test_harden_argv_cgroup_and_netns(self):
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: True
+        lintlens._netns_available = lambda: True
+        try:
+            argv = lintlens._harden_argv(["ruff", "check"], 2048)
+        finally:
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
         s = " ".join(argv)
         self.assertIn("systemd-run", argv)
         self.assertIn("MemoryMax=2048M", s)
         self.assertIn("TasksMax=", s)
-        self.assertIn("PrivateNetwork=yes", s)   # network-off
-        self.assertIn("PrivateTmp=yes", s)
-        self.assertEqual(argv[-2:], ["ruff", "check"])  # workload verbatim after --
+        self.assertIn("unshare", argv)          # network-off tier
+        self.assertNotIn("PrivateNetwork", s)   # invalid for --scope; must NOT appear
+        self.assertNotIn("PrivateTmp", s)
+        self.assertEqual(argv[-2:], ["ruff", "check"])  # workload verbatim at the tail
 
-    def test_harden_argv_unhardened_is_bare(self):
-        self.assertEqual(lintlens._harden_argv(["gofmt", "-l"], 2048, hardened=False),
-                         ["gofmt", "-l"])
+    def test_harden_argv_no_isolation_is_bare(self):
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: False
+        lintlens._netns_available = lambda: False
+        try:
+            self.assertEqual(lintlens._harden_argv(["gofmt", "-l"], 2048), ["gofmt", "-l"])
+        finally:
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
 
-    def test_launch_never_raises_and_caps_output(self):
-        # A stub launch seam: emit oversize + non-UTF-8 bytes; assert capped+clean.
+    @unittest.skipUnless(
+        proccap._detect_mem_backend() == proccap._BACKEND_CGROUP,
+        "cgroup scope backend unavailable on this host")
+    def test_harden_argv_cgroup_unit_actually_launches(self):
+        # D4: the cgroup props must be VALID for --scope (not merely present as strings).
+        # PrivateNetwork/PrivateTmp made this rc!=0 on every host in the original plan.
+        orig_ns = lintlens._netns_available
+        lintlens._netns_available = lambda: False   # isolate the cgroup tier
+        try:
+            argv = lintlens._harden_argv(["true"], 64)
+            proc = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=20)
+            self.assertEqual(proc.returncode, 0)
+        finally:
+            lintlens._netns_available = orig_ns
+
+    def test_launch_caps_output_and_runs_in_review_root(self):
         big = "A" * (lintlens._MAX_OUTPUT_BYTES + 5000)
+        seen = {}
         def fake(argv, cwd, timeout_s, env=None):
+            seen["called"] = True
+            seen["cwd"] = cwd
             return {"stdout": big, "stderr": "\udce9bad", "returncode": 1,
                     "timed_out": False, "launched": True}
         orig = lintlens.proccap._launch_and_wait
         lintlens.proccap._launch_and_wait = fake
+        self._stub_tool_path()
         try:
             job = {"lane": "auto", "tool": "ruff", "kind": "argv",
-                   "argv": ["ruff", "check"], "shell": None}
-            res = lintlens._launch(job, timeout_s=5, mem_mb=2048)
+                   "argv": ["ruff", "check", "a.py"], "shell": None}
+            res = lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
+            self.assertTrue(seen.get("called"))             # seam actually reached (D10)
+            self.assertEqual(seen.get("cwd"), "/repo")      # runs IN review_root (D1)
             self.assertLessEqual(len(res["stdout"].encode()), lintlens._MAX_OUTPUT_BYTES + 8)
-            res["stderr"].encode("utf-8")  # must not raise — sanitized
+            res["stderr"].encode("utf-8")                   # sanitized — must not raise
         finally:
             lintlens.proccap._launch_and_wait = orig
+            self._restore_tool_path()
 
     def test_launch_returns_empty_on_seam_exception(self):
         def boom(*a, **k):
             raise RuntimeError("seam blew up")
         orig = lintlens.proccap._launch_and_wait
         lintlens.proccap._launch_and_wait = boom
+        self._stub_tool_path()
         try:
             job = {"lane": "auto", "tool": "gofmt", "kind": "argv",
-                   "argv": ["gofmt", "-l"], "shell": None}
-            res = lintlens._launch(job, timeout_s=5, mem_mb=2048)
+                   "argv": ["gofmt", "-l", "m.go"], "shell": None}
+            res = lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
             self.assertEqual(res["stdout"], "")
             self.assertEqual(res["returncode"], None)
         finally:
             lintlens.proccap._launch_and_wait = orig
+            self._restore_tool_path()
+
+    def test_launch_gated_shell_caps_fds_in_review_root(self):
+        seen = {}
+        def fake(argv, cwd, timeout_s, env=None):
+            seen["argv"] = argv
+            seen["cwd"] = cwd
+            return {"stdout": "", "stderr": "", "returncode": 0,
+                    "timed_out": False, "launched": True}
+        orig = lintlens.proccap._launch_and_wait
+        lintlens.proccap._launch_and_wait = fake
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: False   # isolate the sh -c wrapper
+        lintlens._netns_available = lambda: False
+        try:
+            job = {"lane": "gated", "tool": "lint_cmd", "kind": "shell",
+                   "argv": None, "shell": "eslint ."}
+            lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
+            self.assertEqual(seen["argv"][:2], ["sh", "-c"])
+            self.assertIn("ulimit -n", seen["argv"][2])     # fd cap for untrusted repo
+            self.assertIn("eslint .", seen["argv"][2])
+            self.assertEqual(seen["cwd"], "/repo")
+        finally:
+            lintlens.proccap._launch_and_wait = orig
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -474,13 +559,15 @@ Expected: FAIL — launcher symbols undefined.
 
 ```python
 import shutil
+import subprocess
 import tempfile
 
 from scripts import proccap
 
 _MAX_OUTPUT_BYTES = 512_000       # strict output cap before any storage (spec §1.2)
 _TASKS_MAX = 256                  # PID cap: an RSS cap does not bound fork count
-_SANDBOX: bool | None = None      # cached one-time probe result
+_NOFILE_MAX = 1024                # fd cap for the untrusted GATED sh -c lane (spec §1.2)
+_NETNS: bool | None = None        # cached: `unshare -n` (network-off) works
 
 
 def _tool_path(name: str) -> str | None:
@@ -495,59 +582,68 @@ def _tool_path(name: str) -> str | None:
     return None
 
 
-def _harden_argv(workload_argv: list, mem_mb: int, hardened: bool) -> list:
-    """Wrap a workload argv under systemd-run with isolation props, or run bare.
+def _cgroup_cap_available() -> bool:
+    """True iff a ``systemd-run --scope`` MemoryMax cap works (delegates to proccap).
 
-    ``hardened`` → the cgroup sandbox is available: an RSS MemoryMax cap + a
-    TasksMax PID cap + PrivateNetwork (loopback-only = network-off) + PrivateTmp
-    (private /tmp). Workload is passed verbatim after ``--`` (argv-only; no shell
-    splice). ``hardened=False`` → run the workload bare (best-effort: the hermetic
-    env still strips secrets; sandboxing is unavailable on this host). Pure.
+    CGROUP resource props (MemoryMax, TasksMax) ARE valid for ``--scope`` (external-
+    process) units; namespace/sandbox props (PrivateNetwork, PrivateTmp) are NOT — they
+    belong to manager-forked *service* units and make a ``--scope`` invocation fail with
+    "Unknown assignment". So this tier carries ONLY the cgroup caps; network-off is a
+    separate tier via ``unshare -n``. (The plan-challenge caught the original all-in-one
+    ``--scope`` probe failing on every host, disabling every control.)
     """
-    if not hardened:
-        return list(workload_argv)
-    return [
-        "systemd-run", "--scope", "--quiet",
-        "-p", f"MemoryMax={int(mem_mb)}M",
-        "-p", f"TasksMax={_TASKS_MAX}",
-        "-p", "PrivateNetwork=yes",
-        "-p", "PrivateTmp=yes",
-        "--", *workload_argv,
-    ]
+    return proccap._detect_mem_backend() == proccap._BACKEND_CGROUP
 
 
-def _sandbox_available() -> bool:
-    """True iff a sandboxed ``systemd-run --scope`` unit actually starts (cached).
+def _netns_available() -> bool:
+    """True iff ``unshare -n`` yields a private (loopback-only) net namespace (cached).
 
-    Probes ONCE with the exact isolation props we use. Fails (→ False) on hosts
-    without systemd, without a session bus, or where these props are denied — in
-    which case lintlens degrades to a bare (hermetic-env-only) launch.
+    Best-effort network-off. Fails (→ False) on hosts without unprivileged netns; the
+    hermetic env (which already strips GITHUB_TOKEN/NPM_TOKEN/…) remains the PRIMARY
+    secret-exfil control, so a False here degrades gracefully rather than disabling caps.
     """
-    global _SANDBOX
-    if _SANDBOX is not None:
-        return _SANDBOX
-    if proccap._detect_mem_backend() != proccap._BACKEND_CGROUP:
-        _SANDBOX = False
-        return _SANDBOX
+    global _NETNS
+    if _NETNS is not None:
+        return _NETNS
     try:
-        proc = __import__("subprocess").run(
-            ["systemd-run", "--scope", "--quiet",
-             "-p", "MemoryMax=64M", "-p", "TasksMax=16",
-             "-p", "PrivateNetwork=yes", "-p", "PrivateTmp=yes", "--", "true"],
-            stdin=__import__("subprocess").DEVNULL,
-            stdout=__import__("subprocess").DEVNULL,
-            stderr=__import__("subprocess").DEVNULL, timeout=15,
+        proc = subprocess.run(
+            ["unshare", "-n", "true"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=15,
         )
-        _SANDBOX = proc.returncode == 0
-    except Exception:  # noqa: BLE001 — any probe failure → no sandbox (degrade).
-        _SANDBOX = False
-    return _SANDBOX
+        _NETNS = proc.returncode == 0
+    except Exception:  # noqa: BLE001 — any probe failure → no netns (degrade).
+        _NETNS = False
+    return _NETNS
 
 
-def _reset_sandbox_cache() -> None:
-    """Test hook: clear the cached sandbox probe."""
-    global _SANDBOX
-    _SANDBOX = None
+def _harden_argv(workload_argv: list, mem_mb: int) -> list:
+    """Wrap a workload under the isolation ACTUALLY available on this host (spec §1.2).
+
+    Two INDEPENDENT, individually-degrading tiers:
+    * **network-off** — prepend ``unshare -n`` (loopback-only) when ``_netns_available()``.
+    * **cgroup caps** — wrap under ``systemd-run --scope -p MemoryMax -p TasksMax`` when
+      ``_cgroup_cap_available()``. These props DO work for scope units; PrivateNetwork/
+      PrivateTmp do NOT and are never used (that was the challenge-caught bug).
+    HOME/TMPDIR isolation is delivered by the hermetic env's throwaway dirs (not
+    PrivateTmp). If neither tier is available the workload runs bare under the hermetic
+    env. Impure over the two cached probes.
+    """
+    inner = ["unshare", "-n", *workload_argv] if _netns_available() else list(workload_argv)
+    if _cgroup_cap_available() and mem_mb and mem_mb > 0:
+        return [
+            "systemd-run", "--scope", "--quiet",
+            "-p", f"MemoryMax={int(mem_mb)}M",
+            "-p", f"TasksMax={_TASKS_MAX}",
+            "--", *inner,
+        ]
+    return inner
+
+
+def _reset_probe_caches() -> None:
+    """Test hook: clear the cached netns probe (proccap owns its own cgroup cache)."""
+    global _NETNS
+    _NETNS = None
 
 
 def _cap_bytes(text: object) -> str:
@@ -566,30 +662,33 @@ def _empty_result() -> dict:
     return {"stdout": "", "stderr": "", "returncode": None, "timed_out": False}
 
 
-def _launch(job: dict, timeout_s: int, mem_mb: int) -> dict:
-    """Launch ONE job hardened; return capped output. NEVER raises (spec §1.2).
+def _launch(job: dict, review_root: str, timeout_s: int, mem_mb: int) -> dict:
+    """Launch ONE job hardened, IN ``review_root``; return capped output. NEVER raises.
 
-    Builds a throwaway HOME + TMPDIR, a from-scratch hermetic env, wraps the
-    workload (argv for safe-AUTO; ``sh -c`` for a GATED shell command) under the
-    sandbox when available, and runs it via ``proccap._launch_and_wait`` under a
-    wall-clock timeout. Any failure — tool absent, seam exception, malformed job —
-    degrades to an empty result. The throwaway dirs are always rmtree'd.
+    The workload runs with ``cwd=review_root`` so the linters actually SEE the repo's
+    changed files and discover the repo's (declarative) config — while HOME/TMPDIR are
+    throwaway dirs via the hermetic env (no ~/.npmrc/~/.ssh read, no cache into operator
+    space). safe-AUTO is an argv; the GATED ``sh -c`` lane (untrusted repo, operator-
+    consented command) also caps file descriptors via ``ulimit -n``. Any failure — tool
+    absent, seam exception, malformed job — degrades to an empty result. Throwaway dirs
+    are always rmtree'd. (Running in ``review_root`` — not a throwaway HOME — was the
+    challenge-caught fix; the previous cwd=home made every linter see an empty tree.)
     """
     home = tmp = None
     try:
-        hardened = _sandbox_available()
         if job["kind"] == "argv":
             tool = _tool_path(job["argv"][0])
             if tool is None:
                 return _empty_result()          # tool absent → no-op (never a defect)
             workload = [tool, *job["argv"][1:]]
-        else:  # gated shell command (operator-consented boundary)
-            workload = ["sh", "-c", job["shell"]]
+        else:  # GATED shell command (operator-consented) — cap fds for the untrusted repo
+            workload = ["sh", "-c",
+                        f"ulimit -n {_NOFILE_MAX} 2>/dev/null || true; {job['shell']}"]
         home = tempfile.mkdtemp(prefix="lintlens-home-")
         tmp = tempfile.mkdtemp(prefix="lintlens-tmp-")
-        wrapped = _harden_argv(workload, mem_mb, hardened)
+        wrapped = _harden_argv(workload, mem_mb)
         res = proccap._launch_and_wait(
-            wrapped, cwd=home, timeout_s=timeout_s, env=_hermetic_env(home, tmp)
+            wrapped, cwd=review_root, timeout_s=timeout_s, env=_hermetic_env(home, tmp)
         )
         if not res.get("launched", False):
             return _empty_result()
@@ -617,12 +716,13 @@ Expected: PASS (4 tests).
 ```bash
 git add scripts/lintlens.py tests/test_lintlens.py
 git commit -F - <<'EOF'
-feat(lintlens): hardened never-raising launcher (proccap-composed, sandboxed)
+feat(lintlens): hardened never-raising launcher (cgroup caps + netns, in review_root)
 
-Task 3: _launch runs one job under a throwaway HOME/TMPDIR + hermetic env, wrapped
-by systemd-run with MemoryMax+TasksMax+PrivateNetwork(net-off)+PrivateTmp when the
-sandbox probe passes, else bare (hermetic-env still strips secrets). Output is
-UTF-8-sanitized + byte-capped; any failure degrades to empty. proccap untouched.
+Task 3: _launch runs one job IN review_root (so linters see the repo) with a
+throwaway HOME/TMPDIR hermetic env. Two INDEPENDENT isolation tiers: cgroup caps
+(systemd-run --scope MemoryMax+TasksMax — valid for scope units) and network-off
+(unshare -n), each degrading if unavailable; GATED sh -c also caps fds (ulimit -n).
+Output UTF-8-sanitized + byte-capped; any failure -> empty. proccap untouched.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 EOF
@@ -672,7 +772,7 @@ class TestParsersAndCheck(unittest.TestCase):
 
     def test_check_ids_are_unique_and_prefixed(self):
         # With a stubbed launcher, two findings get distinct LNT ids.
-        def fake_launch(job, timeout_s, mem_mb):
+        def fake_launch(job, review_root, timeout_s, mem_mb):
             return {"stdout": ('[{"filename":"a.py","location":{"row":1,"column":1},'
                                '"code":"E1","message":"m1"},'
                                '{"filename":"a.py","location":{"row":2,"column":1},'
@@ -736,6 +836,37 @@ class TestNoAutoExec(unittest.TestCase):
                                    None)
         ruff = next(j for j in jobs if j["tool"] == "ruff")
         self.assertEqual(ruff["argv"][0], "ruff")
+
+    def test_tool_path_never_resolves_repo_binary(self):
+        # _tool_path resolves ONLY from PATH / fixed system dirs — never a repo-relative
+        # path — so a repo-shipped node_modules/.bin/ruff can never be the entrypoint
+        # (spec §1.1 mechanism 1). Exercises the real resolver, not just the planner.
+        root = self._tree({"node_modules/.bin/ruff": "#!/bin/sh\ntouch /tmp/pwn\n"})
+        os.chmod(os.path.join(root, "node_modules/.bin/ruff"), 0o755)
+        resolved = lintlens._tool_path("ruff")
+        if resolved is not None:
+            self.assertNotIn(root, resolved)   # never the repo copy
+
+    def test_escape_symlink_target_never_reaches_a_job(self):
+        # A changed file that is an escape symlink out of review_root must be dropped by
+        # confinement (spec §1.2) before it becomes a linter target; the in-root file is
+        # kept. Proves _confine_ok is actually WIRED into check(), not dead code.
+        root = self._tree({"ruff.toml": "line-length=100\n", "real.py": "x=1\n"})
+        outside = self._tree({"secret.py": "PASSWORD='hunter2'\n"})
+        os.symlink(os.path.join(outside, "secret.py"), os.path.join(root, "leak.py"))
+        captured = {"argvs": []}
+        def fake_launch(job, review_root, timeout_s, mem_mb):
+            captured["argvs"].append(job.get("argv"))
+            return {"stdout": "[]", "stderr": "", "returncode": 0, "timed_out": False}
+        orig = lintlens._launch
+        lintlens._launch = fake_launch
+        try:
+            lintlens.check({"real.py": "x=1\n", "leak.py": "x=1\n"}, root, None)
+        finally:
+            lintlens._launch = orig
+        flat = " ".join(a for argv in captured["argvs"] for a in (argv or []))
+        self.assertNotIn("leak.py", flat)   # escape symlink dropped by confinement
+        self.assertIn("real.py", flat)      # in-root target kept
 
 
 if __name__ == "__main__":
@@ -804,10 +935,15 @@ def check(changed_files: dict, cwd: str, lint_cmd: str | None = None) -> list:
     try:
         if not isinstance(changed_files, dict):
             return []
-        jobs = _plan_jobs(changed_files, cwd, lint_cmd)
+        # review_root confinement (spec §1.2): drop any changed path whose realpath
+        # escapes `cwd` (escape symlink / traversal) BEFORE it can become a linter
+        # target. The GATED lint_cmd is unaffected — it runs in `cwd` regardless.
+        safe_files = {rel: text for rel, text in changed_files.items()
+                      if isinstance(rel, str) and _confine_ok(os.path.join(cwd, rel), cwd)}
+        jobs = _plan_jobs(safe_files, cwd, lint_cmd)
         records: list = []
         for job in jobs:
-            res = _launch(job, _PER_JOB_TIMEOUT_S, _MEM_MB)
+            res = _launch(job, cwd, _PER_JOB_TIMEOUT_S, _MEM_MB)
             records += _parse(job["parser"], res.get("stdout", ""),
                               job["tool"], job["lane"])
         records.sort(key=lambda r: (r["tool"], str(r["path"]),
@@ -864,30 +1000,53 @@ import unittest
 from scripts import verdict
 
 
-class TestAdvisoryFirewall(unittest.TestCase):
-    def test_advisory_present_gate_stays_ok(self):
-        # A green run with a NON-EMPTY advisory must gate OK: the gate never sees it.
-        merged = verdict.merge([{"dimensions": {}, "defects": [], "verdict": "OK"}], [])
-        gate_results = {
-            "runcheck": {"ok": True, "test_count": 5, "new_tests_collected": True},
-            "schema_errors": [], "lint_defects": [], "reqcoverage_defects": [],
-            "pathcheck_defects": [], "docs_clean": True,
-        }
-        # lintlens_advisory is deliberately NOT a key of gate_results.
-        self.assertNotIn("lintlens_advisory", gate_results)
-        self.assertEqual(verdict.gate(merged, gate_results), "OK")
+def _merge_and_gate(script_defects, runcheck):
+    """Reproduce the SKILL Step-4/5 PURE merge+gate over one green critic."""
+    critics = [{"dimensions": {}, "defects": [], "verdict": "OK"}]
+    merged = verdict.merge(critics, script_defects)
+    gate_results = {
+        "runcheck": runcheck, "schema_errors": [], "lint_defects": [],
+        "reqcoverage_defects": [], "pathcheck_defects": [], "docs_clean": True,
+    }
+    return merged, verdict.gate(merged, gate_results)
 
-    def test_skill_never_adds_advisory_to_script_defects(self):
-        # Structural pin: the VERIFIED/merge heredoc stores lintlens_advisory in
-        # evidence but NEVER appends it to script_defects (the firewall).
+
+class TestAdvisoryFirewall(unittest.TestCase):
+    def test_nonempty_advisory_cannot_block_and_never_merges(self):
+        # A green run whose det_evidence carries a NON-EMPTY lintlens_advisory. The SKILL
+        # builds script_defects from the deterministic lens lists but NEVER from
+        # lintlens_advisory (the firewall) — reproduce that (advisory excluded) and assert
+        # (a) the gate is OK and (b) no merged defect derives from the advisory record.
+        advisory = [{"id": "LNT1", "tool": "ruff", "lane": "auto", "path": "a.py",
+                     "line": 3, "message": "unused import", "rule": "F401"}]
+        self.assertTrue(advisory)  # non-empty: the OK below is NOT vacuous
+        green = {"ok": True, "test_count": 5, "new_tests_collected": True}
+        merged, status = _merge_and_gate(script_defects=[], runcheck=green)
+        self.assertEqual(status, "OK")
+        self.assertNotIn("LNT1", {d.get("id") for d in merged["defects"]})
+
+    def test_control_a_real_blocking_defect_does_block(self):
+        # Control: prove the harness CAN block, so the OK above means "advisory excused",
+        # not "the gate is broken". A CRITICAL script_defect must flip it to UNVERIFIED.
+        green = {"ok": True, "test_count": 5, "new_tests_collected": True}
+        blocking = [{"id": "x", "category": "CORRECTNESS", "severity": "CRITICAL",
+                     "location": "a.py", "fix": "f"}]
+        _merged, status = _merge_and_gate(script_defects=blocking, runcheck=green)
+        self.assertEqual(status, "UNVERIFIED")
+
+    def test_skill_wiring_keeps_advisory_out_of_gate(self):
+        # Structural pin: lintlens_advisory is stored in evidence + surfaced, but is NEVER
+        # merged into script_defects (in ANY form: +=/.append/.extend/local-var) nor added
+        # to gate_results.
         text = pathlib.Path("skills/atlas/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn('"lintlens_advisory": lintlens_advisory', text)
         self.assertIn("lintlens.check(", text)
-        self.assertNotIn('script_defects += ev["lintlens_advisory"]', text)
-        self.assertNotIn('script_defects += ev.get("lintlens_advisory"', text)
-        # gate_results must not carry it either.
-        self.assertNotIn('"lintlens_advisory": ev', text.split("gate_results = {")[1]
-                         if "gate_results = {" in text else "")
+        self.assertIn('"lintlens_advisory": lintlens_advisory', text)
+        for line in text.splitlines():
+            if "script_defects" in line and "lintlens_advisory" in line:
+                self.fail("advisory must never touch script_defects: %r" % line)
+        if "gate_results = {" in text:
+            gate_block = text.split("gate_results = {", 1)[1].split("}", 1)[0]
+            self.assertNotIn("lintlens_advisory", gate_block)
 
 
 if __name__ == "__main__":
@@ -897,7 +1056,8 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `PYTHONPATH=. python3 -m unittest tests.test_lintlens_firewall -v`
-Expected: FAIL on `test_skill_never_adds...` — SKILL not yet wired (`lintlens.check(` absent).
+Expected: FAIL on `test_skill_wiring_keeps_advisory_out_of_gate` — SKILL not yet wired (`lintlens.check(`
+absent). The two behavioral tests already pass (pure verdict logic); the structural pin fails until 3a/3b.
 
 - [ ] **Step 3: Wire the SKILL** (three edits — the Python inside the heredocs)
 
@@ -924,13 +1084,21 @@ line documenting the firewall (and add nothing else — the advisory is delibera
 # blind to it so advisory lint can never block. Surfaced only at OUTPUT.
 ```
 
-3c. At **OUTPUT**, surface the advisory as a SAFE-2-wrapped non-blocking note (add to the OUTPUT
-presentation block; wrap because lint messages are attacker-controllable):
+3c. At **OUTPUT**, surface the advisory as a SAFE-2-wrapped non-blocking note (wrap because lint messages
+are attacker-controllable). **Scope caveat (challenge-caught):** the OUTPUT heredoc imports only
+`json` + `from scripts import ctxstore, verdict` and loads `merged_critic.json` — it does **NOT** `import
+sys` and does **NOT** bind `ev`/read `det_evidence.json`. So the snippet must import `sys` and load the
+evidence itself (guarded, so an absent artifact just omits the note):
 
 ```python
-adv = ev.get("lintlens_advisory", [])
+import sys
+from scripts import safewrap
+try:
+    _ev = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "det_evidence.json")
+except Exception:
+    _ev = {}
+adv = _ev.get("lintlens_advisory", [])
 if adv:
-    from scripts import safewrap
     lines = "\n".join("- [%s/%s] %s%s: %s" % (
         a["lane"], a["tool"], a["path"] or "", (":%d" % a["line"]) if a["line"] else "",
         a["message"]) for a in adv)
@@ -1029,6 +1197,21 @@ class TestRunnerAware(unittest.TestCase):
                     res = suiterun.run_suite("go test ./...", "/tmp")
         self.assertEqual(res, {})
 
+    def test_go_partial_failure_is_not_green(self):
+        # 5 passed + 2 failed -> runsignal.count == (5, False): collected is False, so
+        # the whole-suite path must NOT fabricate a green sentinel. This is the D2
+        # discriminator between the buggy field (passed count) and the correct one
+        # (collected); without it a red combined tree would ship as a false green.
+        def fake_run(full, **kw):
+            class R:
+                stdout = b"--- PASS: A\n--- FAIL: B\n"; stderr = b""
+            return R()
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            with mock.patch("scripts.langfloor.resolve_runner_tag", return_value=("go test",)):
+                with mock.patch("scripts.runsignal.count", return_value=(5, False)):
+                    res = suiterun.run_suite("go test ./...", "/tmp")
+        self.assertEqual(res, {})
+
     def test_whole_suite_regression_via_differential(self):
         # baseline green (sentinel) but combined not green → differential flags it.
         baseline = {suiterun._WHOLE_SUITE_ID}
@@ -1121,10 +1304,14 @@ def _run_whole_suite(cmd: str, cwd: str, timeout_s: int, tags: tuple) -> dict:
             out += stream if isinstance(stream, bytes) else stream.encode()
     text = out.decode("utf-8", errors="replace")
     try:
-        test_count, _collected = runsignal.count(text, tags)
+        _passed, collected = runsignal.count(text, tags)
     except Exception:  # noqa: BLE001 — recognizer failure → unconfirmed.
         return {}
-    return {_WHOLE_SUITE_ID: "pass"} if test_count > 0 else {}
+    # Gate on `collected` (runsignal's PASS-only AND-fold: any tag passed>0 AND NO tag
+    # failed) — NOT the raw passed-count. A `5 passed, 2 failed` run yields count ->
+    # (5, False); keying off passed>0 would fabricate a green and mask a real
+    # cross-change regression. runsignal is the PASS-only oracle; trust its fold.
+    return {_WHOLE_SUITE_ID: "pass"} if collected else {}
 ```
 
 - [ ] **Step 4: Run test + regression check**
@@ -1175,6 +1362,28 @@ class TestTestGlobForRunner(unittest.TestCase):
     def test_unknown_or_empty_defaults_to_python(self):
         self.assertEqual(langfloor.test_glob_for_runner(""), "test_*.py")
         self.assertEqual(langfloor.test_glob_for_runner("no-such-runner"), "test_*.py")
+
+
+class TestC6Wiring(unittest.TestCase):
+    def test_skill_derives_test_glob_from_runner(self):
+        import pathlib
+        text = pathlib.Path("skills/atlas/SKILL.md").read_text(encoding="utf-8")
+        # The Step-1 heredoc must rediscover verify_cmd locally and derive test_glob from
+        # the runner — never reference Step 2's `cmd`, never leave the bare hardcoded literal.
+        self.assertIn("langfloor.test_glob_for_runner(", text)
+        self.assertIn("runcheck.discover_verify_cmd(", text)
+
+    def test_wiring_expression_for_go_and_unknown(self):
+        # Reproduce the EXACT wiring expression via the real resolve_runner_tag ->
+        # test_glob_for_runner composition (Go -> *_test.go; unknown -> test_*.py).
+        import tempfile
+        cwd = tempfile.mkdtemp()
+        go_tags = langfloor.resolve_runner_tag("go test ./...", cwd)
+        self.assertEqual(
+            langfloor.test_glob_for_runner(go_tags[0] if go_tags else ""), "*_test.go")
+        unknown = langfloor.resolve_runner_tag("weird-runner --x", cwd)
+        self.assertEqual(
+            langfloor.test_glob_for_runner(unknown[0] if unknown else ""), "test_*.py")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1213,21 +1422,30 @@ def test_glob_for_runner(tag: str) -> str:
 
 - [ ] **Step 4: Wire the SKILL** (`skills/atlas/SKILL.md:439`)
 
-Replace the hardcoded fallback so an unset `test_glob` derives from the detected runner instead of
-always `test_*.py`. The detected runner comes from the discovered `verify_cmd` (already computed in
-GROUNDED/VERIFIED as `cmd`) resolved via `langfloor.resolve_runner_tag`:
+**Heredoc-scope caveat (challenge-caught):** line 439 (`test_glob = st.get("test_glob") or "test_*.py"`)
+lives in the **Step-1 diff-capture heredoc** — a standalone `python3 - <<'PY'` process (~lines 427–454)
+whose imports are only `from scripts import ctxstore, difftool` and which defines `st`, `review_root`,
+`diff` but **NOT `cmd`**. `cmd = runcheck.discover_verify_cmd(...)` is computed only in the SEPARATE
+Step-2 heredoc (a different OS process); heredocs share no variables, so `cmd`/`langfloor` are **not in
+scope at line 439**. `test_glob` is consumed at ~line 450 to split changed vs test files, so it must stay
+in Step 1. Therefore rediscover the verify command **locally, inside Step 1**:
+
+1. Add `langfloor, runcheck` to the Step-1 heredoc's import line (currently
+   `from scripts import ctxstore, difftool`).
+2. Replace line 439:
 
 ```python
-# BEFORE (line 439):
+# BEFORE:
 # test_glob = st.get("test_glob") or "test_*.py"
-# AFTER — language-aware default (C6): explicit override wins; else derive from the
-# detected runner tag (first tag), falling back to test_*.py for unknown runners.
-_tags = langfloor.resolve_runner_tag(cmd, review_root)
+# AFTER — language-aware default (C6). Explicit override wins; else derive from the runner
+# discovered from verify_cmd, rediscovered HERE (Step 2's `cmd` is a different process).
+_verify = runcheck.discover_verify_cmd(st.get("verify_cmd", ""), review_root)
+_tags = langfloor.resolve_runner_tag(_verify, review_root)
 test_glob = st.get("test_glob") or langfloor.test_glob_for_runner(_tags[0] if _tags else "")
 ```
-Ensure `langfloor` is imported in that heredoc's `from scripts import ...` line and that `cmd` /
-`review_root` are already defined at that point (they are — `cmd` is the discovered verify_cmd). If the
-heredoc computes `test_glob` before `cmd` is defined, move the two lines to just after `cmd` is set.
+
+Do **NOT** reference Step 2's `cmd`. `runcheck.discover_verify_cmd(explicit_cmd, cwd) -> str` and
+`langfloor.resolve_runner_tag(verify_cmd, cwd) -> tuple` both exist with these signatures (verified).
 
 - [ ] **Step 5: Run test + full CI**
 
@@ -1262,12 +1480,41 @@ EOF
 ## Self-review (run against the spec)
 
 - **Coverage:** Component 1 (exec model + hardening) → Tasks 1-4; Component 2 (advisory pipeline) →
-  Task 5; C5 → Task 6; C6 → Task 7. Every spec §Testing item has a task test (no-exec proof T4/redteam;
-  hermetic env T2; never-raise T3/T4; advisory firewall T5; output cap T3; symlink-deny T2; C5 both
-  granularities T6; C6 table T7). ✓
+  Task 5; C5 → Task 6; C6 → Task 7. Spec §Testing items covered: no-exec proof (T4 redteam) + PATH-only
+  resolver (T4) + confinement WIRED (T4 escape-symlink integration); hermetic env incl. GOFLAGS (T2);
+  never-raise + seam-reached (T3/T4); cgroup props actually launch (T3 skipUnless); GATED sh -c + fd cap
+  (T3); advisory firewall behavioral + control + structural pin (T5); output cap/sanitize (T3); C5 both
+  granularities incl. partial-failure (T6); C6 table + SKILL wiring logic (T7). Residual (documented, not
+  a task): a hard block-level TMPDIR disk quota needs a privileged tmpfs mount → out of scope (bounded by
+  throwaway TMPDIR + MemoryMax + wall-budget). ✓
 - **Placeholders:** none — every step carries real code/commands. ✓
 - **Type consistency:** advisory record shape `{"id","tool","lane","path","line","message","rule"}` is
-  identical across `_rec`/parsers/`check`/firewall test; `_WHOLE_SUITE_ID` string identical across
-  suiterun + tests; `test_glob_for_runner` signature identical across langfloor + SKILL + test. ✓
+  identical across `_rec`/parsers/`check`/firewall test; `_launch(job, review_root, timeout_s, mem_mb)`
+  signature identical across def/callsite/stubs; `_WHOLE_SUITE_ID` string identical across suiterun +
+  tests; `test_glob_for_runner` signature identical across langfloor + SKILL + test. ✓
 - **FROZEN respected:** proccap not edited (composed only); verdict/differential not edited; advisory
   never in script_defects/gate_results. ✓
+
+## Plan-challenge fold (2026-07-23)
+
+This plan was hardened by an elite 6-lens adversarial challenge (6 lens critics + independent
+per-finding refute-verify; 40 agents): **34 raw → 31 confirmed** findings (0 CRITICAL, 14 HIGH, 9
+MEDIUM, 8 LOW), deduplicating to ~12 distinct fixes, all folded above:
+- **D1** (HIGH ×6 lenses) — `_launch` ran with `cwd=home` (throwaway) → advisory lane dead-on-arrival;
+  `_confine_ok` dead code. Fix: thread `review_root` into `_launch` (cwd=review_root, throwaway HOME via
+  env); wire `_confine_ok` into `check()` target selection; escape-symlink integration test.
+- **D2** (HIGH ×5) — whole-suite keyed off `test_count>0` → false green on `5 passed, 2 failed`. Fix:
+  branch on `collected`; add `(N>0, False)→{}` test.
+- **D3** (HIGH ×4) — C6 wiring at SKILL line 439 referenced `cmd`/`langfloor` unbound in the Step-1
+  heredoc → NameError false-blocks every repo. Fix: rediscover `cmd` inside Step 1 + import langfloor/
+  runcheck; wiring test.
+- **D4** (HIGH) — `systemd-run --scope` rejects `PrivateNetwork/PrivateTmp` → all hardening dead code.
+  Fix: two independent tiers — cgroup caps (MemoryMax+TasksMax, valid for --scope) + `unshare -n` netns;
+  a skipUnless test asserts the cgroup unit actually launches (rc==0).
+- **D5** (MED) — OUTPUT snippet referenced `ev`/`sys` unbound. Fix: import `sys` + load `_ev` guarded.
+- **D6/D7** (MED) — RLIMIT_NOFILE via `ulimit -n` on GATED lane; `GOFLAGS=-mod=readonly` (was `-mod=mod`,
+  spec said `-mod=vendor` — corrected in both); disk-quota residual documented.
+- **D9** (MED) — firewall tests were tautological. Fix: behavioral OK + a control that a real CRITICAL
+  DOES block + a robust structural pin (any line touching both `script_defects` and `lintlens_advisory`
+  fails). **D10/L2/L6/L7** — launcher tests stub `_tool_path` + assert seam reached; real PATH-only
+  red-team; `import subprocess` at top; drop dead `tempfile` in `_hermetic_env`.
