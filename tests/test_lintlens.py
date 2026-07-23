@@ -227,5 +227,51 @@ class TestLauncher(unittest.TestCase):
             lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
 
 
+class TestParsersAndCheck(unittest.TestCase):
+    def test_ruff_json_parsed_to_records(self):
+        payload = ('[{"filename":"a.py","location":{"row":3,"column":1},'
+                   '"code":"F401","message":"unused import"}]')
+        recs = lintlens._parse("ruff_json", payload, "ruff", "auto")
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["rule"], "F401")
+        self.assertEqual(recs[0]["line"], 3)
+        self.assertEqual(recs[0]["path"], "a.py")
+        self.assertEqual(recs[0]["lane"], "auto")
+
+    def test_gofmt_list_is_advisory_per_file(self):
+        recs = lintlens._parse("gofmt_list", "m.go\nx.go\n", "gofmt", "auto")
+        self.assertEqual({r["path"] for r in recs}, {"m.go", "x.go"})
+
+    def test_parse_malformed_is_empty(self):
+        self.assertEqual(lintlens._parse("ruff_json", "not json{", "ruff", "auto"), [])
+
+    def test_check_empty_when_nothing_fires(self):
+        cwd = _tree({"README.md": "# x\n"})
+        self.assertEqual(lintlens.check({"a.py": "x=1\n"}, cwd, None), [])
+
+    def test_check_never_raises_on_bad_input(self):
+        # A malformed changed_files value must not raise.
+        self.assertEqual(lintlens.check(None, "/nonexistent", None), [])
+
+    def test_check_ids_are_unique_and_prefixed(self):
+        # With a stubbed launcher, two findings get distinct LNT ids.
+        def fake_launch(job, review_root, timeout_s, mem_mb):
+            return {"stdout": ('[{"filename":"a.py","location":{"row":1,"column":1},'
+                               '"code":"E1","message":"m1"},'
+                               '{"filename":"a.py","location":{"row":2,"column":1},'
+                               '"code":"E2","message":"m2"}]'),
+                    "stderr": "", "returncode": 1, "timed_out": False}
+        orig = lintlens._launch
+        lintlens._launch = fake_launch
+        try:
+            cwd = _tree({"ruff.toml": "line-length=100\n"})
+            recs = lintlens.check({"a.py": "x=1\n"}, cwd, None)
+            ids = [r["id"] for r in recs]
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertTrue(all(i.startswith("LNT") for i in ids))
+        finally:
+            lintlens._launch = orig
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ entrypoint (spec §1.1 mechanism 1).
 """
 from __future__ import annotations
 
+import json
 import os
 import os.path as _osp
 import pathlib
@@ -299,3 +300,76 @@ def _launch(job: dict, review_root: str, timeout_s: int, mem_mb: int) -> dict:
         for d in (home, tmp):
             if d is not None:
                 shutil.rmtree(d, ignore_errors=True)
+
+
+_PER_JOB_TIMEOUT_S = 60
+_MEM_MB = 2048
+
+
+def _parse(parser: str, stdout: str, tool: str, lane: str) -> list:
+    """Turn a tool's raw stdout into advisory records (pure, never raises)."""
+    try:
+        if parser == "ruff_json":
+            data = json.loads(stdout or "[]")
+            out = []
+            for d in data if isinstance(data, list) else []:
+                loc = d.get("location") or {}
+                out.append(_rec(tool, lane, d.get("filename"),
+                                loc.get("row"), d.get("message", ""), d.get("code")))
+            return out
+        if parser == "shellcheck_json":
+            data = json.loads(stdout or "[]")
+            out = []
+            for d in data if isinstance(data, list) else []:
+                out.append(_rec(tool, lane, d.get("file"), d.get("line"),
+                                d.get("message", ""), "SC%s" % d.get("code", "")))
+            return out
+        if parser == "gofmt_list":
+            return [_rec(tool, lane, ln.strip(), None, "not gofmt-formatted", None)
+                    for ln in (stdout or "").splitlines() if ln.strip()]
+        if parser == "gated_text":
+            text = (stdout or "").strip()
+            return [_rec(tool, lane, None, None, text, None)] if text else []
+    except Exception:  # noqa: BLE001 — a parse surprise contributes nothing.
+        return []
+    return []
+
+
+def _rec(tool, lane, path, line, message, rule) -> dict:
+    """One canonical advisory record (never a defect; advisory only)."""
+    return {"id": "", "tool": tool, "lane": lane,
+            "path": path, "line": line,
+            "message": str(message)[:2000], "rule": rule}
+
+
+def check(changed_files: dict, cwd: str, lint_cmd: str | None = None) -> list:
+    """Run the advisory linters and return advisory records. NEVER raises.
+
+    Plans jobs (pure), launches each hardened + never-raising, parses output, and
+    mints per-record unique ``LNT<n>`` ids after a stable sort. Empty on any
+    failure or when nothing fires (no-op → never blocks). Output is ADVISORY: the
+    caller stores it under ``lintlens_advisory`` and NEVER adds it to
+    ``script_defects`` (the firewall, spec §Component 2).
+    """
+    try:
+        if not isinstance(changed_files, dict):
+            return []
+        # review_root confinement (spec §1.2): drop any changed path whose realpath
+        # escapes `cwd` (escape symlink / traversal) BEFORE it can become a linter
+        # target. The GATED lint_cmd is unaffected — it runs in `cwd` regardless.
+        safe_files = {rel: text for rel, text in changed_files.items()
+                      if isinstance(rel, str) and _confine_ok(os.path.join(cwd, rel), cwd)}
+        jobs = _plan_jobs(safe_files, cwd, lint_cmd)
+        records: list = []
+        for job in jobs:
+            res = _launch(job, cwd, _PER_JOB_TIMEOUT_S, _MEM_MB)
+            records += _parse(job["parser"], res.get("stdout", ""),
+                              job["tool"], job["lane"])
+        records.sort(key=lambda r: (r["tool"], str(r["path"]),
+                                    r["line"] if r["line"] is not None else -1,
+                                    str(r["rule"]), r["message"]))
+        for i, r in enumerate(records, 1):
+            r["id"] = "LNT%d" % i
+        return records
+    except Exception:  # noqa: BLE001 — the whole lane is advisory; failure = silence.
+        return []
