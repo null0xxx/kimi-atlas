@@ -70,5 +70,38 @@ class TestPlanJobs(unittest.TestCase):
         self.assertNotIn("node_modules", " ".join(ruff["argv"]))
 
 
+class TestHardeningHelpers(unittest.TestCase):
+    def test_hermetic_env_strips_secrets(self):
+        os.environ["GITHUB_TOKEN"] = "secret"
+        os.environ["NODE_OPTIONS"] = "--require /evil"
+        try:
+            env = lintlens._hermetic_env("/tmp/h", "/tmp/t")
+            self.assertEqual(set(env), set(lintlens._HERMETIC_KEYS))
+            self.assertNotIn("GITHUB_TOKEN", env)
+            self.assertNotIn("NODE_OPTIONS", env)
+            self.assertEqual(env["HOME"], "/tmp/h")
+            self.assertEqual(env["TMPDIR"], "/tmp/t")
+            # Go isolation knobs are present (harmless for non-Go tools).
+            self.assertEqual(env["CGO_ENABLED"], "0")
+            self.assertEqual(env["GOTOOLCHAIN"], "local")
+            self.assertEqual(env["GOFLAGS"], "-mod=readonly")  # -mod=vendor would false-error
+        finally:
+            del os.environ["GITHUB_TOKEN"], os.environ["NODE_OPTIONS"]
+
+    def test_confine_rejects_escape_symlink(self):
+        root = _tree({"real.py": "x=1\n"})
+        outside = _tree({"secret": "k\n"})
+        link = os.path.join(root, "escape")
+        os.symlink(outside, link)
+        self.assertTrue(lintlens._confine_ok(os.path.join(root, "real.py"), root))
+        self.assertFalse(lintlens._confine_ok(os.path.join(link, "secret"), root))
+
+    def test_confine_rejects_absolute_and_parent(self):
+        root = _tree({"a.py": "x\n"})
+        self.assertFalse(lintlens._confine_ok("/etc/passwd", root))
+        self.assertFalse(lintlens._confine_ok(os.path.join(root, "..", "x"), root))
+        self.assertTrue(lintlens._confine_ok(os.path.join(root, "a.py"), root))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ entrypoint (spec §1.1 mechanism 1).
 from __future__ import annotations
 
 import os
+import os.path as _osp
 import pathlib
 
 # safe-AUTO allowlist. Each entry: the changed-file extension(s) that trigger it,
@@ -107,3 +108,47 @@ def _plan_jobs(changed_files: dict, cwd: str, lint_cmd: str | None) -> list[dict
             "targets": [], "parser": "gated_text",
         })
     return jobs
+
+
+# The child env, built from scratch (spec §1.2). Mirrors nativefloor._hermetic_env
+# but adds a throwaway HOME/TMPDIR (passed in) and Go isolation knobs (harmless to
+# non-Go tools; they block cgo/toolchain fetch for a GATED Go linter).
+_HERMETIC_KEYS = ("PATH", "HOME", "LANG", "TMPDIR",
+                  "CGO_ENABLED", "GOTOOLCHAIN", "GOFLAGS")
+
+
+def _hermetic_env(home: str, tmpdir: str) -> dict:
+    """Return the from-scratch child env: {PATH,HOME,LANG,TMPDIR} + Go knobs (pure).
+
+    NOT ``os.environ.copy()`` minus a denylist — a fresh dict, so hostile hooks
+    (GITHUB_TOKEN/NPM_TOKEN/AWS_*/NODE_OPTIONS/RUBYOPT/LD_PRELOAD) simply do not
+    exist in the child. HOME/TMPDIR are the caller's throwaway dirs. The Go knobs
+    block the cgo/toolchain/module-fetch vector (X-09) for a GATED Go linter:
+    ``-mod=readonly`` (NOT ``-mod=vendor``, which would false-error a non-vendored
+    repo) forbids go.mod edits; ``GOTOOLCHAIN=local`` + network-off are the real
+    fetch blocks.
+    """
+    return {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "HOME": home,
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "TMPDIR": tmpdir,
+        "CGO_ENABLED": "0",
+        "GOTOOLCHAIN": "local",
+        "GOFLAGS": "-mod=readonly",
+    }
+
+
+def _confine_ok(path: str, root: str) -> bool:
+    """True iff ``path`` resolves to a location INSIDE ``root`` (pure, spec §1.2).
+
+    Rejects absolute escapes, ``..`` traversal, and escape symlinks by comparing
+    the fully-resolved realpaths. ``root`` itself resolves first so a symlinked
+    review_root is handled. Any error → False (fail-closed on confinement).
+    """
+    try:
+        root_real = _osp.realpath(root)
+        target_real = _osp.realpath(path)
+    except OSError:
+        return False
+    return target_real == root_real or target_real.startswith(root_real + os.sep)
