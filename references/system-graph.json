@@ -1,2136 +1,2050 @@
 {
-  "_generated": "graphify regenerated 2026-07-22 on 8dfa0a1 — the current whole-system map",
-  "meta": {
-    "subsystems": 8,
-    "nodes": 87,
-    "edges": 220,
-    "invariants": 90,
-    "date": "2026-07-22",
-    "commit": "8dfa0a1"
+ "_generated": "graphify regenerated 2026-07-23 on faa48be — the current whole-system map (universal-floor P1/P2/P3 added)",
+ "meta": {
+  "subsystems": 10,
+  "nodes": 99,
+  "edges": 180,
+  "invariants": 95,
+  "date": "2026-07-23",
+  "commit": "faa48be"
+ },
+ "subsystems": [
+  {
+   "id": "atlas-core",
+   "summary": "atlas-core is the single-change orchestration engine of kimi-atlas: a deterministic INIT→OUTPUT state machine driven by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (ctxstore) and a family of PURE decision cores (plandag, scheduler, planstage, budget, bestofn, resume, runcaps) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements. The SKILL is the sole root conductor — it holds full-fidelity intent, dispatches read-only scout/critic and write-capable coder subagents by reading role-files and mapping them onto Kimi built-in agent types, and NEVER computes pass/fail itself (that authority lives in the verdict subsystem's pure gate/merge). The pure cores enforce provable halting (monotone gas + per-job MAX_ATTEMPTS), memory-safe wave scheduling (flat W=3), and a byte-identical degrade-to-single-node guarantee so any planner failure collapses to today's exact single-change atlas run.",
+   "nodes": 12,
+   "edges": 30
   },
-  "subsystems": [
-    {
-      "id": "atlas-core",
-      "summary": "atlas-core is the single-change orchestration engine of kimi-atlas: a deterministic INIT→OUTPUT state machine driven by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (ctxstore) and a family of PURE decision cores (plandag, scheduler, planstage, budget, bestofn, resume, runcaps) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements. The SKILL is the sole root conductor — it holds full-fidelity intent, dispatches read-only scout/critic and write-capable coder subagents by reading role-files and mapping them onto Kimi built-in agent types, and NEVER computes pass/fail itself (that authority lives in the verdict subsystem's pure gate/merge). The pure cores enforce provable halting (monotone gas + per-job MAX_ATTEMPTS), memory-safe wave scheduling (flat W=3), and a byte-identical degrade-to-single-node guarantee so any planner failure collapses to today's exact single-change atlas run.",
-      "nodes": 12,
-      "edges": 30
-    },
-    {
-      "id": "verification-harness",
-      "summary": "The 6-lens verification gate that decides whether a code change is \"elite\" (OK) or degrades to UNVERIFIED. Its spine is a set of PURE decision functions in verdict.py (merge/gate/should_refine/final_status) — no LLM ever computes pass/fail. Under them sits a deterministic floor (runcheck, quality.lint_deliverable, astlens, sast, reqcoverage, pathcheck) that mechanically blocks detectable sub-elite code, above them three isolated single-lens model critics (correctness/code-quality/security), all scored against one rubric (references/rubric.md) whose vocabulary is single-sourced in rubric.py. The orchestrator SKILL only marshals inputs into these calls and drives the provably-halting REFINE loop.",
-      "nodes": 13,
-      "edges": 36
-    },
-    {
-      "id": "atlas-weave",
-      "summary": "atlas-weave is the OUTER multi-agent meta-machine that wraps the single-change `atlas` inner machine: it decomposes a large multi-file request into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges the node diffs through a combined-tree INTEGRATE sink. The sink is a stack of THREE deterministic disjointness nets — `integrate.actual_conflicts` (same-file overlap over actually-touched files), `integrate.apply_failures` (NEW: a change the union `git apply` rejected, or an unbuildable union tree), and `differential.regressions` (green-alone/red-combined) — folded by `integrate.integration_verdict` alongside a read-only seam critic. No LLM ever computes pass/fail; every verdict is a pure fold, and the whole run provably halts on `runcaps` gas. It degrades byte-identically to one atlas run on a 1-node DAG, and its full composition is pinned in CI by `dogfood_weave.py`.",
-      "nodes": 8,
-      "edges": 33
-    },
-    {
-      "id": "agentic-backbone",
-      "summary": "The agentic-backbone is the Graph+Loop+Verification layer that sits atop ctxstore's append-only ledger. ContextGraph (contextgraph.py) is a pure, deterministic read-time projection of the ledger — injected as architectural-state DATA at CODED (a HINT, never a gate) and recomputed on every REFINE re-dispatch so the coder never sees a stale graph. fsm.py provides pure canonical-transition legality (a test/negative-gate invariant, not enforced in advance); rollback_driver.py adds a two-phase, forward-only, idempotent git-reset rollback gated to isolated headless worktrees; safewrap.py is the single canonical SAFE-2 untrusted-content wrapper shared by the read (GRAPH_LOOKUP) and write (REFINE feedback) paths; ctxevents.py + telemetry.sh are the two writers of the per-run hooks.jsonl event log; and frontmatter.py is the shared YAML-fence primitive. Everything reads ctxstore's ledger; only rollback and the event writers mutate state, and each does so through a narrow, invariant-guarded seam.",
-      "nodes": 9,
-      "edges": 29
-    },
-    {
-      "id": "skill-system",
-      "summary": "The skill-system vendors 115 official skill packages into the plugin and makes the right one addressable at the right moment. A four-stage pipeline runs offline: skillextract unpacks the bundled `Skills/` zips byte-identically into a committed `skills/<name>/` tree anchored by a sha256 manifest; skillregistry distils each package's SKILL.md into a compact, machine-readable registry; skillselect ranks that registry against a task intent (advisory-only, V6) at the atlas GROUNDED stage and persists `.atlas/<run_id>/skills.json`. skillpkgs is a small shared walk that exempts skill-package payload markdown from the two doc gates. Each SKILL.md is third-party UNTRUSTED DATA (SAFE-2), parsed for classification/confinement, never interpreted as instructions.",
-      "nodes": 6,
-      "edges": 15
-    },
-    {
-      "id": "bench",
-      "summary": "A standalone benchmark harness (new; absent from the old graphify) that measures not just whether kimi-atlas solves a coding task, but whether its 6-lens gate tells the truth when it says OK. It mirrors the plugin's own pure-core/hands split: a pure deterministic scorer folds (verdict_ok, tests_pass) pairs into a confusion matrix (TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL) and trust metrics whose headline is false_pass_rate/false_pass_count; a self-validating task suite materialises throwaway git repos with hidden acceptance tests; a thin I/O runner reads a completed atlas run's ledger, applies its diff.patch to a clean baseline and runs the hidden tests as ground truth; a Markdown reporter and a CLI wrap it. It consumes artifacts produced by the atlas run subsystem (merged_critic.json, diff.patch, log.jsonl) but has zero code dependency on plugin internals.",
-      "nodes": 7,
-      "edges": 10
-    },
-    {
-      "id": "build-ci",
-      "summary": "The build-ci subsystem is kimi-atlas's quality gate and packaging layer. Its spine is the Makefile, whose `ci` target chains four network-free gates (strict artifact-naming, unittest suite, inventory-drift, and a real `sh -n` shell-syntax gate) and is the exact thing GitHub Actions runs via `make ci`. Alongside sit the machine-checked doc gates (naming + inventory-drift, sharing one skill-package-aware walk), pure data-contract cores (schema validate, plugin_meta), two red-team negative-gate drivers held deliberately outside `ci` (a single-change judgment+SAST gate needing Kimi/semgrep, and a pure combined-tree integration gate), the idempotent source installer, and an opt-in fail-open destructive-Bash guard. It owns the invariant that CI stays deterministic and dependency-free while the heavier proofs run behind their own targets.",
-      "nodes": 11,
-      "edges": 35
-    },
-    {
-      "id": "tests",
-      "summary": "The tests/ subsystem is the plugin's proof engine: 59 test_*.py unittest modules totaling 928 tests, all green via `make test` (python3 -m unittest discover -s tests -v). It provides roughly 1:1 coverage of the 39 scripts/ modules plus the bench/ harness, and pins the FROZEN invariants that the rest of the system leans on — the canonical STAGES machine, FSM legality, intent immutability, the append-only ledger, ledger-derived get_refine_passes, and SAFE-2 injection confinement. Red-team suites (single-tree and combined-tree negative gates, zip-slip, write/read-path injection, destructive-hook bypass) prove the safety gates actually bite, while test_rollback_realgit.py closes the real-git seam and the newest additions (test_bench_scorer.py, test_skill_ref_paths.py) pin the benchmark scorer and the plugin read-path fix.",
-      "nodes": 21,
-      "edges": 32
-    }
-  ],
-  "nodes": [
-    {
-      "id": "atlas-SKILL",
-      "subsystem": "atlas-core",
-      "path": "skills/atlas/SKILL.md",
-      "kind": "skill",
-      "responsibility": "Root conductor prose: runs INIT→OUTPUT in one uninterrupted turn, dispatches subagents via role-file read/strip/prepend, marshals pure cores + verdict, enforces 3 sanctioned human gates and NO-LLM-verdict."
-    },
-    {
-      "id": "ctxstore",
-      "subsystem": "atlas-core",
-      "path": "scripts/ctxstore.py",
-      "kind": "io-hand",
-      "responsibility": "Deterministic run persistence: frozen immutable packet, canonical STAGES state machine, append-only log.jsonl ledger (authoritative refine counter), artifacts/drafts, two-phase rollback markers — NO prompting/subprocess."
-    },
-    {
-      "id": "plandag",
-      "subsystem": "atlas-core",
-      "path": "scripts/plandag.py",
-      "kind": "pure-core",
-      "responsibility": "Pure plan-DAG substrate: DAG validity (Kahn), scope-disjointness + criteria-conservation defects, gas charge/exhaust, ready-jobs frontier, bounded expand, fixpoint — owns the two halting bounds (gas, MAX_ATTEMPTS)."
-    },
-    {
-      "id": "scheduler",
-      "subsystem": "atlas-core",
-      "path": "scripts/scheduler.py",
-      "kind": "pure-core",
-      "responsibility": "Pure flat-W=3 work-stealing scheduler core: §6 class-aware memory admission, gas-charging dispatch + lease fencing, receipt/timeout/reap transitions, lexicographic halting measure, and the final UNVERIFIED-safe aggregate."
-    },
-    {
-      "id": "planstage",
-      "subsystem": "atlas-core",
-      "path": "scripts/planstage.py",
-      "kind": "pure-core",
-      "responsibility": "DECOMPOSED-stage gate: validate a planner DAG (reusing plandag + verdict.coverage_partition) or degrade to single_node_dag — the byte-identical degrade-to-atlas guarantee."
-    },
-    {
-      "id": "budget",
-      "subsystem": "atlas-core",
-      "path": "scripts/budget.py",
-      "kind": "pure-core",
-      "responsibility": "Pure risk/budget heuristics: risk_score sizes spend, monotone token ledger (charge_tokens), mandatory-floor funding gate — SIZES spend only, never gates pass/fail."
-    },
-    {
-      "id": "bestofn",
-      "subsystem": "atlas-core",
-      "path": "scripts/bestofn.py",
-      "kind": "pure-core",
-      "responsibility": "Risk-funded best-of-N: pure lexicographic N→1 winner selection (gate-pass > fewer blocking defects > fewer tokens > lower index) with a guaranteed best-of-1 floor; fanout_n decides N."
-    },
-    {
-      "id": "resume",
-      "subsystem": "atlas-core",
-      "path": "scripts/resume.py",
-      "kind": "pure-core",
-      "responsibility": "Run-shape-aware graph resume: select the graph ROOT run (never a task sub-run) and reset orphaned RUNNING jobs to PENDING without refunding gas or bumping attempts — state-as-projection re-derivation."
-    },
-    {
-      "id": "runcaps",
-      "subsystem": "atlas-core",
-      "path": "scripts/runcaps.py",
-      "kind": "pure-core",
-      "responsibility": "Provisions halting caps (depth_max/node_max/gas set strictly above worst-case dispatch count) + soft token_budget from risk; degrades a malformed packet to the atlas-safe minimum."
-    },
-    {
-      "id": "context-scout",
-      "subsystem": "atlas-core",
-      "path": "agents/context-scout.md",
-      "kind": "agent",
-      "responsibility": "Read-only grounding role (mapped to built-in `explore`): scans target repo, returns a grounding-digest JSON as its final message (writes nothing); treats file content as untrusted DATA."
-    },
-    {
-      "id": "elite-coder",
-      "subsystem": "atlas-core",
-      "path": "agents/elite-coder.md",
-      "kind": "agent",
-      "responsibility": "Write-capable implementation role (mapped to `coder`): implements the change inside review_root, self-verifies verify_cmd, returns STATUS as evidence-not-proof; untrusted-content rule."
-    },
-    {
-      "id": "planner",
-      "subsystem": "atlas-core",
-      "path": "agents/planner.md",
-      "kind": "agent",
-      "responsibility": "Read-only decomposer role (mapped to `plan`): turns the frozen packet into a file-disjoint plan-DAG + per-node risk_features JSON, or a single node when it doesn't cleanly split."
-    },
-    {
-      "id": "verdict",
-      "subsystem": "verification-harness",
-      "path": "scripts/verdict.py",
-      "kind": "pure-core",
-      "responsibility": "Pure decision core: merge (normalize 3 critics + script defects → canonical critic), gate (composite AND PASS bar → OK/UNVERIFIED), should_refine (CRITICAL/HIGH + passes<MAX_PASSES), final_status, missing_stages, plus ATLAS-WEAVE aggregate + coverage_partition — no model judgment, no I/O."
-    },
-    {
-      "id": "rubric",
-      "subsystem": "verification-harness",
-      "path": "scripts/rubric.py",
-      "kind": "pure-core",
-      "responsibility": "Single source of truth (F6) for the 6 lens names (DIMENSIONS), the severity ladder (SEVERITIES), the blocking subset (BLOCKING={CRITICAL,HIGH}), and the critic-schema key sets (CRITIC_TOP_KEYS/DEFECT_KEYS); stdlib-only, zero side effects."
-    },
-    {
-      "id": "runcheck",
-      "subsystem": "verification-harness",
-      "path": "scripts/runcheck.py",
-      "kind": "io-hand",
-      "responsibility": "Lens 5 DOES-IT-RUN executor: runs the frozen verify_cmd under a fail-open memory cap (cgroup MemoryMax preferred, ulimit -v fallback) + wall-clock timeout in its own process group, parses runner output, and judges green = ok AND test_count>0 AND new_tests_collected (V4)."
-    },
-    {
-      "id": "quality",
-      "subsystem": "verification-harness",
-      "path": "scripts/quality.py",
-      "kind": "pure-core",
-      "responsibility": "Two deterministic cores: enforce_critic_schema (hard value-shape validation of the merged critic — yes/no dims, canonical categories/severities, verdict-vs-defect consistency, no stray keys) and lint_deliverable (config-driven debug-token + missing-test floor for lenses 2/4, capped at MEDIUM)."
-    },
-    {
-      "id": "astlens",
-      "subsystem": "verification-harness",
-      "path": "scripts/astlens.py",
-      "kind": "pure-core",
-      "responsibility": "Deterministic AST lens over changed .py: ast.parse + compile(exec) syntax/parse floor (HIGH DOES-IT-RUN), undefined-name pass (HIGH DOES-IT-RUN, skipped on star/dynamic-namespace modules), unused-import pass (MEDIUM CODE-QUALITY); labelled 'syntax/parse', never type-check."
-    },
-    {
-      "id": "sast",
-      "subsystem": "verification-harness",
-      "path": "scripts/sast.py",
-      "kind": "io-hand",
-      "responsibility": "Partial deterministic floor under lens 3 SECURITY: runs semgrep --config auto --metrics off over scope_paths, maps ERROR→HIGH/WARNING→MEDIUM/INFO→LOW (never CRITICAL); mandatory fail-open — any failure returns [] and the lens degrades to judgment-only."
-    },
-    {
-      "id": "reqcoverage",
-      "subsystem": "verification-harness",
-      "path": "scripts/reqcoverage.py",
-      "kind": "pure-core",
-      "responsibility": "Advisory lens 6 REQUIREMENTS-COVERAGE: literal token-overlap between each frozen success criterion and the diff → MEDIUM 'unconfirmed' per zero-overlap criterion, plus optional MEDIUM scope-creep per out-of-scope changed file; gameable both ways so capped at MEDIUM (V6)."
-    },
-    {
-      "id": "pathcheck",
-      "subsystem": "verification-harness",
-      "path": "scripts/pathcheck.py",
-      "kind": "pure-core",
-      "responsibility": "Deterministic grounding cross-check for lenses 1/6: every backticked file-like path citation in the text must exist in ctx['relevant_files'] or on disk under root, else a CRITICAL CORRECTNESS defect; symbol resolution dropped (paths only, CMP-06)."
-    },
-    {
-      "id": "difftool",
-      "subsystem": "verification-harness",
-      "path": "scripts/difftool.py",
-      "kind": "io-hand",
-      "responsibility": "Single deterministic diff source for every lens: renders modified-tracked, brand-new-untracked, and non-git-tree files uniformly (new files as full new-file diffs), pinned formatting for byte-identical output, never mutates tree/index, degrades to empty string on any failure."
-    },
-    {
-      "id": "correctness-critic",
-      "subsystem": "verification-harness",
-      "path": "agents/correctness-critic.md",
-      "kind": "agent",
-      "responsibility": "Isolated adversarial plan-subagent for lens 1 CORRECTNESS (also confirms advisory lenses 4/6, may raise them to HIGH); read-only, emits one critic-schema JSON; temperature 0.2; sees only intent+diff+rubric+deterministic evidence, never orchestrator/coder/peer state."
-    },
-    {
-      "id": "code-quality-critic",
-      "subsystem": "verification-harness",
-      "path": "agents/code-quality-critic.md",
-      "kind": "agent",
-      "responsibility": "Isolated adversarial plan-subagent for lens 2 CODE-QUALITY (dead abstraction / structure / convention drift, HIGH is rare); read-only, one critic-schema JSON; temperature 0.5."
-    },
-    {
-      "id": "security-critic",
-      "subsystem": "verification-harness",
-      "path": "agents/security-critic.md",
-      "kind": "agent",
-      "responsibility": "Isolated adversarial plan-subagent for lens 3 SECURITY (taint→sink, secrets, path traversal, untrusted-content-as-instructions); read-only, one critic-schema JSON; temperature 0.3; augmented by the sast floor."
-    },
-    {
-      "id": "rubric-doc",
-      "subsystem": "verification-harness",
-      "path": "references/rubric.md",
-      "kind": "doc",
-      "responsibility": "The single human/critic-facing rubric: the 6 falsifiable lenses, severity mapping, the exact verdict.gate PASS-bar clauses, and the honest-scope disclaimers (V3 anti-Goodhart, V5 lens independence, V6 MEDIUM-cap, V7 severity-trust)."
-    },
-    {
-      "id": "atlas-weave-SKILL",
-      "subsystem": "atlas-weave",
-      "path": "skills/atlas-weave/SKILL.md",
-      "kind": "skill",
-      "responsibility": "The orchestrator prose: the outer FSM (DECOMPOSED->BUDGETED->SCHEDULE*->INTEGRATE->AGGREGATE->OUTPUT), Kimi tool/role-dispatch adaptation, and the four load-bearing invariants; it only marshals evidence into pure functions."
-    },
-    {
-      "id": "uniontree",
-      "subsystem": "atlas-weave",
-      "path": "scripts/uniontree.py",
-      "kind": "io-hand",
-      "responsibility": "The INTEGRATE hand: creates a detached git worktree at baseline_sha, `git apply`s the union of node diffs in list order, captures the combined diff, and reports applied/failed ids; every git failure degrades safe (never a false green)."
-    },
-    {
-      "id": "integrate",
-      "subsystem": "atlas-weave",
-      "path": "scripts/integrate.py",
-      "kind": "pure-core",
-      "responsibility": "The INTEGRATE decision core: `touched_files` (unified-diff path parser), `actual_conflicts` (same-file overlap net), `apply_failures` (NEW third net over an apply_union result), and `integration_verdict` (folds all defect lists into one canonical critic)."
-    },
-    {
-      "id": "differential",
-      "subsystem": "atlas-weave",
-      "path": "scripts/differential.py",
-      "kind": "pure-core",
-      "responsibility": "The combined-tree differential oracle: `regressions` returns tests green-in-isolation but non-'pass' on the merged tree (zero false positives); `integration_defects` maps each to a blocking CORRECTNESS/HIGH defect."
-    },
-    {
-      "id": "suiterun",
-      "subsystem": "atlas-weave",
-      "path": "scripts/suiterun.py",
-      "kind": "io-hand",
-      "responsibility": "Per-test-id suite runner: `parse_junit` (pure) turns JUnit XML into {test_id: status} where green == exactly 'pass'; `run_suite` (hand) shells a JUnit-writing command and parses the report; every failure degrades to {}."
-    },
-    {
-      "id": "leaseclock",
-      "subsystem": "atlas-weave",
-      "path": "scripts/leaseclock.py",
-      "kind": "pure-core",
-      "responsibility": "Injected-clock lease stamp + expiry feed: `stamp` mints a non-rotating `{job_id}#{attempts}` token + deadline; `expired` reports leases with deadline<=now (malformed lease => reaped) for scheduler.reap_expired."
-    },
-    {
-      "id": "dogfood_weave",
-      "subsystem": "atlas-weave",
-      "path": "scripts/dogfood_weave.py",
-      "kind": "driver",
-      "responsibility": "Deterministic end-to-end CI proof: drives PLAN->SCHEDULE->INTEGRATE->AGGREGATE on a real temp git repo with scripted node diffs, exercising every pure core + I/O hand, and tears down all worktrees + .atlas/ in a finally."
-    },
-    {
-      "id": "integration-critic",
-      "subsystem": "atlas-weave",
-      "path": "agents/integration-critic.md",
-      "kind": "agent",
-      "responsibility": "Read-only adversarial SEAM critic over the combined diff: judges the residual the differential is sound-but-incomplete about (signature/contract drift, shared state/config, duplicated abstraction, ordering) and returns a critic-schema JSON report; writes nothing."
-    },
-    {
-      "id": "contextgraph",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/contextgraph.py",
-      "kind": "pure-core+io-hand",
-      "responsibility": "Pure read-time projection of the run ledger into the deterministic ContextGraph (build/reconcile) plus thin I/O hands that read the ledger, atomically cache, and render the SAFE-2 GRAPH_LOOKUP."
-    },
-    {
-      "id": "fsm",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/fsm.py",
-      "kind": "pure-core",
-      "responsibility": "Pure canonical-transition legality (legal_transition/legal_path), edges derived from ctxstore.STAGES + one declared REFINE->CODED loop; a test invariant and negative-gate predicate, never enforced inside advance."
-    },
-    {
-      "id": "rollback_driver",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/rollback_driver.py",
-      "kind": "driver+gate",
-      "responsibility": "Two-phase, forward-only, idempotent rollback orchestration behind a monkeypatchable git-reset seam, gated by the headless-worktree-only sanctioned_rollback predicate; run + resume paths."
-    },
-    {
-      "id": "safewrap",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/safewrap.py",
-      "kind": "pure-core",
-      "responsibility": "The one canonical SAFE-2 untrusted-content wrapper (wrap_untrusted + fence delimiters) shared by the Ph2 read path and Ph4 write path, plus the REFINE re-dispatch packet builders."
-    },
-    {
-      "id": "ctxevents",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/ctxevents.py",
-      "kind": "io-hand",
-      "responsibility": "The single non-hook writer of a run's hooks.jsonl — appends orchestrator-emitted stage-tagged {kind,ts,payload} tool_call/error events; never writes ctxstore's log.jsonl."
-    },
-    {
-      "id": "frontmatter",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/frontmatter.py",
-      "kind": "pure-core",
-      "responsibility": "The one BOM-aware + CRLF-aware YAML-frontmatter fence regex primitive (FRONTMATTER_RE/match) shared by the skill registry and the role-file stripper."
-    },
-    {
-      "id": "telemetry.sh",
-      "subsystem": "agentic-backbone",
-      "path": "hooks/telemetry.sh",
-      "kind": "driver",
-      "responsibility": "Fail-open (always exit 0) global observability hook: appends stageless tool_call/error telemetry with UNTRUSTED payloads to the active run's hooks.jsonl; no-op outside an atlas run."
-    },
-    {
-      "id": "ctxstore.rollback_ops",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/ctxstore.py:209-288",
-      "kind": "pure-core",
-      "responsibility": "Pure-persistence rollback ledger ops: last_green_stage, rollback_to (two-phase markers, ROLLBACK stage keeps refine counter monotonic), pending_rollback (ledger-derived recovery)."
-    },
-    {
-      "id": "ctxstore.STAGES",
-      "subsystem": "agentic-backbone",
-      "path": "scripts/ctxstore.py:35-48",
-      "kind": "doc",
-      "responsibility": "Single source of truth for the canonical stage sequence + CONDITIONAL_STAGES that fsm derives its legal edge graph from."
-    },
-    {
-      "id": "skillextract",
-      "subsystem": "skill-system",
-      "path": "scripts/skillextract.py",
-      "kind": "io-hand",
-      "responsibility": "One-time importer + integrity gate: unpacks Skills/ zips into skills/<name>/ byte-identically, coalesces byte-identical duplicates, writes the sha256 manifest; --verify re-hashes the on-disk tree (the zip-free CI gate)."
-    },
-    {
-      "id": "skillregistry",
-      "subsystem": "skill-system",
-      "path": "scripts/skillregistry.py",
-      "kind": "io-hand",
-      "responsibility": "Registry builder: parses each extracted SKILL.md frontmatter, extracts trigger signals (E1), classifies via the manifest's category, and writes the schema-valid, audit-gated skill-registry.json."
-    },
-    {
-      "id": "skillselect",
-      "subsystem": "skill-system",
-      "path": "scripts/skillselect.py",
-      "kind": "pure-core",
-      "responsibility": "Advisory (V6) deterministic selector: weighted name>triggers>description token scoring of the committed registry against a free-text intent, with pin/exclude/boost/categories overrides and explainable why strings."
-    },
-    {
-      "id": "skillpkgs",
-      "subsystem": "skill-system",
-      "path": "scripts/skillpkgs.py",
-      "kind": "pure-core",
-      "responsibility": "Shared skill-package-aware markdown walk: a dir holding SKILL.md is a package whose payload .md is vendored data, pruned so neither doc gate descends into it."
-    },
-    {
-      "id": "skill-registry.json",
-      "subsystem": "skill-system",
-      "path": "references/skill-registry.json",
-      "kind": "doc",
-      "responsibility": "Committed registry (version 2, 115 skills): {name, category, description, triggers, path} per skill — the GROUNDED ranking input."
-    },
-    {
-      "id": "skills-manifest.json",
-      "subsystem": "skill-system",
-      "path": "references/skills-manifest.json",
-      "kind": "doc",
-      "responsibility": "Committed sha256 integrity manifest (version 2, 115 skills / 712 files): per-file path+sha256+bytes, the anchor for --verify and the source of each package's category."
-    },
-    {
-      "id": "bench.scorer",
-      "subsystem": "bench",
-      "path": "bench/scorer.py",
-      "kind": "pure-core",
-      "responsibility": "Deterministic, I/O-free confusion-matrix classifier (classify) and metric fold (scorecard) turning (verdict_ok, tests_pass) pairs into solve_rate/false_pass_rate/gate_precision/gate_recall/honesty/false_pass_count."
-    },
-    {
-      "id": "bench.tasks",
-      "subsystem": "bench",
-      "path": "bench/tasks.py",
-      "kind": "io-hand",
-      "responsibility": "The TASKS suite (stub/ref/test per task) plus materialize() (write stub+hidden test into a throwaway git repo) and validate() (self-check that ref passes and stub fails)."
-    },
-    {
-      "id": "bench.runner",
-      "subsystem": "bench",
-      "path": "bench/runner.py",
-      "kind": "io-hand",
-      "responsibility": "Thin FS/git/kimi-CLI layer: read_run parses a run ledger for verdict+diff, diff_passes_hidden_tests applies the diff to a clean baseline and runs hidden tests (ground truth), score_from_ledger produces a scored record, run_headless drives atlas via `kimi -p`."
-    },
-    {
-      "id": "bench.report",
-      "subsystem": "bench",
-      "path": "bench/report.py",
-      "kind": "pure-core",
-      "responsibility": "Render(results, card) -> Markdown scorecard with the gate-trust headline (false-pass count) surfaced first; no I/O."
-    },
-    {
-      "id": "bench.run_bench",
-      "subsystem": "bench",
-      "path": "bench/run_bench.py",
-      "kind": "driver",
-      "responsibility": "CLI dispatch: --validate (self-check the suite), --score tid=run_dir... (score interactive runs), --headless csv (drive atlas end-to-end and score)."
-    },
-    {
-      "id": "bench.__init__",
-      "subsystem": "bench",
-      "path": "bench/__init__.py",
-      "kind": "io-hand",
-      "responsibility": "Package marker enabling `python3 -m bench.run_bench` and `from bench import ...`."
-    },
-    {
-      "id": "test_bench_scorer",
-      "subsystem": "bench",
-      "path": "tests/test_bench_scorer.py",
-      "kind": "doc",
-      "responsibility": "Unit tests pinning classify's four cells, the metric fold, None-vs-0 empty-denominator behavior, and counts-sum-to-n invariant."
-    },
-    {
-      "id": "Makefile",
-      "subsystem": "build-ci",
-      "path": "Makefile",
-      "kind": "driver",
-      "responsibility": "Local quality-gate entrypoint; `ci` target chains the network-free gates, plus opt-in targets for negative-gate, bench-validate, skills, hooks."
-    },
-    {
-      "id": "check_artifact_naming",
-      "subsystem": "build-ci",
-      "path": "scripts/check_artifact_naming.py",
-      "kind": "gate",
-      "responsibility": "Recursively enforce markdown naming rules (lowercase kebab-case .md, non-generic) with a fixture EXCLUSION_SET and skill-package exemption; --strict makes prefix warnings fatal."
-    },
-    {
-      "id": "inventory_drift",
-      "subsystem": "build-ci",
-      "path": "scripts/inventory_drift.py",
-      "kind": "gate",
-      "responsibility": "Machine-checked doc manifest: fail if the doc index (references/*.md + README links) drifts from the on-disk doc tree (broken link or undocumented doc)."
-    },
-    {
-      "id": "skillpkgs",
-      "subsystem": "build-ci",
-      "path": "scripts/skillpkgs.py",
-      "kind": "pure-core",
-      "responsibility": "Single shared skill-package-aware markdown walk (prunes SKILL.md-bearing package dirs) used by both doc gates."
-    },
-    {
-      "id": "validate",
-      "subsystem": "build-ci",
-      "path": "scripts/validate.py",
-      "kind": "pure-core",
-      "responsibility": "Structural schema validation (required/optional field presence + type) of data artifacts against references/schemas.json; no orchestration."
-    },
-    {
-      "id": "plugin_meta",
-      "subsystem": "build-ci",
-      "path": "scripts/plugin_meta.py",
-      "kind": "pure-core",
-      "responsibility": "Read the top-level version string from the .kimi-plugin/plugin.json manifest; raises on missing file / bad JSON / missing key."
-    },
-    {
-      "id": "run_negative_gate",
-      "subsystem": "build-ci",
-      "path": "scripts/run_negative_gate.py",
-      "kind": "gate",
-      "responsibility": "Red-team single-change E2E gate: proves each judgment critic (CORRECTNESS/CODE-QUALITY/SECURITY) blocks sub-elite fixtures AND the deterministic semgrep SAST floor blocks on its own; a bad_* returning OK fails the build."
-    },
-    {
-      "id": "run_weave_negative_gate",
-      "subsystem": "build-ci",
-      "path": "scripts/run_weave_negative_gate.py",
-      "kind": "gate",
-      "responsibility": "Combined-tree red-team gate: seven crafted adversarial scenarios pushed through the real pure integration cores, each of which must BLOCK; deterministic and importable."
-    },
-    {
-      "id": "install.sh",
-      "subsystem": "build-ci",
-      "path": "scripts/install.sh",
-      "kind": "io-hand",
-      "responsibility": "Idempotent source installer: git-archive HEAD into $KIMI_CODE_HOME/plugins/kimi-atlas and atomically register/replace the entry in installed.json (with --uninstall)."
-    },
-    {
-      "id": "guard-destructive.sh",
-      "subsystem": "build-ci",
-      "path": "hooks/guard-destructive.sh",
-      "kind": "gate",
-      "responsibility": "Opt-in, disabled-by-default, fail-open PreToolUse Bash guard denying only a tight command-position destructive denylist; dual deny emission (exit 2 + permissionDecision JSON)."
-    },
-    {
-      "id": "github-actions-check",
-      "subsystem": "build-ci",
-      "path": ".github/workflows/check.yml",
-      "kind": "driver",
-      "responsibility": "CI on push/PR to main/master: setup Python 3.12 and run `make ci` — the single source of truth is the Makefile."
-    },
-    {
-      "id": "tests/",
-      "subsystem": "tests",
-      "path": "tests/",
-      "kind": "test-suite",
-      "responsibility": "59 test_*.py unittest modules, 928 tests, run green by `make test` (unittest discover); ~1:1 with scripts/ plus bench/ and doc/skill guards."
-    },
-    {
-      "id": "test_ctxstore.py",
-      "subsystem": "tests",
-      "path": "tests/test_ctxstore.py",
-      "kind": "invariant-pin",
-      "responsibility": "Pins the FROZEN state store: canonical STAGES partition, intent immutability/idempotent init_run, ledger-derived monotonic get_refine_passes, and append-only rollback ledger (RollbackLedgerTests)."
-    },
-    {
-      "id": "test_ctxstore_atomic.py",
-      "subsystem": "tests",
-      "path": "tests/test_ctxstore_atomic.py",
-      "kind": "invariant-pin",
-      "responsibility": "Asserts atomic/crash-safe writes and that log.jsonl is never truncated."
-    },
-    {
-      "id": "test_fsm.py",
-      "subsystem": "tests",
-      "path": "tests/test_fsm.py",
-      "kind": "invariant-pin",
-      "responsibility": "Asserts the stage legality graph on fsm.py alone (forward/derived/declared-loop edges legal; skips, backward jumps, self-loops, unknown stages illegal; legal_path over MANDATORY_STAGES and full STAGES)."
-    },
-    {
-      "id": "test_planstage.py",
-      "subsystem": "tests",
-      "path": "tests/test_planstage.py",
-      "kind": "pure-core-test",
-      "responsibility": "Validates the plan-DAG stage core: disjoint covering DAG valid, cyclic=critical, overlap flagged, dropped criterion flagged, malformed nodes degrade (never ship)."
-    },
-    {
-      "id": "test_verdict.py",
-      "subsystem": "tests",
-      "path": "tests/test_verdict.py",
-      "kind": "pure-core-test",
-      "responsibility": "Pins the VERIFIED/UNVERIFIED verdict core and its refine-pass interaction (37 tests)."
-    },
-    {
-      "id": "test_rollback.py",
-      "subsystem": "tests",
-      "path": "tests/test_rollback.py",
-      "kind": "driver-test",
-      "responsibility": "Exercises rollback_driver control flow with monkeypatched _git_reset/_git_dirs (no real repo)."
-    },
-    {
-      "id": "test_rollback_realgit.py",
-      "subsystem": "tests",
-      "path": "tests/test_rollback_realgit.py",
-      "kind": "real-git-seam",
-      "responsibility": "Drives run_rollback/resume_rollback against a REAL repo + REAL linked worktree, no monkeypatch: primary tree REFUSES, .atlas/<run_id>/worktree SUCCEEDS (guards HIGH-2)."
-    },
-    {
-      "id": "test_run_negative_gate.py",
-      "subsystem": "tests",
-      "path": "tests/test_run_negative_gate.py",
-      "kind": "red-team",
-      "responsibility": "Single-tree fixture matrix (64 tests): good->OK, every bad_*->UNVERIFIED, security floor bites; also covers extract_last_json, strip_frontmatter, lens mapping."
-    },
-    {
-      "id": "test_run_weave_negative_gate.py",
-      "subsystem": "tests",
-      "path": "tests/test_run_weave_negative_gate.py",
-      "kind": "red-team",
-      "responsibility": "Combined-tree gate: 7 canonical ATLAS-WEAVE scenarios each BLOCK through the pure cores; a clean input must not match (no rubber-stamp)."
-    },
-    {
-      "id": "test_write_path_injection_gate.py",
-      "subsystem": "tests",
-      "path": "tests/test_write_path_injection_gate.py",
-      "kind": "red-team",
-      "responsibility": "SAFE-2 write path: injected imperatives in coder-redispatch stdout/stderr tails stay fenced and cannot alter frozen scope/intent/target (safewrap.coder_redispatch_packet)."
-    },
-    {
-      "id": "test_contextgraph.py",
-      "subsystem": "tests",
-      "path": "tests/test_contextgraph.py",
-      "kind": "red-team",
-      "responsibility": "SAFE-2 read path: attacker-influenceable data confined to the UNTRUSTED-DATA fence in the assembled context graph."
-    },
-    {
-      "id": "test_skillextract.py",
-      "subsystem": "tests",
-      "path": "tests/test_skillextract.py",
-      "kind": "red-team",
-      "responsibility": "Zip-slip / path confinement: rejects ../escape, absolute paths, backslash traversal, and symlinked-package-dir escape when extracting Skills zips."
-    },
-    {
-      "id": "test_guard_destructive.py",
-      "subsystem": "tests",
-      "path": "tests/test_guard_destructive.py",
-      "kind": "hook-test",
-      "responsibility": "Behavioral subprocess test of hooks/guard-destructive.sh — the VAR=val denylist bypass is closed (F2)."
-    },
-    {
-      "id": "test_bench_scorer.py",
-      "subsystem": "tests",
-      "path": "tests/test_bench_scorer.py",
-      "kind": "pure-core-test",
-      "responsibility": "NEW: pins bench.scorer confusion matrix (TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL) and metrics (false_pass_rate, gate_precision/recall, honesty, solve_rate; empty denominators -> None)."
-    },
-    {
-      "id": "test_skill_ref_paths.py",
-      "subsystem": "tests",
-      "path": "tests/test_skill_ref_paths.py",
-      "kind": "doc-guard",
-      "responsibility": "NEW: forbids a bare `references/rubric.md` read in skills/atlas/SKILL.md; requires the plugin-root-relative ${KIMI_SKILL_DIR}/../../references/rubric.md form and that the file exists."
-    },
-    {
-      "id": "test_doc_testcount.py",
-      "subsystem": "tests",
-      "path": "tests/test_doc_testcount.py",
-      "kind": "doc-guard",
-      "responsibility": "Forbids any hard-coded test count in README.md/AGENTS.md (F4); non-vacuous self-check on its own patterns."
-    },
-    {
-      "id": "test_tracked_docs_count.py",
-      "subsystem": "tests",
-      "path": "tests/test_tracked_docs_count.py",
-      "kind": "doc-guard",
-      "responsibility": "AGENTS.md 'N tracked docs' must equal the inventory_drift count (F5)."
-    },
-    {
-      "id": "test_inventory_drift.py",
-      "subsystem": "tests",
-      "path": "tests/test_inventory_drift.py",
-      "kind": "gate-test",
-      "responsibility": "Tests scripts/inventory_drift.py — fails if references/README index drifts from the filesystem."
-    },
-    {
-      "id": "bench/",
-      "subsystem": "tests",
-      "path": "bench/",
-      "kind": "harness",
-      "responsibility": "Benchmark package (scorer, runner, tasks, report, run_bench) exercised by `make bench-validate`; scorer pinned by test_bench_scorer.py."
-    },
-    {
-      "id": "Makefile",
-      "subsystem": "tests",
-      "path": "Makefile",
-      "kind": "gate",
-      "responsibility": "`make test` = python3 -m unittest discover -s tests -v; `make ci` = check-strict test inventory-drift check-shell; bench-validate and negative-gate are separate targets."
-    }
-  ],
-  "edges": [
-    {
-      "from": "atlas-SKILL",
-      "to": "ctxstore",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "context-scout",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "elite-coder",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "planner",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "verdict",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "runcheck",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "difftool",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "quality",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "reqcoverage",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "pathcheck",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "astlens",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "sast",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "contextgraph",
-      "kind": "feeds"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "ctxevents",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "skillselect",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "safewrap",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-SKILL",
-      "to": "rollback_driver",
-      "kind": "dispatches"
-    },
-    {
-      "from": "ctxstore",
-      "to": "rollback_driver",
-      "kind": "gates"
-    },
-    {
-      "from": "plandag",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "scheduler",
-      "to": "plandag",
-      "kind": "imports"
-    },
-    {
-      "from": "scheduler",
-      "to": "verdict",
-      "kind": "imports"
-    },
-    {
-      "from": "planstage",
-      "to": "plandag",
-      "kind": "imports"
-    },
-    {
-      "from": "planstage",
-      "to": "verdict",
-      "kind": "imports"
-    },
-    {
-      "from": "runcaps",
-      "to": "budget",
-      "kind": "imports"
-    },
-    {
-      "from": "runcaps",
-      "to": "plandag",
-      "kind": "imports"
-    },
-    {
-      "from": "scheduler",
-      "to": "bestofn",
-      "kind": "feeds"
-    },
-    {
-      "from": "planner",
-      "to": "planstage",
-      "kind": "feeds"
-    },
-    {
-      "from": "planner",
-      "to": "budget",
-      "kind": "feeds"
-    },
-    {
-      "from": "resume",
-      "to": "plandag",
-      "kind": "feeds"
-    },
-    {
-      "from": "verdict",
-      "to": "rubric",
-      "kind": "imports"
-    },
-    {
-      "from": "verdict",
-      "to": "ctxstore",
-      "kind": "imports"
-    },
-    {
-      "from": "quality",
-      "to": "rubric",
-      "kind": "imports"
-    },
-    {
-      "from": "verdict",
-      "to": "quality",
-      "kind": "feeds"
-    },
-    {
-      "from": "difftool",
-      "to": "reqcoverage",
-      "kind": "feeds"
-    },
-    {
-      "from": "difftool",
-      "to": "pathcheck",
-      "kind": "feeds"
-    },
-    {
-      "from": "difftool",
-      "to": "correctness-critic",
-      "kind": "feeds"
-    },
-    {
-      "from": "difftool",
-      "to": "code-quality-critic",
-      "kind": "feeds"
-    },
-    {
-      "from": "difftool",
-      "to": "security-critic",
-      "kind": "feeds"
-    },
-    {
-      "from": "runcheck",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "quality",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "astlens",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "sast",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "reqcoverage",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "pathcheck",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "correctness-critic",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "code-quality-critic",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "security-critic",
-      "to": "verdict",
-      "kind": "feeds"
-    },
-    {
-      "from": "verdict",
-      "to": "should_refine",
-      "kind": "gates"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "verdict",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "difftool",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "runcheck",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "quality",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "astlens",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "sast",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "reqcoverage",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "pathcheck",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "correctness-critic",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "code-quality-critic",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "security-critic",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-skill",
-      "to": "check_artifact_naming",
-      "kind": "calls"
-    },
-    {
-      "from": "integrate",
-      "to": "verdict",
-      "kind": "calls"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "verdict",
-      "kind": "calls"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "sast",
-      "kind": "calls"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "runcheck",
-      "kind": "calls"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "difftool",
-      "kind": "calls"
-    },
-    {
-      "from": "integrate",
-      "to": "verdict",
-      "kind": "imports"
-    },
-    {
-      "from": "integrate",
-      "to": "verdict.merge",
-      "kind": "calls"
-    },
-    {
-      "from": "integrate.apply_failures",
-      "to": "uniontree.apply_union",
-      "kind": "consumes-result-of"
-    },
-    {
-      "from": "differential.regressions",
-      "to": "suiterun.parse_junit",
-      "kind": "depends-on-contract"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "uniontree",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "suiterun",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "integrate",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "differential",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "planstage",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "runcaps",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "scheduler",
-      "kind": "calls"
-    },
-    {
-      "from": "dogfood_weave",
-      "to": "verdict",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "uniontree.apply_union",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "integrate.actual_conflicts",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "integrate.apply_failures",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "integrate.integration_verdict",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "differential.regressions",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "suiterun.run_suite",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "leaseclock.stamp",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "leaseclock.expired",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "scheduler.plan_wave",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "scheduler.dispatch_wave",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "scheduler.apply_receipt",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "scheduler.reap_expired",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "scheduler.final_aggregate",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "planstage.coerce_dag",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "runcaps.seed_caps",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "planner-agent",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "integration-critic",
-      "kind": "dispatches"
-    },
-    {
-      "from": "atlas-weave-SKILL",
-      "to": "atlas-SKILL",
-      "kind": "wraps"
-    },
-    {
-      "from": "leaseclock",
-      "to": "scheduler.reap_expired",
-      "kind": "feeds"
-    },
-    {
-      "from": "leaseclock",
-      "to": "resume",
-      "kind": "no-rotation-invariant-shared-with"
-    },
-    {
-      "from": "integration-critic",
-      "to": "integrate.integration_verdict",
-      "kind": "folded-by"
-    },
-    {
-      "from": "contextgraph.graph_lookup",
-      "to": "contextgraph.project",
-      "kind": "calls"
-    },
-    {
-      "from": "contextgraph.project",
-      "to": "contextgraph.build",
-      "kind": "calls"
-    },
-    {
-      "from": "contextgraph.project",
-      "to": "contextgraph.load_ledger_facts",
-      "kind": "calls"
-    },
-    {
-      "from": "contextgraph.project",
-      "to": "ctxstore.write_artifact_atomic",
-      "kind": "calls"
-    },
-    {
-      "from": "contextgraph.load_ledger_facts",
-      "to": "ctxstore (state.json/log.jsonl/plan.dag.json/critic_*.json)",
-      "kind": "reads"
-    },
-    {
-      "from": "contextgraph.load_ledger_facts",
-      "to": "hooks.jsonl",
-      "kind": "reads"
-    },
-    {
-      "from": "contextgraph.wrap_untrusted",
-      "to": "safewrap.wrap_untrusted",
-      "kind": "calls"
-    },
-    {
-      "from": "contextgraph (SAFE2_OPEN/CLOSE)",
-      "to": "safewrap.open_marker/CLOSE_MARKER",
-      "kind": "imports"
-    },
-    {
-      "from": "skills/atlas/SKILL.md (CODED GRAPH_LOOKUP)",
-      "to": "contextgraph.graph_lookup",
-      "kind": "dispatches"
-    },
-    {
-      "from": "skills/atlas/SKILL.md (OUTPUT)",
-      "to": "contextgraph.project",
-      "kind": "dispatches"
-    },
-    {
-      "from": "skills/atlas/SKILL.md (REFINE re-dispatch)",
-      "to": "safewrap.coder_redispatch_packet",
-      "kind": "dispatches"
-    },
-    {
-      "from": "safewrap.coder_redispatch_packet",
-      "to": "safewrap.refine_feedback_block",
-      "kind": "calls"
-    },
-    {
-      "from": "safewrap.refine_feedback_block",
-      "to": "safewrap.wrap_untrusted",
-      "kind": "calls"
-    },
-    {
-      "from": "safewrap.refine_feedback_block",
-      "to": "runcheck (stdout_tail/stderr_tail)",
-      "kind": "reads"
-    },
-    {
-      "from": "fsm",
-      "to": "ctxstore.STAGES/CONDITIONAL_STAGES",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate._eval_illegal_transition",
-      "to": "fsm.legal_transition",
-      "kind": "gates"
-    },
-    {
-      "from": "rollback_driver.run_rollback",
-      "to": "rollback_driver.sanctioned_rollback",
-      "kind": "gates"
-    },
-    {
-      "from": "rollback_driver.run_rollback",
-      "to": "rollback_driver._git_reset",
-      "kind": "calls"
-    },
-    {
-      "from": "rollback_driver.run_rollback",
-      "to": "ctxstore.rollback_to",
-      "kind": "calls"
-    },
-    {
-      "from": "rollback_driver.resume_rollback",
-      "to": "ctxstore.pending_rollback",
-      "kind": "calls"
-    },
-    {
-      "from": "rollback_driver.resume_rollback",
-      "to": "rollback_driver.sanctioned_rollback",
-      "kind": "gates"
-    },
-    {
-      "from": "skills/atlas/SKILL.md (REFINE checkpoint/rollback)",
-      "to": "rollback_driver.run_rollback",
-      "kind": "dispatches"
-    },
-    {
-      "from": "ctxstore.rollback_to",
-      "to": "ctxstore.last_green_stage",
-      "kind": "calls"
-    },
-    {
-      "from": "skills/atlas/SKILL.md (GROUNDED dispatch marker)",
-      "to": "ctxevents.record",
-      "kind": "dispatches"
-    },
-    {
-      "from": "ctxevents.record",
-      "to": "hooks.jsonl",
-      "kind": "feeds"
-    },
-    {
-      "from": "hooks/telemetry.sh",
-      "to": "hooks.jsonl",
-      "kind": "feeds"
-    },
-    {
-      "from": "contextgraph.reconcile",
-      "to": "hooks.jsonl (tool_call stage) + log.jsonl (agent dispatch)",
-      "kind": "reads"
-    },
-    {
-      "from": "skillregistry",
-      "to": "frontmatter.FRONTMATTER_RE",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate.strip_frontmatter",
-      "to": "frontmatter.FRONTMATTER_RE",
-      "kind": "imports"
-    },
-    {
-      "from": "skillextract",
-      "to": "skillregistry",
-      "kind": "imports"
-    },
-    {
-      "from": "skillextract",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "skillextract",
-      "to": "skills-manifest.json",
-      "kind": "feeds"
-    },
-    {
-      "from": "skillregistry",
-      "to": "frontmatter",
-      "kind": "imports"
-    },
-    {
-      "from": "skillregistry",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "skillregistry",
-      "to": "skills-manifest.json",
-      "kind": "imports"
-    },
-    {
-      "from": "skillregistry",
-      "to": "skill-registry.json",
-      "kind": "feeds"
-    },
-    {
-      "from": "skillselect",
-      "to": "reqcoverage",
-      "kind": "imports"
-    },
-    {
-      "from": "skillselect",
-      "to": "skill-registry.json",
-      "kind": "imports"
-    },
-    {
-      "from": "skillextract",
-      "to": "skillregistry",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas",
-      "to": "skillselect",
-      "kind": "calls"
-    },
-    {
-      "from": "atlas",
-      "to": "skill-registry.json",
-      "kind": "imports"
-    },
-    {
-      "from": "check_artifact_naming",
-      "to": "skillpkgs",
-      "kind": "calls"
-    },
-    {
-      "from": "inventory_drift",
-      "to": "skillpkgs",
-      "kind": "calls"
-    },
-    {
-      "from": "skillextract",
-      "to": "skillpkgs",
-      "kind": "feeds"
-    },
-    {
-      "from": "bench.run_bench",
-      "to": "bench.report",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.run_bench",
-      "to": "bench.runner",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.run_bench",
-      "to": "bench.scorer",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.run_bench",
-      "to": "bench.tasks",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.runner",
-      "to": "bench.scorer",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.runner",
-      "to": "bench.tasks",
-      "kind": "calls"
-    },
-    {
-      "from": "bench.report",
-      "to": "bench.scorer",
-      "kind": "consumes"
-    },
-    {
-      "from": "test_bench_scorer",
-      "to": "bench.scorer",
-      "kind": "imports"
-    },
-    {
-      "from": "bench.runner",
-      "to": "scripts/ctxstore.py",
-      "kind": "reads-artifacts"
-    },
-    {
-      "from": "bench.runner",
-      "to": "skills/atlas/SKILL.md",
-      "kind": "consumes-ledger"
-    },
-    {
-      "from": "github-actions-check",
-      "to": "Makefile",
-      "kind": "dispatches"
-    },
-    {
-      "from": "Makefile",
-      "to": "check_artifact_naming",
-      "kind": "calls"
-    },
-    {
-      "from": "Makefile",
-      "to": "inventory_drift",
-      "kind": "calls"
-    },
-    {
-      "from": "Makefile",
-      "to": "tests(unittest)",
-      "kind": "calls"
-    },
-    {
-      "from": "Makefile",
-      "to": "run_negative_gate",
-      "kind": "calls"
-    },
-    {
-      "from": "Makefile",
-      "to": "bench.run_bench",
-      "kind": "calls"
-    },
-    {
-      "from": "Makefile",
-      "to": "install-hooks.sh",
-      "kind": "calls"
-    },
-    {
-      "from": "check_artifact_naming",
-      "to": "skillpkgs",
-      "kind": "calls"
-    },
-    {
-      "from": "inventory_drift",
-      "to": "skillpkgs",
-      "kind": "calls"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "difftool",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "runcheck",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "quality",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "reqcoverage",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "pathcheck",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "sast",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "verdict",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "rubric",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "check_artifact_naming",
-      "kind": "imports"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "kimi-cli",
-      "kind": "dispatches"
-    },
-    {
-      "from": "run_negative_gate",
-      "to": "semgrep",
-      "kind": "dispatches"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "integrate",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "differential",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "planstage",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "scheduler",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "fsm",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "rollback_driver",
-      "kind": "imports"
-    },
-    {
-      "from": "run_weave_negative_gate",
-      "to": "verdict",
-      "kind": "imports"
-    },
-    {
-      "from": "quality",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "skillregistry",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "skillselect",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "skillextract",
-      "to": "validate",
-      "kind": "calls"
-    },
-    {
-      "from": "validate",
-      "to": "references/schemas.json",
-      "kind": "imports"
-    },
-    {
-      "from": "plugin_meta",
-      "to": ".kimi-plugin/plugin.json",
-      "kind": "imports"
-    },
-    {
-      "from": "install.sh",
-      "to": "installed.json",
-      "kind": "feeds"
-    },
-    {
-      "from": "guard-destructive.sh",
-      "to": "PreToolUse-event",
-      "kind": "gates"
-    },
-    {
-      "from": "tests/test_ctxstore.py",
-      "to": "scripts/ctxstore.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_ctxstore_atomic.py",
-      "to": "scripts/ctxstore.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_fsm.py",
-      "to": "scripts/fsm.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_fsm.py",
-      "to": "scripts/ctxstore.py",
-      "kind": "imports STAGES/CONDITIONAL_STAGES/MANDATORY_STAGES"
-    },
-    {
-      "from": "tests/test_planstage.py",
-      "to": "scripts/planstage.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_plandag.py",
-      "to": "scripts/plandag.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_verdict.py",
-      "to": "scripts/verdict.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_scheduler.py",
-      "to": "scripts/scheduler.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_integrate.py",
-      "to": "scripts/integrate.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_differential.py",
-      "to": "scripts/differential.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_rollback.py",
-      "to": "scripts/rollback_driver.py",
-      "kind": "tests (monkeypatched control flow)"
-    },
-    {
-      "from": "tests/test_rollback_realgit.py",
-      "to": "scripts/rollback_driver.py",
-      "kind": "tests (real git, no monkeypatch)"
-    },
-    {
-      "from": "tests/test_rollback_realgit.py",
-      "to": "scripts/ctxstore.py",
-      "kind": "drives ledger markers"
-    },
-    {
-      "from": "tests/test_run_negative_gate.py",
-      "to": "scripts/run_negative_gate.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_run_weave_negative_gate.py",
-      "to": "scripts/run_weave_negative_gate.py",
-      "kind": "tests"
-    },
-    {
-      "from": "scripts/run_weave_negative_gate.py",
-      "to": "scripts/integrate.py",
-      "kind": "exercises pure core"
-    },
-    {
-      "from": "scripts/run_weave_negative_gate.py",
-      "to": "scripts/planstage.py",
-      "kind": "exercises pure core"
-    },
-    {
-      "from": "scripts/run_weave_negative_gate.py",
-      "to": "scripts/verdict.py",
-      "kind": "exercises pure core"
-    },
-    {
-      "from": "scripts/run_weave_negative_gate.py",
-      "to": "scripts/scheduler.py",
-      "kind": "exercises pure core"
-    },
-    {
-      "from": "scripts/run_weave_negative_gate.py",
-      "to": "scripts/plandag.py",
-      "kind": "exercises pure core"
-    },
-    {
-      "from": "tests/test_write_path_injection_gate.py",
-      "to": "scripts/safewrap.py",
-      "kind": "tests SAFE-2 write path"
-    },
-    {
-      "from": "tests/test_contextgraph.py",
-      "to": "scripts/contextgraph.py",
-      "kind": "tests SAFE-2 read path"
-    },
-    {
-      "from": "tests/test_skillextract.py",
-      "to": "scripts/skillextract.py",
-      "kind": "tests zip-slip/path confinement"
-    },
-    {
-      "from": "tests/test_guard_destructive.py",
-      "to": "hooks/guard-destructive.sh",
-      "kind": "tests (subprocess)"
-    },
-    {
-      "from": "tests/test_bench_scorer.py",
-      "to": "bench/scorer.py",
-      "kind": "tests"
-    },
-    {
-      "from": "tests/test_skill_ref_paths.py",
-      "to": "skills/atlas/SKILL.md",
-      "kind": "guards read-path"
-    },
-    {
-      "from": "tests/test_skill_ref_paths.py",
-      "to": "references/rubric.md",
-      "kind": "asserts file exists"
-    },
-    {
-      "from": "tests/test_doc_testcount.py",
-      "to": "README.md",
-      "kind": "guards (no hard-coded count)"
-    },
-    {
-      "from": "tests/test_tracked_docs_count.py",
-      "to": "scripts/inventory_drift.py",
-      "kind": "cross-checks count"
-    },
-    {
-      "from": "tests/test_inventory_drift.py",
-      "to": "scripts/inventory_drift.py",
-      "kind": "tests"
-    },
-    {
-      "from": "Makefile:test",
-      "to": "tests/",
-      "kind": "unittest discover -s tests -v"
-    },
-    {
-      "from": "Makefile:ci",
-      "to": "Makefile:test",
-      "kind": "depends"
-    }
-  ],
-  "invariants": [
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Canonical STAGES is the single source of truth: INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT (ctxstore.py:35). MANDATORY_STAGES each recorded exactly once in order; CLARIFY/REFINE conditional. Never invent a stage name."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "INIT→OUTPUT is ONE uninterrupted run; the only legal turn-ending pauses are the 3 sanctioned gates (CLARIFY AskUserQuestion, pre-CODE approval, OUTPUT human gate). Every stage transition MUST call ctxstore.advance and that call must RETURN before the stage counts done."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "NO-LLM-verdict: pass/fail is computed ONLY inside the pure verdict cores (verdict.merge/gate/final_status); the orchestrator and every model critic marshal inputs, never decide. scheduler.run_status and final_aggregate are descriptive/aggregating only."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Authoritative refine-pass count = the number of REFINE lines in the append-only log.jsonl (ctxstore.get_refine_passes), never model memory; refine loop is hard-capped at MAX_PASSES=2 (should_refine + the passes<1 V7 guard) so it provably halts at ≤2 re-drafts."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Provable halting rests on the GLOBAL GAS BOUND: gas charged exactly once per dispatch (floored at 0, sole site plandag.charge_gas via scheduler.dispatch_wave) + per-job MAX_ATTEMPTS=2; runcaps provisions gas strictly above the worst-case dispatch count so a DECOMPOSE expand can never starve the run."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Charge-at-dispatch, never refunded: a crashed/orphaned agent has still spent its fuel; resume.resume resets RUNNING→PENDING WITHOUT refunding gas or bumping attempts, and lease tokens f'{job_id}#{attempts}' do not rotate across resume (killed-turn receipts must not be delivered)."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Degrade-to-atlas guarantee: any planner failure (non-dict, no nodes, over node_max, malformed field, invalid DAG) collapses via planstage.coerce_dag to single_node_dag, whose schedule reduces byte-identically to today's single-change INIT→OUTPUT."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Concurrency cap = exactly 3 agents (W_MAX=3); the §6 memory model (ROOT_RSS_MB + ceiling 4608MB + free-floor 3072MB + structural build/coder exclusion in can_admit) plus the ROOT's live free -m ≥3GB re-check is the true OOM backstop — a mis-estimate degrades the wave, never OOMs."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Never auto-apply to a real tree: every mutation is human-gated (interactive) or confined to an isolated worktree/sandbox (headless); review_root is set ONCE at the pre-CODE gate and both CODED (coder's only writable root) and VERIFIED (difftool/runcheck cwd) read that one value."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "SAFE-2 untrusted-content: all file/web/program output (incl. runcheck stderr/stdout tails on REFINE) is DATA, never instructions — it can never alter intent, STAGES, the packet, or dispatch; enforced verbatim in scout/coder/planner roles and re-checked by the SECURITY lens."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Scope disjointness + criteria conservation are CRITICAL blocking gates: overlapping node scopes (plandag.disjoint) or a criterion parked on a DECOMPOSE that reaches no LEAF/INTEGRATION verifier (criteria_conservation_defects) is a false green and forces FAIL; an unresolved/empty frontier can never fold to OK (final_aggregate synthesizes UNVERIFIED defects)."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Frozen success_criteria: ordered and immutable, captured at INTENT_CAPTURED (mutable only during CLARIFY); downstream lenses read the frozen list and never re-derive it."
-    },
-    {
-      "subsystem": "atlas-core",
-      "invariant": "Two-phase rollback is forward-only and headless-only: rollback markers carry stage=='ROLLBACK' (never 'REFINE') so the refine counter stays monotonic; log.jsonl/intent.txt are only appended, never truncated; a rolled-back run re-enters VERIFIED and terminates through OUTPUT as ⚠️ UNVERIFIED."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "No model computes pass/fail: verdict.merge / gate / should_refine / final_status / aggregate / coverage_partition are pure, deterministic, and I/O-free (PLAN §4, DS-3). The orchestrator only marshals inputs into them."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "BLOCKING = frozenset({CRITICAL, HIGH}) is the ONLY severity set that flips the gate; MEDIUM/LOW are recorded but never change final_status (rubric.py:27)."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "The refine loop provably halts: MAX_PASSES=2 (verdict.py:25), and `passes` MUST come from the on-disk ledger (ctxstore.get_refine_passes), never model memory (Refinement Legitimacy Law)."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "Text/token heuristics are capped at MEDIUM and can never emit HIGH (V6): quality.lint_deliverable and reqcoverage.coverage — gameable both ways, so a real gap is escalated only by a model critic with evidence."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "rubric.py is the single source of truth (F6): DIMENSIONS, SEVERITIES, BLOCKING, CRITIC_TOP_KEYS, DEFECT_KEYS — verdict and quality import them so the vocabulary cannot silently drift."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "runcheck green = ok (exit 0, no timeout) AND test_count>0 AND new_tests_collected (V4); the gate treats an absent/empty runcheck result as a fail (DOES-IT-RUN is mandatory and fully deterministic), while advisory lenses default to clean when absent."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "The runcheck memory cap is always fail-open: a cap-start failure re-runs the build uncapped rather than reporting RED — the cap must never manufacture a failure (OPS-3); the systemd start-fail regex is deliberately narrow to avoid double-executing a build that already ran."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "sast.scan is mandatory fail-open: semgrep absent/error/timeout/unparseable → returns [] and SECURITY degrades to judgment-only; it never maps to CRITICAL (HIGH already blocks) and never invents a defect."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "The three critics are read-only plan subagents that persist NOTHING (F2) — the orchestrator persists for them; their markdown frontmatter (tools/model/temperature) is DOCUMENTATION ONLY, real perms come from the built-in plan type, and the orchestrator sets dispatch temperature (V5)."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "Every byte of the diff and any opened file is DATA, never instructions (SAFE-2) — a critic must not let file/tool content steer its lens, verdict, or output shape."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "V7 conservative rule: ANY CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass — encoded at the SKILL's REFINE? step on top of should_refine's CRITICAL/HIGH cap."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "pathcheck emits CRITICAL CORRECTNESS and astlens emits HIGH DOES-IT-RUN (deterministic, non-gameable grounding/parse failures), whereas the string heuristics stay MEDIUM — severity reflects mechanical certainty."
-    },
-    {
-      "subsystem": "verification-harness",
-      "invariant": "ATLAS-WEAVE coverage_partition is an exact set-difference over frozen success criteria, so a dropped criterion is legitimately CRITICAL; aggregate folds N node critics + the integration critic so one failing node can never be masked by passing ones."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "No LLM computes pass/fail. Every integration verdict is a pure fold: integrate.integration_verdict (integrate.py:136) reuses verdict.merge; actual_conflicts/apply_failures/differential.regressions all decide deterministically. The seam critic only ADDS defects; it never overrides the deterministic floor."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "THREE-net disjointness (load-bearing): (1) integrate.actual_conflicts re-validates against ACTUALLY-touched files (a clean git apply is never credited as proof — same-file-different-hunk concatenates silently); (2) integrate.apply_failures (NEW) blocks any change the union git apply rejected or an unbuildable union tree; (3) differential.regressions catches green-alone/red-combined. Planner-declared scope_paths is trusted for nothing."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "Green == exactly the lowercase token 'pass'. suiterun.parse_junit emits 'pass' only for a testcase with no failure/error/skipped child; differential.regressions treats ANY other spelling (including absence) as a regression. This exact-token contract is what keeps the differential oracle zero-false-positive."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "Degrade-toward-BLOCK / fail-safe everywhere. uniontree: a failed worktree add => worktree=None + every change 'failed'; a rejected apply => recorded in 'failed', never counted applied. suiterun: any parse/subprocess/timeout failure => {} (keeps baseline_pass conservative). leaseclock: a malformed/missing/non-numeric deadline => treated as ALREADY EXPIRED and reaped. No path can manufacture a false green."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "Lease no-rotation: leaseclock.stamp token is exactly f'{job_id}#{attempts}' with NO timestamp, so a resumed turn's token is byte-identical to the killed turn's — therefore the orchestrator MUST discard any in-flight receipt stamped before a resume (a stale receipt is otherwise indistinguishable from a fresh one)."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "Provable halting. runcaps.seed_caps provisions gas; scheduler.dispatch_wave is the SOLE gas-charging site; MAX_ATTEMPTS caps requeues; dogfood_weave asserts a safety bound gas0 + nodes + 5 so a broken-halting regression surfaces loudly instead of hanging. Never dispatch off-plan or refund gas."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "Degrade byte-identically to atlas. planstage.coerce_dag returns the planner DAG only if validate_planner_dag passes (acyclic, file-disjoint, every frozen criterion covered); otherwise it degrades to the 1-node atlas DAG which runs exactly one inner atlas run with the same verdict and no extra spend."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "The orchestrator is the SOLE root; hierarchy lives in plan.dag.json data, never in the agent tree. Subagents cannot spawn subagents (star topology); a node's inner atlas run never spawns a sub-orchestrator. Per-wave width is capped at <=3 (memory-bound); total node count is unbounded."
-    },
-    {
-      "subsystem": "atlas-weave",
-      "invariant": "uniontree uses a DETACHED worktree (git worktree add --detach — no branch ref) so the union machinery is fully idempotent across re-runs with the same session; cleanup + prune returns the repo to its exact prior state. All git calls use `git -C <path>` — never process cwd (agent threads reset cwd between calls)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "PURE-PROJECTION: contextgraph.build is a deterministic projection over already-read on-disk facts — no reducer, no per-action mutation, no I/O. ctxstore's ledger (state.json / log.jsonl / plan.dag.json / critic_*.json) is READ, NEVER written by the graph (contextgraph.py:1-16,85-169)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "TS-DROP DETERMINISM: build drops the telemetry `ts` from every node and preserves the APPEND ORDER of source logs via a monotonic `seq`, so two ledgers differing only in `ts` project to a byte-identical graph (contextgraph.py:13-15,89-92,109-138)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "THIN-POINTER OWNERSHIP: task nodes are thin `{ref: plandag_id}` pointers — plandag stays the sole DAG owner; verdict/artifact nodes are likewise thin refs (contextgraph.py:11-12,104-107,140-159)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "SAFE-2 SINGLE SOURCE: there is ONE canonical untrusted-content wrapper (safewrap.wrap_untrusted); both the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE->CODED re-dispatch) delegate to it, and contextgraph re-exports safewrap's delimiters rather than minting its own, so the neutralization rule cannot drift (safewrap.py:16-21; contextgraph.py:32-54)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "SAFE-2 NON-ESCAPE: wrap_untrusted neutralizes any embedded fence marker and sanitizes the source label, so the output always contains exactly one open + one close marker and injected imperatives are quarantined as DATA (safewrap.py:25-62,70-76)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "FRESH-ALWAYS INJECTION: graph_lookup ALWAYS recomputes via project (unconditional rebuild-from-ledger), never load_or_rebuild — within a run run_id is constant, so a REFINE re-dispatch never sees a stale first-pass graph (contextgraph.py:268-282)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "REBUILD-WINS CACHE: a cached context-graph.json is trusted only if it parses AND is a dict with schema==\"context-graph\" AND matching run_id; a missing/torn/mismatched cache is stale/poisoned and the ledger is authoritative (contextgraph.py:246-265)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "FSM PURITY/ADDITIVITY: fsm never touches ctxstore.advance (Part C frozen permissive recorder); legality is a test invariant + pure-scenario negative gate, never a hard error inside advance (fsm.py:12-15)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "FSM DERIVED-FROM-STAGES: legal edges = forward-adjacent + conditional-skip edges DERIVED from ctxstore.STAGES/CONDITIONAL_STAGES, plus exactly ONE declared literal — the backward refine loop REFINE->CODED; an import-time assert breaks fsm if a declared node leaves STAGES (fsm.py:22-33,36-55)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "ROLLBACK FORWARD-ONLY / TWO-PHASE: rollback records rollback_intent BEFORE the git reset and rollback_complete AFTER; a crash leaves an open intent that resume re-derives from the ledger (ctxstore.pending_rollback) and REDOES — resetting to an already-reset SHA is a no-op, so repeat is safe (rollback_driver.py:1-20,102-166)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "ROLLBACK SANCTION GATE (headless-worktree-only): both run_rollback and resume_rollback refuse unless sanctioned_rollback holds — target path has `.atlas` AND `worktree` segments, git_common_dir != git_dir (real linked worktree), and a non-empty env token; so --resume can NEVER git reset --hard the real working tree (rollback_driver.py:45-67,123,153)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "GIT SEAM ISOLATION: the only subprocess/git in the rollback path is the monkeypatchable _git_reset seam; ctxstore stays pure-persistence and never shells out (rollback_driver.py:70-85; ctxstore rollback_to \"Contains no subprocess/git\")."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "ROLLBACK COUNTER-SAFETY: rollback_to appends log lines with stage==\"ROLLBACK\" (never \"REFINE\"), so get_refine_passes stays monotonic however many rollbacks occur; a rolled-back run re-enters VERIFIED and terminates as UNVERIFIED (ctxstore.py:227-264)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "SINGLE-WRITER hooks.jsonl: ctxevents is the ONE non-hook writer of hooks.jsonl (stage-tagged events); telemetry.sh is the hook writer (stageless, PARTIAL-by-construction); neither ever writes ctxstore's log.jsonl (ctxevents.py:1-9; telemetry.sh:65-68)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "TELEMETRY FAIL-OPEN / GLOBAL BLAST-RADIUS: telemetry.sh ALWAYS exits 0 (EXIT/INT/TERM trap), no-ops when the session cwd has no active .atlas/<run_id>/, never calls `date` (ts strictly from stdin), honors KIMI_ATLAS_NO_HOOK, never shells out to kimi -p (telemetry.sh:9-29,53-54)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "DISPATCH-INTEGRITY RECONCILIATION: reconcile flags a stage PARTIAL only when a subagent dispatch (log.jsonl agent=…) has no covering stage-tagged tool_call in hooks.jsonl; a missing marker surfaces PARTIAL at OUTPUT, never blocks the machine (contextgraph.py:57-82,161-169)."
-    },
-    {
-      "subsystem": "agentic-backbone",
-      "invariant": "FRONTMATTER SINGLE PRIMITIVE: frontmatter.FRONTMATTER_RE is the one BOM-aware + CRLF-aware YAML-fence regex; both skillregistry and run_negative_gate build on it so encoding handling lives in exactly one place (F7) (frontmatter.py:1-26)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "Determinism / no-op rebuild: extraction and registry are sorted by (category,name) with stable key order and carry no timestamps, so re-running over an unchanged tree is a zero diff (skillextract.build_manifest, skillregistry.build_entries sort)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "No partial writes: both builders are validate→audit→write; the manifest/registry is written ONLY when schema-valid AND the audit is clean (skillextract.main / skillregistry.main return 1 before write on any failure)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "Byte-identical extraction: member bytes are copied verbatim; member modes are forced (0o755 for *.sh, 0o644 otherwise — zip external_attr is never trusted); same-name zips must be byte-identical to coalesce, a byte-difference is an audit FAILURE (skillextract._MODE_*, plan_extractions)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "Manifest-anchored categories: a package's category comes ONLY from the committed manifest; a skills/ dir the manifest does not record is an audit FAILURE, never silently categorized (skillregistry.build_entries; skillextract.verify_manifest stowaway sweep)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "SEC-1 dual-layer path confinement: the frontmatter name must be a single safe segment (_NAME_RE, no first-party collision) AND each zip entry name must stay inside the package dir (_is_safe_entry), re-validated against out_root before any byte is written (_confined_target)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "SAFE-2 untrusted data: every SKILL.md / zip member is third-party DATA — parsed for classification and confinement only, never interpreted as instructions."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "V6 advisory selection: skillselect is a pure string/token heuristic that emits no verdicts and can never gate a run; an absent/unreadable registry or overrides, or any selection exception, degrades to no-selection (atlas try/except → [])."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "Count reconciliation: registry-count == manifest-skill-count and manifest file_count == summed member count are asserted by the audits; 117 zips → 115 packages (2 coalesced duplicates), skills/ holds 115 vendored + 3 first-party dirs (atlas, atlas-weave, atlas-resume)."
-    },
-    {
-      "subsystem": "skill-system",
-      "invariant": "First-party exemption: FIRST_PARTY_DIRS (atlas, atlas-weave, atlas-resume) are plugin machinery — excluded from extraction/registration and absent from the manifest by design; a NEW first-party dir must be added to the set or the audit tripwire fails it."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "Scorer is pure: no I/O, no LLM, no clock — classify/scorecard are a fold over booleans so any (verdict_ok, tests_pass) set re-derives the identical scorecard (bench/scorer.py:14-17)."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "The 2x2 mapping is FROZEN: verdict OK+pass=TRUE_PASS, OK+fail=FALSE_PASS, UNVERIFIED+pass=MISSED, UNVERIFIED+fail=TRUE_FAIL (scorer.py:25-29). FALSE_PASS/false_pass_count is THE trust metric and atlas's thesis asserts it stays 0."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "Undefined ratios (empty denominator) return None, never a fake 0.0 — _rate guards on den (scorer.py:32-34); false_pass_rate/gate_precision are None when nothing was VERIFIED."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "Ground truth is independent of atlas's self-claim: tests_pass comes only from applying diff.patch to a CLEAN materialised baseline and running the hidden acceptance tests (runner.py:53-71)."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "Fail-safe reads: a missing/degraded ledger yields verdict_ok=False and an empty patch; a diff that does not apply counts as a fail (runner.py:22-24, 59, 67)."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "The reference solution is NEVER shipped into a task repo — materialize writes only stub + hidden test + brief; ref is used solely inside validate() (tasks.py:172-189, 15)."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "A task is only sound when ref_pass AND stub_fail both hold (validate, tasks.py:192-205); --validate is a no-model, no-cost gate that exits nonzero if any task is invalid (run_bench.py:22-31)."
-    },
-    {
-      "subsystem": "bench",
-      "invariant": "verdict_ok is True iff merged_critic.json's verdict == 'OK' (runner.py:33, 47) — the single coupling point to the atlas gate's output contract."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "`make ci` is EXACTLY `check-strict test inventory-drift check-shell` (Makefile:38) and is what `.github/workflows/check.yml` runs — it must stay Kimi-free / network-free / semgrep-free. The two negative-gate drivers are DELIBERATELY excluded from `ci` (they need a live Kimi and/or semgrep) and live behind their own `make negative-gate` target."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "EXCLUSION_SET (check_artifact_naming.py:48-49) — README.md, SKILL.md, LICENSE, Makefile, PLAN.md, AGENTS.md, CHANGELOG.md — are project fixtures exempt from EVERY naming rule so uppercase docs never fail CI. AGENTS.md and CHANGELOG.md are the newest additions."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "The skill-package exemption (a directory holding a SKILL.md is vendored data whose payload .md is never scanned) is owned ONCE in scripts/skillpkgs.py:walk_markdown and shared by both doc gates; per-path decisions (check_file / is_tracked_doc) stay pure. Do not re-hand-copy the walk."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "inventory-drift is phase-aware: the index is built only from references/*.md + README.md (never PLAN.md, which lists future paths) and the on-disk scan prunes .git/__pycache__/node_modules plus the git-ignored .superpowers (SDD scratch) and .atlas (run-ledger scratch) workspaces (inventory_drift.py:64-66)."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "guard-destructive.sh is OPT-IN and DISABLED BY DEFAULT — it is the only hook that can BLOCK and is intentionally NOT wired into .kimi-plugin/plugin.json hooks[]. It is FAIL-OPEN (any parse error / missing python3 / unexpected shape -> exit 0 allow) with no `trap 'exit 0' EXIT`, honors a KIMI_ATLAS_NO_HOOK recursion escape, and denies only a tight whole-system/raw-device denylist at command-position (CMDPOS anchor, guard-destructive.sh:84)."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "Negative-gate anti-rubber-stamp contract (run_negative_gate.py): a `bad_*` fixture that returns OK is a RUBBER STAMP and fails the build; every deterministic gate (incl. the SAST floor) MUST be green on a judgment fixture or the driver fails it loudly; a fixture whose evaluator raises is never a matched pass."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "Weave negative-gate: every canonical scenario's expected outcome is BLOCK; an evaluator that RAISES is reported ERROR with matched=False and can never masquerade as a successful block (run_weave_negative_gate.py:51-53). Exit 0 iff all seven scenarios matched."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "check-shell is a REAL syntax gate (F1): `sh -n` over .githooks/pre-commit, hooks/*.sh, probe/*.sh, scripts/*.sh (Makefile:23) — no longer decorative."
-    },
-    {
-      "subsystem": "build-ci",
-      "invariant": "validate.validate enforces ONLY data-contract (required-field presence + type, optional type-checked when present) against the single source of truth references/schemas.json — it holds no orchestration knowledge."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "STAGES pin: ctxstore.STAGES == ('INIT','INTENT_CAPTURED','CLARIFY','TRIAGED','GROUNDED','CODED','VERIFIED','REFINE','OUTPUT'); CONDITIONAL_STAGES == ('CLARIFY','REFINE'); MANDATORY_STAGES == STAGES minus conditionals with order preserved and disjoint — asserted in test_ctxstore.py:52 test_stages_are_canonical_and_partitioned."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "FSM legality graph is pinned on fsm.py ALONE (test_fsm.py): forward-adjacent pairs legal, VERIFIED->REFINE derived-legal, REFINE->CODED declared-loop-legal (not derivable), forward-skips over a mandatory stage / arbitrary backward jumps / self-loops / unknown stages illegal; legal_path over MANDATORY_STAGES and full STAGES both legal. The suite never asserts over advance() call sites."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "get_refine_passes is ledger-derived (reads log.jsonl, not state memory), monotonic, zero before any refine and == 2 after two passes — test_ctxstore.py:171-208."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Intent immutability: init_run is idempotent and a re-init with a different intent ('HIJACKED') must NOT clobber captured state; intent.txt is immutable across rollback — test_ctxstore.py:95 + RollbackLedgerTests."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Append-only ledger: log.jsonl is append-only and NEVER truncated by rollback; rollback_to is a two-phase append (intent then complete); get_refine_passes byte-for-byte unaffected by rollback — test_ctxstore.py RollbackLedgerTests (from line 259) + test_ctxstore_atomic.py."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "SAFE-2 (prompt-injection) invariant is pinned on BOTH seams: read path (contextgraph, test_contextgraph.py) and write path (safewrap.coder_redispatch_packet, test_write_path_injection_gate.py) — injected imperatives in attacker-influenceable stdout/stderr tails appear ONLY inside the UNTRUSTED-DATA fence and cannot alter frozen scope/intent/target."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Real-git rollback guarantee (test_rollback_realgit.py, no monkeypatch): on the PRIMARY tree (git-common-dir == git-dir) run_rollback and resume_rollback REFUSE; inside an isolated .atlas/<run_id>/worktree linked worktree (common != git-dir) with a caller token they SUCCEED — never `git reset --hard` the real tree (guards HIGH-2)."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Combined-tree red-team gate: exactly 7 canonical ATLAS-WEAVE scenarios (hidden-same-file-overlap, combined-red-while-leaves-green, cyclic-DAG, dropped-requirement, gas-exhausted-partial, illegal-transition, rollback-refused) must each BLOCK (outcome != 'OK'); a clean input fed to a BLOCK-expecting scenario must NOT match — proving the harness cannot rubber-stamp (test_run_weave_negative_gate.py)."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Single-tree negative gate: the good fixture verdicts OK and every bad_* fixture verdicts UNVERIFIED; the security floor must bite (bad_security fails only when the floor is non-empty) — test_run_negative_gate.py (64 tests)."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Zip-slip / path confinement: skillextract rejects '../evil', absolute paths, backslash traversal, and symlinked-package-dir escapes — test_skillextract.py:159-279."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "Plugin read paths in skills/atlas/SKILL.md must be plugin-root-relative: a bare `references/rubric.md` is forbidden (resolves under skills/atlas/ from the target-repo cwd); the ${KIMI_SKILL_DIR}/../../references/rubric.md form must be present and the file must exist at plugin root — test_skill_ref_paths.py."
-    },
-    {
-      "subsystem": "tests",
-      "invariant": "No hard-coded test count may appear in README.md / AGENTS.md (F4); the count is proven by `make test`, not prose — test_doc_testcount.py, with a self-check that its patterns are non-vacuous. 'N tracked docs' claim must equal the inventory_drift count (F5) — test_tracked_docs_count.py."
-    }
-  ]
+  {
+   "id": "verification-harness",
+   "summary": "The 6-lens verification gate that decides whether a code change is \"elite\" (OK) or degrades to UNVERIFIED. Its spine is a set of PURE decision functions in verdict.py (merge/gate/should_refine/final_status) — no LLM ever computes pass/fail. Under them sits a deterministic floor (runcheck, quality.lint_deliverable, astlens, sast, reqcoverage, pathcheck) that mechanically blocks detectable sub-elite code, above them three isolated single-lens model critics (correctness/code-quality/security), all scored against one rubric (references/rubric.md) whose vocabulary is single-sourced in rubric.py. The orchestrator SKILL only marshals inputs into these calls and drives the provably-halting REFINE loop.",
+   "nodes": 12,
+   "edges": 36
+  },
+  {
+   "id": "atlas-weave",
+   "summary": "atlas-weave is the OUTER multi-agent meta-machine that wraps the single-change `atlas` inner machine: it decomposes a large multi-file request into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges the node diffs through a combined-tree INTEGRATE sink. The sink is a stack of THREE deterministic disjointness nets — `integrate.actual_conflicts` (same-file overlap over actually-touched files), `integrate.apply_failures` (NEW: a change the union `git apply` rejected, or an unbuildable union tree), and `differential.regressions` (green-alone/red-combined) — folded by `integrate.integration_verdict` alongside a read-only seam critic. No LLM ever computes pass/fail; every verdict is a pure fold, and the whole run provably halts on `runcaps` gas. It degrades byte-identically to one atlas run on a 1-node DAG, and its full composition is pinned in CI by `dogfood_weave.py`.",
+   "nodes": 8,
+   "edges": 33
+  },
+  {
+   "id": "agentic-backbone",
+   "summary": "The agentic-backbone is the Graph+Loop+Verification layer that sits atop ctxstore's append-only ledger. ContextGraph (contextgraph.py) is a pure, deterministic read-time projection of the ledger — injected as architectural-state DATA at CODED (a HINT, never a gate) and recomputed on every REFINE re-dispatch so the coder never sees a stale graph. fsm.py provides pure canonical-transition legality (a test/negative-gate invariant, not enforced in advance); rollback_driver.py adds a two-phase, forward-only, idempotent git-reset rollback gated to isolated headless worktrees; safewrap.py is the single canonical SAFE-2 untrusted-content wrapper shared by the read (GRAPH_LOOKUP) and write (REFINE feedback) paths; ctxevents.py + telemetry.sh are the two writers of the per-run hooks.jsonl event log; and frontmatter.py is the shared YAML-fence primitive. Everything reads ctxstore's ledger; only rollback and the event writers mutate state, and each does so through a narrow, invariant-guarded seam.",
+   "nodes": 9,
+   "edges": 29
+  },
+  {
+   "id": "skill-system",
+   "summary": "The skill-system vendors 115 official skill packages into the plugin and makes the right one addressable at the right moment. A four-stage pipeline runs offline: skillextract unpacks the bundled `Skills/` zips byte-identically into a committed `skills/<name>/` tree anchored by a sha256 manifest; skillregistry distils each package's SKILL.md into a compact, machine-readable registry; skillselect ranks that registry against a task intent (advisory-only, V6) at the atlas GROUNDED stage and persists `.atlas/<run_id>/skills.json`. skillpkgs is a small shared walk that exempts skill-package payload markdown from the two doc gates. Each SKILL.md is third-party UNTRUSTED DATA (SAFE-2), parsed for classification/confinement, never interpreted as instructions.",
+   "nodes": 5,
+   "edges": 15
+  },
+  {
+   "id": "bench",
+   "summary": "A standalone benchmark harness (new; absent from the old graphify) that measures not just whether kimi-atlas solves a coding task, but whether its 6-lens gate tells the truth when it says OK. It mirrors the plugin's own pure-core/hands split: a pure deterministic scorer folds (verdict_ok, tests_pass) pairs into a confusion matrix (TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL) and trust metrics whose headline is false_pass_rate/false_pass_count; a self-validating task suite materialises throwaway git repos with hidden acceptance tests; a thin I/O runner reads a completed atlas run's ledger, applies its diff.patch to a clean baseline and runs the hidden tests as ground truth; a Markdown reporter and a CLI wrap it. It consumes artifacts produced by the atlas run subsystem (merged_critic.json, diff.patch, log.jsonl) but has zero code dependency on plugin internals.",
+   "nodes": 7,
+   "edges": 10
+  },
+  {
+   "id": "build-ci",
+   "summary": "The build-ci subsystem is kimi-atlas's quality gate and packaging layer. Its spine is the Makefile, whose `ci` target chains four network-free gates (strict artifact-naming, unittest suite, inventory-drift, and a real `sh -n` shell-syntax gate) and is the exact thing GitHub Actions runs via `make ci`. Alongside sit the machine-checked doc gates (naming + inventory-drift, sharing one skill-package-aware walk), pure data-contract cores (schema validate, plugin_meta), two red-team negative-gate drivers held deliberately outside `ci` (a single-change judgment+SAST gate needing Kimi/semgrep, and a pure combined-tree integration gate), the idempotent source installer, and an opt-in fail-open destructive-Bash guard. It owns the invariant that CI stays deterministic and dependency-free while the heavier proofs run behind their own targets.",
+   "nodes": 11,
+   "edges": 35
+  },
+  {
+   "id": "tests",
+   "summary": "The tests/ subsystem is the plugin's proof engine: 59 test_*.py unittest modules totaling 928 tests, all green via `make test` (python3 -m unittest discover -s tests -v). It provides roughly 1:1 coverage of the 39 scripts/ modules plus the bench/ harness, and pins the FROZEN invariants that the rest of the system leans on — the canonical STAGES machine, FSM legality, intent immutability, the append-only ledger, ledger-derived get_refine_passes, and SAFE-2 injection confinement. Red-team suites (single-tree and combined-tree negative gates, zip-slip, write/read-path injection, destructive-hook bypass) prove the safety gates actually bite, while test_rollback_realgit.py closes the real-git seam and the newest additions (test_bench_scorer.py, test_skill_ref_paths.py) pin the benchmark scorer and the plugin read-path fix.",
+   "nodes": 20,
+   "edges": 32
+  },
+  {
+   "id": "universal-floor",
+   "summary": "The universal-floor is the language-agnostic DOES-IT-RUN floor: it decides, for ANY language, whether a change RUNS (P1 run-signal), is grammatically VALID (P2 syntax), and what its own linter ADVISES (P3 advisory) — under THE ONE GUARANTEE: never execute untrusted repo code, never false-block a valid repo. runcheck orchestrates: discovers the verify_cmd (marker-gated), runs it under proccap's memory cap, and recognizes a PASS structurally via runsignal. langfloor is the single registry (runner tags, syntax argv, test-glob). nativefloor is the hermetic, argv-only, parse-ONLY security core (never runs repo code); syntaxlens is its sole consumer. lintlens (P3) is the advisory linter (HYBRID exec: safe-parse auto + operator-gated), firewalled from the pure gate.",
+   "nodes": 7
+  },
+  {
+   "id": "external",
+   "summary": "External tools and runtime artifacts the plugin depends on or produces (semgrep, kimi-cli, the ledger/hook JSONL streams, the manifest) — not first-party source, shown for edge completeness.",
+   "nodes": 8
+  }
+ ],
+ "nodes": [
+  {
+   "id": "atlas-SKILL",
+   "subsystem": "atlas-core",
+   "path": "skills/atlas/SKILL.md",
+   "kind": "skill",
+   "responsibility": "Root conductor prose: runs INIT→OUTPUT in one uninterrupted turn, dispatches subagents via role-file read/strip/prepend, marshals pure cores + verdict, enforces 3 sanctioned human gates and NO-LLM-verdict."
+  },
+  {
+   "id": "ctxstore",
+   "subsystem": "atlas-core",
+   "path": "scripts/ctxstore.py",
+   "kind": "io-hand",
+   "responsibility": "Deterministic run persistence: frozen immutable packet, canonical STAGES state machine, append-only log.jsonl ledger (authoritative refine counter), artifacts/drafts, two-phase rollback markers — NO prompting/subprocess."
+  },
+  {
+   "id": "plandag",
+   "subsystem": "atlas-core",
+   "path": "scripts/plandag.py",
+   "kind": "pure-core",
+   "responsibility": "Pure plan-DAG substrate: DAG validity (Kahn), scope-disjointness + criteria-conservation defects, gas charge/exhaust, ready-jobs frontier, bounded expand, fixpoint — owns the two halting bounds (gas, MAX_ATTEMPTS)."
+  },
+  {
+   "id": "scheduler",
+   "subsystem": "atlas-core",
+   "path": "scripts/scheduler.py",
+   "kind": "pure-core",
+   "responsibility": "Pure flat-W=3 work-stealing scheduler core: §6 class-aware memory admission, gas-charging dispatch + lease fencing, receipt/timeout/reap transitions, lexicographic halting measure, and the final UNVERIFIED-safe aggregate."
+  },
+  {
+   "id": "planstage",
+   "subsystem": "atlas-core",
+   "path": "scripts/planstage.py",
+   "kind": "pure-core",
+   "responsibility": "DECOMPOSED-stage gate: validate a planner DAG (reusing plandag + verdict.coverage_partition) or degrade to single_node_dag — the byte-identical degrade-to-atlas guarantee."
+  },
+  {
+   "id": "budget",
+   "subsystem": "atlas-core",
+   "path": "scripts/budget.py",
+   "kind": "pure-core",
+   "responsibility": "Pure risk/budget heuristics: risk_score sizes spend, monotone token ledger (charge_tokens), mandatory-floor funding gate — SIZES spend only, never gates pass/fail."
+  },
+  {
+   "id": "bestofn",
+   "subsystem": "atlas-core",
+   "path": "scripts/bestofn.py",
+   "kind": "pure-core",
+   "responsibility": "Risk-funded best-of-N: pure lexicographic N→1 winner selection (gate-pass > fewer blocking defects > fewer tokens > lower index) with a guaranteed best-of-1 floor; fanout_n decides N."
+  },
+  {
+   "id": "resume",
+   "subsystem": "atlas-core",
+   "path": "scripts/resume.py",
+   "kind": "pure-core",
+   "responsibility": "Run-shape-aware graph resume: select the graph ROOT run (never a task sub-run) and reset orphaned RUNNING jobs to PENDING without refunding gas or bumping attempts — state-as-projection re-derivation."
+  },
+  {
+   "id": "runcaps",
+   "subsystem": "atlas-core",
+   "path": "scripts/runcaps.py",
+   "kind": "pure-core",
+   "responsibility": "Provisions halting caps (depth_max/node_max/gas set strictly above worst-case dispatch count) + soft token_budget from risk; degrades a malformed packet to the atlas-safe minimum."
+  },
+  {
+   "id": "context-scout",
+   "subsystem": "atlas-core",
+   "path": "agents/context-scout.md",
+   "kind": "agent",
+   "responsibility": "Read-only grounding role (mapped to built-in `explore`): scans target repo, returns a grounding-digest JSON as its final message (writes nothing); treats file content as untrusted DATA."
+  },
+  {
+   "id": "elite-coder",
+   "subsystem": "atlas-core",
+   "path": "agents/elite-coder.md",
+   "kind": "agent",
+   "responsibility": "Write-capable implementation role (mapped to `coder`): implements the change inside review_root, self-verifies verify_cmd, returns STATUS as evidence-not-proof; untrusted-content rule."
+  },
+  {
+   "id": "planner",
+   "subsystem": "atlas-core",
+   "path": "agents/planner.md",
+   "kind": "agent",
+   "responsibility": "Read-only decomposer role (mapped to `plan`): turns the frozen packet into a file-disjoint plan-DAG + per-node risk_features JSON, or a single node when it doesn't cleanly split."
+  },
+  {
+   "id": "verdict",
+   "subsystem": "verification-harness",
+   "path": "scripts/verdict.py",
+   "kind": "pure-core",
+   "responsibility": "Pure decision core: merge (normalize 3 critics + script defects → canonical critic), gate (composite AND PASS bar → OK/UNVERIFIED), should_refine (CRITICAL/HIGH + passes<MAX_PASSES), final_status, missing_stages, plus ATLAS-WEAVE aggregate + coverage_partition — no model judgment, no I/O."
+  },
+  {
+   "id": "rubric",
+   "subsystem": "verification-harness",
+   "path": "scripts/rubric.py",
+   "kind": "pure-core",
+   "responsibility": "Single source of truth (F6) for the 6 lens names (DIMENSIONS), the severity ladder (SEVERITIES), the blocking subset (BLOCKING={CRITICAL,HIGH}), and the critic-schema key sets (CRITIC_TOP_KEYS/DEFECT_KEYS); stdlib-only, zero side effects."
+  },
+  {
+   "id": "runcheck",
+   "subsystem": "universal-floor",
+   "path": "scripts/runcheck.py",
+   "kind": "io-hand",
+   "responsibility": "Lens 5 DOES-IT-RUN executor: runs the frozen verify_cmd under a fail-open memory cap (cgroup MemoryMax preferred, ulimit -v fallback) + wall-clock timeout in its own process group, parses runner output, and judges green = ok AND test_count>0 AND new_tests_collected (V4)."
+  },
+  {
+   "id": "quality",
+   "subsystem": "verification-harness",
+   "path": "scripts/quality.py",
+   "kind": "pure-core",
+   "responsibility": "Two deterministic cores: enforce_critic_schema (hard value-shape validation of the merged critic — yes/no dims, canonical categories/severities, verdict-vs-defect consistency, no stray keys) and lint_deliverable (config-driven debug-token + missing-test floor for lenses 2/4, capped at MEDIUM)."
+  },
+  {
+   "id": "astlens",
+   "subsystem": "verification-harness",
+   "path": "scripts/astlens.py",
+   "kind": "pure-core",
+   "responsibility": "Deterministic AST lens over changed .py: ast.parse + compile(exec) syntax/parse floor (HIGH DOES-IT-RUN), undefined-name pass (HIGH DOES-IT-RUN, skipped on star/dynamic-namespace modules), unused-import pass (MEDIUM CODE-QUALITY); labelled 'syntax/parse', never type-check."
+  },
+  {
+   "id": "sast",
+   "subsystem": "verification-harness",
+   "path": "scripts/sast.py",
+   "kind": "io-hand",
+   "responsibility": "Partial deterministic floor under lens 3 SECURITY: runs semgrep --config auto --metrics off over scope_paths, maps ERROR→HIGH/WARNING→MEDIUM/INFO→LOW (never CRITICAL); mandatory fail-open — any failure returns [] and the lens degrades to judgment-only."
+  },
+  {
+   "id": "reqcoverage",
+   "subsystem": "verification-harness",
+   "path": "scripts/reqcoverage.py",
+   "kind": "pure-core",
+   "responsibility": "Advisory lens 6 REQUIREMENTS-COVERAGE: literal token-overlap between each frozen success criterion and the diff → MEDIUM 'unconfirmed' per zero-overlap criterion, plus optional MEDIUM scope-creep per out-of-scope changed file; gameable both ways so capped at MEDIUM (V6)."
+  },
+  {
+   "id": "pathcheck",
+   "subsystem": "verification-harness",
+   "path": "scripts/pathcheck.py",
+   "kind": "pure-core",
+   "responsibility": "Deterministic grounding cross-check for lenses 1/6: every backticked file-like path citation in the text must exist in ctx['relevant_files'] or on disk under root, else a CRITICAL CORRECTNESS defect; symbol resolution dropped (paths only, CMP-06)."
+  },
+  {
+   "id": "difftool",
+   "subsystem": "verification-harness",
+   "path": "scripts/difftool.py",
+   "kind": "io-hand",
+   "responsibility": "Single deterministic diff source for every lens: renders modified-tracked, brand-new-untracked, and non-git-tree files uniformly (new files as full new-file diffs), pinned formatting for byte-identical output, never mutates tree/index, degrades to empty string on any failure."
+  },
+  {
+   "id": "correctness-critic",
+   "subsystem": "verification-harness",
+   "path": "agents/correctness-critic.md",
+   "kind": "agent",
+   "responsibility": "Isolated adversarial plan-subagent for lens 1 CORRECTNESS (also confirms advisory lenses 4/6, may raise them to HIGH); read-only, emits one critic-schema JSON; temperature 0.2; sees only intent+diff+rubric+deterministic evidence, never orchestrator/coder/peer state."
+  },
+  {
+   "id": "code-quality-critic",
+   "subsystem": "verification-harness",
+   "path": "agents/code-quality-critic.md",
+   "kind": "agent",
+   "responsibility": "Isolated adversarial plan-subagent for lens 2 CODE-QUALITY (dead abstraction / structure / convention drift, HIGH is rare); read-only, one critic-schema JSON; temperature 0.5."
+  },
+  {
+   "id": "security-critic",
+   "subsystem": "verification-harness",
+   "path": "agents/security-critic.md",
+   "kind": "agent",
+   "responsibility": "Isolated adversarial plan-subagent for lens 3 SECURITY (taint→sink, secrets, path traversal, untrusted-content-as-instructions); read-only, one critic-schema JSON; temperature 0.3; augmented by the sast floor."
+  },
+  {
+   "id": "rubric-doc",
+   "subsystem": "verification-harness",
+   "path": "references/rubric.md",
+   "kind": "doc",
+   "responsibility": "The single human/critic-facing rubric: the 6 falsifiable lenses, severity mapping, the exact verdict.gate PASS-bar clauses, and the honest-scope disclaimers (V3 anti-Goodhart, V5 lens independence, V6 MEDIUM-cap, V7 severity-trust)."
+  },
+  {
+   "id": "atlas-weave-SKILL",
+   "subsystem": "atlas-weave",
+   "path": "skills/atlas-weave/SKILL.md",
+   "kind": "skill",
+   "responsibility": "The orchestrator prose: the outer FSM (DECOMPOSED->BUDGETED->SCHEDULE*->INTEGRATE->AGGREGATE->OUTPUT), Kimi tool/role-dispatch adaptation, and the four load-bearing invariants; it only marshals evidence into pure functions."
+  },
+  {
+   "id": "uniontree",
+   "subsystem": "atlas-weave",
+   "path": "scripts/uniontree.py",
+   "kind": "io-hand",
+   "responsibility": "The INTEGRATE hand: creates a detached git worktree at baseline_sha, `git apply`s the union of node diffs in list order, captures the combined diff, and reports applied/failed ids; every git failure degrades safe (never a false green)."
+  },
+  {
+   "id": "integrate",
+   "subsystem": "atlas-weave",
+   "path": "scripts/integrate.py",
+   "kind": "pure-core",
+   "responsibility": "The INTEGRATE decision core: `touched_files` (unified-diff path parser), `actual_conflicts` (same-file overlap net), `apply_failures` (NEW third net over an apply_union result), and `integration_verdict` (folds all defect lists into one canonical critic)."
+  },
+  {
+   "id": "differential",
+   "subsystem": "atlas-weave",
+   "path": "scripts/differential.py",
+   "kind": "pure-core",
+   "responsibility": "The combined-tree differential oracle: `regressions` returns tests green-in-isolation but non-'pass' on the merged tree (zero false positives); `integration_defects` maps each to a blocking CORRECTNESS/HIGH defect."
+  },
+  {
+   "id": "suiterun",
+   "subsystem": "atlas-weave",
+   "path": "scripts/suiterun.py",
+   "kind": "io-hand",
+   "responsibility": "parse_junit (PURE core) turns JUnit XML into {test_id: status} where green == exactly 'pass'. run_suite (I/O hand) is RUNNER-AWARE (C5): pytest / a {junit} placeholder route to the per-test JUnit path (byte-equivalent); any other runner degrades to a WHOLE-SUITE signal via runsignal.count — a reserved _WHOLE_SUITE_ID sentinel emitted only when runsignal confirms green (collected), else {} (never a false green). Consumed by the ATLAS-WEAVE differential; parse_junit + differential.regressions unchanged."
+  },
+  {
+   "id": "leaseclock",
+   "subsystem": "atlas-weave",
+   "path": "scripts/leaseclock.py",
+   "kind": "pure-core",
+   "responsibility": "Injected-clock lease stamp + expiry feed: `stamp` mints a non-rotating `{job_id}#{attempts}` token + deadline; `expired` reports leases with deadline<=now (malformed lease => reaped) for scheduler.reap_expired."
+  },
+  {
+   "id": "dogfood_weave",
+   "subsystem": "atlas-weave",
+   "path": "scripts/dogfood_weave.py",
+   "kind": "driver",
+   "responsibility": "Deterministic end-to-end CI proof: drives PLAN->SCHEDULE->INTEGRATE->AGGREGATE on a real temp git repo with scripted node diffs, exercising every pure core + I/O hand, and tears down all worktrees + .atlas/ in a finally."
+  },
+  {
+   "id": "integration-critic",
+   "subsystem": "atlas-weave",
+   "path": "agents/integration-critic.md",
+   "kind": "agent",
+   "responsibility": "Read-only adversarial SEAM critic over the combined diff: judges the residual the differential is sound-but-incomplete about (signature/contract drift, shared state/config, duplicated abstraction, ordering) and returns a critic-schema JSON report; writes nothing."
+  },
+  {
+   "id": "contextgraph",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/contextgraph.py",
+   "kind": "pure-core+io-hand",
+   "responsibility": "Pure read-time projection of the run ledger into the deterministic ContextGraph (build/reconcile) plus thin I/O hands that read the ledger, atomically cache, and render the SAFE-2 GRAPH_LOOKUP."
+  },
+  {
+   "id": "fsm",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/fsm.py",
+   "kind": "pure-core",
+   "responsibility": "Pure canonical-transition legality (legal_transition/legal_path), edges derived from ctxstore.STAGES + one declared REFINE->CODED loop; a test invariant and negative-gate predicate, never enforced inside advance."
+  },
+  {
+   "id": "rollback_driver",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/rollback_driver.py",
+   "kind": "driver+gate",
+   "responsibility": "Two-phase, forward-only, idempotent rollback orchestration behind a monkeypatchable git-reset seam, gated by the headless-worktree-only sanctioned_rollback predicate; run + resume paths."
+  },
+  {
+   "id": "safewrap",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/safewrap.py",
+   "kind": "pure-core",
+   "responsibility": "The one canonical SAFE-2 untrusted-content wrapper (wrap_untrusted + fence delimiters) shared by the Ph2 read path and Ph4 write path, plus the REFINE re-dispatch packet builders."
+  },
+  {
+   "id": "ctxevents",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/ctxevents.py",
+   "kind": "io-hand",
+   "responsibility": "The single non-hook writer of a run's hooks.jsonl — appends orchestrator-emitted stage-tagged {kind,ts,payload} tool_call/error events; never writes ctxstore's log.jsonl."
+  },
+  {
+   "id": "frontmatter",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/frontmatter.py",
+   "kind": "pure-core",
+   "responsibility": "The one BOM-aware + CRLF-aware YAML-frontmatter fence regex primitive (FRONTMATTER_RE/match) shared by the skill registry and the role-file stripper."
+  },
+  {
+   "id": "telemetry.sh",
+   "subsystem": "agentic-backbone",
+   "path": "hooks/telemetry.sh",
+   "kind": "driver",
+   "responsibility": "Fail-open (always exit 0) global observability hook: appends stageless tool_call/error telemetry with UNTRUSTED payloads to the active run's hooks.jsonl; no-op outside an atlas run."
+  },
+  {
+   "id": "ctxstore.rollback_ops",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/ctxstore.py:209-288",
+   "kind": "pure-core",
+   "responsibility": "Pure-persistence rollback ledger ops: last_green_stage, rollback_to (two-phase markers, ROLLBACK stage keeps refine counter monotonic), pending_rollback (ledger-derived recovery)."
+  },
+  {
+   "id": "ctxstore.STAGES",
+   "subsystem": "agentic-backbone",
+   "path": "scripts/ctxstore.py:35-48",
+   "kind": "doc",
+   "responsibility": "Single source of truth for the canonical stage sequence + CONDITIONAL_STAGES that fsm derives its legal edge graph from."
+  },
+  {
+   "id": "skillextract",
+   "subsystem": "skill-system",
+   "path": "scripts/skillextract.py",
+   "kind": "io-hand",
+   "responsibility": "One-time importer + integrity gate: unpacks Skills/ zips into skills/<name>/ byte-identically, coalesces byte-identical duplicates, writes the sha256 manifest; --verify re-hashes the on-disk tree (the zip-free CI gate)."
+  },
+  {
+   "id": "skillregistry",
+   "subsystem": "skill-system",
+   "path": "scripts/skillregistry.py",
+   "kind": "io-hand",
+   "responsibility": "Registry builder: parses each extracted SKILL.md frontmatter, extracts trigger signals (E1), classifies via the manifest's category, and writes the schema-valid, audit-gated skill-registry.json."
+  },
+  {
+   "id": "skillselect",
+   "subsystem": "skill-system",
+   "path": "scripts/skillselect.py",
+   "kind": "pure-core",
+   "responsibility": "Advisory (V6) deterministic selector: weighted name>triggers>description token scoring of the committed registry against a free-text intent, with pin/exclude/boost/categories overrides and explainable why strings."
+  },
+  {
+   "id": "skillpkgs",
+   "subsystem": "build-ci",
+   "path": "scripts/skillpkgs.py",
+   "kind": "pure-core",
+   "responsibility": "Single shared skill-package-aware markdown walk (prunes SKILL.md-bearing package dirs) used by both doc gates."
+  },
+  {
+   "id": "skill-registry.json",
+   "subsystem": "skill-system",
+   "path": "references/skill-registry.json",
+   "kind": "doc",
+   "responsibility": "Committed registry (version 2, 115 skills): {name, category, description, triggers, path} per skill — the GROUNDED ranking input."
+  },
+  {
+   "id": "skills-manifest.json",
+   "subsystem": "skill-system",
+   "path": "references/skills-manifest.json",
+   "kind": "doc",
+   "responsibility": "Committed sha256 integrity manifest (version 2, 115 skills / 712 files): per-file path+sha256+bytes, the anchor for --verify and the source of each package's category."
+  },
+  {
+   "id": "bench.scorer",
+   "subsystem": "bench",
+   "path": "bench/scorer.py",
+   "kind": "pure-core",
+   "responsibility": "Deterministic, I/O-free confusion-matrix classifier (classify) and metric fold (scorecard) turning (verdict_ok, tests_pass) pairs into solve_rate/false_pass_rate/gate_precision/gate_recall/honesty/false_pass_count."
+  },
+  {
+   "id": "bench.tasks",
+   "subsystem": "bench",
+   "path": "bench/tasks.py",
+   "kind": "io-hand",
+   "responsibility": "The TASKS suite (stub/ref/test per task) plus materialize() (write stub+hidden test into a throwaway git repo) and validate() (self-check that ref passes and stub fails)."
+  },
+  {
+   "id": "bench.runner",
+   "subsystem": "bench",
+   "path": "bench/runner.py",
+   "kind": "io-hand",
+   "responsibility": "Thin FS/git/kimi-CLI layer: read_run parses a run ledger for verdict+diff, diff_passes_hidden_tests applies the diff to a clean baseline and runs hidden tests (ground truth), score_from_ledger produces a scored record, run_headless drives atlas via `kimi -p`."
+  },
+  {
+   "id": "bench.report",
+   "subsystem": "bench",
+   "path": "bench/report.py",
+   "kind": "pure-core",
+   "responsibility": "Render(results, card) -> Markdown scorecard with the gate-trust headline (false-pass count) surfaced first; no I/O."
+  },
+  {
+   "id": "bench.run_bench",
+   "subsystem": "bench",
+   "path": "bench/run_bench.py",
+   "kind": "driver",
+   "responsibility": "CLI dispatch: --validate (self-check the suite), --score tid=run_dir... (score interactive runs), --headless csv (drive atlas end-to-end and score)."
+  },
+  {
+   "id": "bench.__init__",
+   "subsystem": "bench",
+   "path": "bench/__init__.py",
+   "kind": "io-hand",
+   "responsibility": "Package marker enabling `python3 -m bench.run_bench` and `from bench import ...`."
+  },
+  {
+   "id": "test_bench_scorer",
+   "subsystem": "bench",
+   "path": "tests/test_bench_scorer.py",
+   "kind": "doc",
+   "responsibility": "Unit tests pinning classify's four cells, the metric fold, None-vs-0 empty-denominator behavior, and counts-sum-to-n invariant."
+  },
+  {
+   "id": "Makefile",
+   "subsystem": "build-ci",
+   "path": "Makefile",
+   "kind": "driver",
+   "responsibility": "Local quality-gate entrypoint; `ci` target chains the network-free gates, plus opt-in targets for negative-gate, bench-validate, skills, hooks."
+  },
+  {
+   "id": "check_artifact_naming",
+   "subsystem": "build-ci",
+   "path": "scripts/check_artifact_naming.py",
+   "kind": "gate",
+   "responsibility": "Recursively enforce markdown naming rules (lowercase kebab-case .md, non-generic) with a fixture EXCLUSION_SET and skill-package exemption; --strict makes prefix warnings fatal."
+  },
+  {
+   "id": "inventory_drift",
+   "subsystem": "build-ci",
+   "path": "scripts/inventory_drift.py",
+   "kind": "gate",
+   "responsibility": "Machine-checked doc manifest: fail if the doc index (references/*.md + README links) drifts from the on-disk doc tree (broken link or undocumented doc)."
+  },
+  {
+   "id": "validate",
+   "subsystem": "build-ci",
+   "path": "scripts/validate.py",
+   "kind": "pure-core",
+   "responsibility": "Structural schema validation (required/optional field presence + type) of data artifacts against references/schemas.json; no orchestration."
+  },
+  {
+   "id": "plugin_meta",
+   "subsystem": "build-ci",
+   "path": "scripts/plugin_meta.py",
+   "kind": "pure-core",
+   "responsibility": "Read the top-level version string from the .kimi-plugin/plugin.json manifest; raises on missing file / bad JSON / missing key."
+  },
+  {
+   "id": "run_negative_gate",
+   "subsystem": "build-ci",
+   "path": "scripts/run_negative_gate.py",
+   "kind": "gate",
+   "responsibility": "Red-team single-change E2E gate: proves each judgment critic (CORRECTNESS/CODE-QUALITY/SECURITY) blocks sub-elite fixtures AND the deterministic semgrep SAST floor blocks on its own; a bad_* returning OK fails the build."
+  },
+  {
+   "id": "run_weave_negative_gate",
+   "subsystem": "build-ci",
+   "path": "scripts/run_weave_negative_gate.py",
+   "kind": "gate",
+   "responsibility": "Combined-tree red-team gate: seven crafted adversarial scenarios pushed through the real pure integration cores, each of which must BLOCK; deterministic and importable."
+  },
+  {
+   "id": "install.sh",
+   "subsystem": "build-ci",
+   "path": "scripts/install.sh",
+   "kind": "io-hand",
+   "responsibility": "Idempotent source installer: git-archive HEAD into $KIMI_CODE_HOME/plugins/kimi-atlas and atomically register/replace the entry in installed.json (with --uninstall)."
+  },
+  {
+   "id": "guard-destructive.sh",
+   "subsystem": "build-ci",
+   "path": "hooks/guard-destructive.sh",
+   "kind": "gate",
+   "responsibility": "Opt-in, disabled-by-default, fail-open PreToolUse Bash guard denying only a tight command-position destructive denylist; dual deny emission (exit 2 + permissionDecision JSON)."
+  },
+  {
+   "id": "github-actions-check",
+   "subsystem": "build-ci",
+   "path": ".github/workflows/check.yml",
+   "kind": "driver",
+   "responsibility": "CI on push/PR to main/master: setup Python 3.12 and run `make ci` — the single source of truth is the Makefile."
+  },
+  {
+   "id": "tests/",
+   "subsystem": "tests",
+   "path": "tests/",
+   "kind": "test-suite",
+   "responsibility": "59 test_*.py unittest modules, 928 tests, run green by `make test` (unittest discover); ~1:1 with scripts/ plus bench/ and doc/skill guards."
+  },
+  {
+   "id": "test_ctxstore.py",
+   "subsystem": "tests",
+   "path": "tests/test_ctxstore.py",
+   "kind": "invariant-pin",
+   "responsibility": "Pins the FROZEN state store: canonical STAGES partition, intent immutability/idempotent init_run, ledger-derived monotonic get_refine_passes, and append-only rollback ledger (RollbackLedgerTests)."
+  },
+  {
+   "id": "test_ctxstore_atomic.py",
+   "subsystem": "tests",
+   "path": "tests/test_ctxstore_atomic.py",
+   "kind": "invariant-pin",
+   "responsibility": "Asserts atomic/crash-safe writes and that log.jsonl is never truncated."
+  },
+  {
+   "id": "test_fsm.py",
+   "subsystem": "tests",
+   "path": "tests/test_fsm.py",
+   "kind": "invariant-pin",
+   "responsibility": "Asserts the stage legality graph on fsm.py alone (forward/derived/declared-loop edges legal; skips, backward jumps, self-loops, unknown stages illegal; legal_path over MANDATORY_STAGES and full STAGES)."
+  },
+  {
+   "id": "test_planstage.py",
+   "subsystem": "tests",
+   "path": "tests/test_planstage.py",
+   "kind": "pure-core-test",
+   "responsibility": "Validates the plan-DAG stage core: disjoint covering DAG valid, cyclic=critical, overlap flagged, dropped criterion flagged, malformed nodes degrade (never ship)."
+  },
+  {
+   "id": "test_verdict.py",
+   "subsystem": "tests",
+   "path": "tests/test_verdict.py",
+   "kind": "pure-core-test",
+   "responsibility": "Pins the VERIFIED/UNVERIFIED verdict core and its refine-pass interaction (37 tests)."
+  },
+  {
+   "id": "test_rollback.py",
+   "subsystem": "tests",
+   "path": "tests/test_rollback.py",
+   "kind": "driver-test",
+   "responsibility": "Exercises rollback_driver control flow with monkeypatched _git_reset/_git_dirs (no real repo)."
+  },
+  {
+   "id": "test_rollback_realgit.py",
+   "subsystem": "tests",
+   "path": "tests/test_rollback_realgit.py",
+   "kind": "real-git-seam",
+   "responsibility": "Drives run_rollback/resume_rollback against a REAL repo + REAL linked worktree, no monkeypatch: primary tree REFUSES, .atlas/<run_id>/worktree SUCCEEDS (guards HIGH-2)."
+  },
+  {
+   "id": "test_run_negative_gate.py",
+   "subsystem": "tests",
+   "path": "tests/test_run_negative_gate.py",
+   "kind": "red-team",
+   "responsibility": "Single-tree fixture matrix (64 tests): good->OK, every bad_*->UNVERIFIED, security floor bites; also covers extract_last_json, strip_frontmatter, lens mapping."
+  },
+  {
+   "id": "test_run_weave_negative_gate.py",
+   "subsystem": "tests",
+   "path": "tests/test_run_weave_negative_gate.py",
+   "kind": "red-team",
+   "responsibility": "Combined-tree gate: 7 canonical ATLAS-WEAVE scenarios each BLOCK through the pure cores; a clean input must not match (no rubber-stamp)."
+  },
+  {
+   "id": "test_write_path_injection_gate.py",
+   "subsystem": "tests",
+   "path": "tests/test_write_path_injection_gate.py",
+   "kind": "red-team",
+   "responsibility": "SAFE-2 write path: injected imperatives in coder-redispatch stdout/stderr tails stay fenced and cannot alter frozen scope/intent/target (safewrap.coder_redispatch_packet)."
+  },
+  {
+   "id": "test_contextgraph.py",
+   "subsystem": "tests",
+   "path": "tests/test_contextgraph.py",
+   "kind": "red-team",
+   "responsibility": "SAFE-2 read path: attacker-influenceable data confined to the UNTRUSTED-DATA fence in the assembled context graph."
+  },
+  {
+   "id": "test_skillextract.py",
+   "subsystem": "tests",
+   "path": "tests/test_skillextract.py",
+   "kind": "red-team",
+   "responsibility": "Zip-slip / path confinement: rejects ../escape, absolute paths, backslash traversal, and symlinked-package-dir escape when extracting Skills zips."
+  },
+  {
+   "id": "test_guard_destructive.py",
+   "subsystem": "tests",
+   "path": "tests/test_guard_destructive.py",
+   "kind": "hook-test",
+   "responsibility": "Behavioral subprocess test of hooks/guard-destructive.sh — the VAR=val denylist bypass is closed (F2)."
+  },
+  {
+   "id": "test_bench_scorer.py",
+   "subsystem": "tests",
+   "path": "tests/test_bench_scorer.py",
+   "kind": "pure-core-test",
+   "responsibility": "NEW: pins bench.scorer confusion matrix (TRUE_PASS/FALSE_PASS/MISSED/TRUE_FAIL) and metrics (false_pass_rate, gate_precision/recall, honesty, solve_rate; empty denominators -> None)."
+  },
+  {
+   "id": "test_skill_ref_paths.py",
+   "subsystem": "tests",
+   "path": "tests/test_skill_ref_paths.py",
+   "kind": "doc-guard",
+   "responsibility": "NEW: forbids a bare `references/rubric.md` read in skills/atlas/SKILL.md; requires the plugin-root-relative ${KIMI_SKILL_DIR}/../../references/rubric.md form and that the file exists."
+  },
+  {
+   "id": "test_doc_testcount.py",
+   "subsystem": "tests",
+   "path": "tests/test_doc_testcount.py",
+   "kind": "doc-guard",
+   "responsibility": "Forbids any hard-coded test count in README.md/AGENTS.md (F4); non-vacuous self-check on its own patterns."
+  },
+  {
+   "id": "test_tracked_docs_count.py",
+   "subsystem": "tests",
+   "path": "tests/test_tracked_docs_count.py",
+   "kind": "doc-guard",
+   "responsibility": "AGENTS.md 'N tracked docs' must equal the inventory_drift count (F5)."
+  },
+  {
+   "id": "test_inventory_drift.py",
+   "subsystem": "tests",
+   "path": "tests/test_inventory_drift.py",
+   "kind": "gate-test",
+   "responsibility": "Tests scripts/inventory_drift.py — fails if references/README index drifts from the filesystem."
+  },
+  {
+   "id": "bench/",
+   "subsystem": "tests",
+   "path": "bench/",
+   "kind": "harness",
+   "responsibility": "Benchmark package (scorer, runner, tasks, report, run_bench) exercised by `make bench-validate`; scorer pinned by test_bench_scorer.py."
+  },
+  {
+   "id": "proccap",
+   "subsystem": "universal-floor",
+   "path": "scripts/proccap.py",
+   "kind": "module",
+   "responsibility": "Memory-cap + subprocess backend for the floor. Picks a backend once (cgroup MemoryMax RSS-cap, Node-safe > legacy ulimit -v virtual cap > none), launches the workload in its OWN process group (start_new_session) so a wall-timeout SIGKILLs the whole subtree, and FAILS OPEN (re-run uncapped rather than manufacture a RED). Shared by runcheck (shell cmd), nativefloor (argv), and lintlens (hardened). Byte-equivalent for runcheck (FROZEN)."
+  },
+  {
+   "id": "langfloor",
+   "subsystem": "universal-floor",
+   "path": "scripts/langfloor.py",
+   "kind": "module",
+   "responsibility": "The ONE registry — no execution. RUNNERS (marker file -> verify cmd -> canonical runner_tag -> precedence), SYNTAX_ARGV (ext -> parse-only argv, JS deliberately absent), resolve_runner_tag (verify_cmd + Makefile/package.json -> tags), collectable_pytest, and test_glob_for_runner (C6: runner tag -> conventional test glob). Pure lookups consumed by runcheck, syntaxlens, suiterun (C5), and the atlas SKILL (C6)."
+  },
+  {
+   "id": "runsignal",
+   "subsystem": "universal-floor",
+   "path": "scripts/runsignal.py",
+   "kind": "module",
+   "responsibility": "PASS-only structural run-signal recognizer: count(output, tags) -> (test_count, collected) for pytest/unittest/go/cargo/jest/vitest/mocha/rspec/phpunit. A bare 'N passed' with no runner-specific structural corroboration counts 0; AND-fold across tags; universal ReDoS input-bound. Consumed by runcheck (green bar) and suiterun (C5 whole-suite fallback)."
+  },
+  {
+   "id": "nativefloor",
+   "subsystem": "universal-floor",
+   "path": "scripts/nativefloor.py",
+   "kind": "module",
+   "responsibility": "The hermetic, argv-only, parse-ONLY runner — the SECURITY CORE of the syntax floor. Runs a parse checker (ruby -cw / php -l / gofmt -e / bash -n) over one materialized file in a FRESH empty tempdir, under an env built FROM SCRATCH ({PATH,HOME,LANG,TMPDIR}), signature-gated (a defect requires the tool's error to literally name our file). NEVER executes untrusted repo code; tool-absent/crash = fail-open no-op. Consumes proccap."
+  },
+  {
+   "id": "syntaxlens",
+   "subsystem": "universal-floor",
+   "path": "scripts/syntaxlens.py",
+   "kind": "module",
+   "responsibility": "Sole nativefloor consumer + Lens 5c. Per changed file: dispatch .rb/.php/.go/.sh/.bash to nativefloor (parse), or parse STRICT JSON/TOML config (package.json/composer.json/*.lock/pyproject/Cargo.toml) in-process. A confirmed syntax error is a HIGH DOES-IT-RUN blocking defect; everything un-confirmable is advisory. JS/.jsx/.ts NOT dispatched (node --check false-blocks JSX/Flow). Consumes langfloor + nativefloor."
+  },
+  {
+   "id": "lintlens",
+   "subsystem": "universal-floor",
+   "path": "scripts/lintlens.py",
+   "kind": "module",
+   "responsibility": "P3 ADVISORY linter (non-blocking). HYBRID exec: safe-parse {ruff,shellcheck,gofmt} auto-run with the repo's declarative config (binary from PATH only); code-bearing linters run ONLY behind an operator lint_cmd (GATED, = verify_cmd trust boundary). Hardened launcher: from-scratch hermetic env, throwaway HOME/TMPDIR, cgroup MemoryMax+TasksMax + unshare -n netns tiers, output-cap, NEVER-RAISE. Output stored under lintlens_advisory, FIREWALLED from the pure gate (never in script_defects/gate_results). Consumes proccap."
+  },
+  {
+   "id": ".kimi-plugin/plugin.json",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "PreToolUse-event",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "README.md",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "hooks.jsonl",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "installed.json",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "kimi-cli",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "references/schemas.json",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  },
+  {
+   "id": "semgrep",
+   "subsystem": "external",
+   "path": "",
+   "kind": "external",
+   "responsibility": "External dependency / runtime artifact referenced by the plugin (not a first-party module)."
+  }
+ ],
+ "edges": [
+  {
+   "from": "atlas-SKILL",
+   "to": "ctxstore",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "context-scout",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "elite-coder",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "planner",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "verdict",
+   "kind": "calls / dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "runcheck",
+   "kind": "calls / gates"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "difftool",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "quality",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "reqcoverage",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "pathcheck",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "astlens",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "sast",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "validate",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "contextgraph",
+   "kind": "feeds / dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "ctxevents",
+   "kind": "calls / dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "skillselect",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "safewrap",
+   "kind": "calls / dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "rollback_driver",
+   "kind": "dispatches"
+  },
+  {
+   "from": "ctxstore",
+   "to": "rollback_driver",
+   "kind": "gates"
+  },
+  {
+   "from": "plandag",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "scheduler",
+   "to": "plandag",
+   "kind": "imports"
+  },
+  {
+   "from": "scheduler",
+   "to": "verdict",
+   "kind": "imports"
+  },
+  {
+   "from": "planstage",
+   "to": "plandag",
+   "kind": "imports"
+  },
+  {
+   "from": "planstage",
+   "to": "verdict",
+   "kind": "imports"
+  },
+  {
+   "from": "runcaps",
+   "to": "budget",
+   "kind": "imports"
+  },
+  {
+   "from": "runcaps",
+   "to": "plandag",
+   "kind": "imports"
+  },
+  {
+   "from": "scheduler",
+   "to": "bestofn",
+   "kind": "feeds"
+  },
+  {
+   "from": "planner",
+   "to": "planstage",
+   "kind": "feeds"
+  },
+  {
+   "from": "planner",
+   "to": "budget",
+   "kind": "feeds"
+  },
+  {
+   "from": "resume",
+   "to": "plandag",
+   "kind": "feeds"
+  },
+  {
+   "from": "verdict",
+   "to": "rubric",
+   "kind": "imports"
+  },
+  {
+   "from": "verdict",
+   "to": "ctxstore",
+   "kind": "imports"
+  },
+  {
+   "from": "quality",
+   "to": "rubric",
+   "kind": "imports"
+  },
+  {
+   "from": "verdict",
+   "to": "quality",
+   "kind": "feeds"
+  },
+  {
+   "from": "difftool",
+   "to": "reqcoverage",
+   "kind": "feeds"
+  },
+  {
+   "from": "difftool",
+   "to": "pathcheck",
+   "kind": "feeds"
+  },
+  {
+   "from": "difftool",
+   "to": "correctness-critic",
+   "kind": "feeds"
+  },
+  {
+   "from": "difftool",
+   "to": "code-quality-critic",
+   "kind": "feeds"
+  },
+  {
+   "from": "difftool",
+   "to": "security-critic",
+   "kind": "feeds"
+  },
+  {
+   "from": "quality",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "astlens",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "sast",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "reqcoverage",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "pathcheck",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "correctness-critic",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "code-quality-critic",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "security-critic",
+   "to": "verdict",
+   "kind": "feeds"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "correctness-critic",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "code-quality-critic",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "security-critic",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "check_artifact_naming",
+   "kind": "calls"
+  },
+  {
+   "from": "integrate",
+   "to": "verdict",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "verdict",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "sast",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "runcheck",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "difftool",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "integrate",
+   "to": "uniontree",
+   "kind": "consumes-result-of"
+  },
+  {
+   "from": "differential",
+   "to": "suiterun",
+   "kind": "depends-on-contract"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "uniontree",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "suiterun",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "integrate",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "differential",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "planstage",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "runcaps",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "scheduler",
+   "kind": "calls"
+  },
+  {
+   "from": "dogfood_weave",
+   "to": "verdict",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "uniontree",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "integrate",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "differential",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "suiterun",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "leaseclock",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "scheduler",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "planstage",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "runcaps",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "planner",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "integration-critic",
+   "kind": "dispatches"
+  },
+  {
+   "from": "atlas-weave-SKILL",
+   "to": "atlas-SKILL",
+   "kind": "wraps"
+  },
+  {
+   "from": "leaseclock",
+   "to": "scheduler",
+   "kind": "feeds"
+  },
+  {
+   "from": "leaseclock",
+   "to": "resume",
+   "kind": "no-rotation-invariant-shared-with"
+  },
+  {
+   "from": "integration-critic",
+   "to": "integrate",
+   "kind": "folded-by"
+  },
+  {
+   "from": "contextgraph",
+   "to": "ctxstore",
+   "kind": "calls / reads"
+  },
+  {
+   "from": "contextgraph",
+   "to": "hooks.jsonl",
+   "kind": "reads"
+  },
+  {
+   "from": "contextgraph",
+   "to": "safewrap",
+   "kind": "calls / imports"
+  },
+  {
+   "from": "safewrap",
+   "to": "runcheck",
+   "kind": "reads"
+  },
+  {
+   "from": "fsm",
+   "to": "ctxstore",
+   "kind": "imports"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "fsm",
+   "kind": "gates / imports"
+  },
+  {
+   "from": "rollback_driver",
+   "to": "ctxstore",
+   "kind": "calls"
+  },
+  {
+   "from": "ctxevents",
+   "to": "hooks.jsonl",
+   "kind": "feeds"
+  },
+  {
+   "from": "telemetry.sh",
+   "to": "hooks.jsonl",
+   "kind": "feeds"
+  },
+  {
+   "from": "skillregistry",
+   "to": "frontmatter",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "frontmatter",
+   "kind": "imports"
+  },
+  {
+   "from": "skillextract",
+   "to": "skillregistry",
+   "kind": "imports / calls"
+  },
+  {
+   "from": "skillextract",
+   "to": "validate",
+   "kind": "calls"
+  },
+  {
+   "from": "skillextract",
+   "to": "skills-manifest.json",
+   "kind": "feeds"
+  },
+  {
+   "from": "skillregistry",
+   "to": "validate",
+   "kind": "calls"
+  },
+  {
+   "from": "skillregistry",
+   "to": "skills-manifest.json",
+   "kind": "imports"
+  },
+  {
+   "from": "skillregistry",
+   "to": "skill-registry.json",
+   "kind": "feeds"
+  },
+  {
+   "from": "skillselect",
+   "to": "reqcoverage",
+   "kind": "imports"
+  },
+  {
+   "from": "skillselect",
+   "to": "skill-registry.json",
+   "kind": "imports"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "skill-registry.json",
+   "kind": "imports"
+  },
+  {
+   "from": "check_artifact_naming",
+   "to": "skillpkgs",
+   "kind": "calls"
+  },
+  {
+   "from": "inventory_drift",
+   "to": "skillpkgs",
+   "kind": "calls"
+  },
+  {
+   "from": "skillextract",
+   "to": "skillpkgs",
+   "kind": "feeds"
+  },
+  {
+   "from": "bench.run_bench",
+   "to": "bench.report",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.run_bench",
+   "to": "bench.runner",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.run_bench",
+   "to": "bench.scorer",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.run_bench",
+   "to": "bench.tasks",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.runner",
+   "to": "bench.scorer",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.runner",
+   "to": "bench.tasks",
+   "kind": "calls"
+  },
+  {
+   "from": "bench.report",
+   "to": "bench.scorer",
+   "kind": "consumes"
+  },
+  {
+   "from": "test_bench_scorer",
+   "to": "bench.scorer",
+   "kind": "imports"
+  },
+  {
+   "from": "bench.runner",
+   "to": "ctxstore",
+   "kind": "reads-artifacts"
+  },
+  {
+   "from": "bench.runner",
+   "to": "atlas-SKILL",
+   "kind": "consumes-ledger"
+  },
+  {
+   "from": "github-actions-check",
+   "to": "Makefile",
+   "kind": "dispatches"
+  },
+  {
+   "from": "Makefile",
+   "to": "check_artifact_naming",
+   "kind": "calls"
+  },
+  {
+   "from": "Makefile",
+   "to": "inventory_drift",
+   "kind": "calls"
+  },
+  {
+   "from": "Makefile",
+   "to": "tests/",
+   "kind": "calls"
+  },
+  {
+   "from": "Makefile",
+   "to": "run_negative_gate",
+   "kind": "calls"
+  },
+  {
+   "from": "Makefile",
+   "to": "bench.run_bench",
+   "kind": "calls"
+  },
+  {
+   "from": "Makefile",
+   "to": "install.sh",
+   "kind": "calls"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "quality",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "reqcoverage",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "pathcheck",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "rubric",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "check_artifact_naming",
+   "kind": "imports"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "kimi-cli",
+   "kind": "dispatches"
+  },
+  {
+   "from": "run_negative_gate",
+   "to": "semgrep",
+   "kind": "dispatches"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "integrate",
+   "kind": "imports / exercises pure core"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "differential",
+   "kind": "imports"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "planstage",
+   "kind": "imports / exercises pure core"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "scheduler",
+   "kind": "imports / exercises pure core"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "rollback_driver",
+   "kind": "imports"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "verdict",
+   "kind": "imports / exercises pure core"
+  },
+  {
+   "from": "quality",
+   "to": "validate",
+   "kind": "calls"
+  },
+  {
+   "from": "skillselect",
+   "to": "validate",
+   "kind": "calls"
+  },
+  {
+   "from": "validate",
+   "to": "references/schemas.json",
+   "kind": "imports"
+  },
+  {
+   "from": "plugin_meta",
+   "to": ".kimi-plugin/plugin.json",
+   "kind": "imports"
+  },
+  {
+   "from": "install.sh",
+   "to": "installed.json",
+   "kind": "feeds"
+  },
+  {
+   "from": "guard-destructive.sh",
+   "to": "PreToolUse-event",
+   "kind": "gates"
+  },
+  {
+   "from": "test_ctxstore.py",
+   "to": "ctxstore",
+   "kind": "tests"
+  },
+  {
+   "from": "test_ctxstore_atomic.py",
+   "to": "ctxstore",
+   "kind": "tests"
+  },
+  {
+   "from": "test_fsm.py",
+   "to": "fsm",
+   "kind": "tests"
+  },
+  {
+   "from": "test_fsm.py",
+   "to": "ctxstore",
+   "kind": "imports STAGES/CONDITIONAL_STAGES/MANDATORY_STAGES"
+  },
+  {
+   "from": "test_planstage.py",
+   "to": "planstage",
+   "kind": "tests"
+  },
+  {
+   "from": "tests/",
+   "to": "plandag",
+   "kind": "tests"
+  },
+  {
+   "from": "test_verdict.py",
+   "to": "verdict",
+   "kind": "tests"
+  },
+  {
+   "from": "tests/",
+   "to": "scheduler",
+   "kind": "tests"
+  },
+  {
+   "from": "tests/",
+   "to": "integrate",
+   "kind": "tests"
+  },
+  {
+   "from": "tests/",
+   "to": "differential",
+   "kind": "tests"
+  },
+  {
+   "from": "test_rollback.py",
+   "to": "rollback_driver",
+   "kind": "tests (monkeypatched control flow)"
+  },
+  {
+   "from": "test_rollback_realgit.py",
+   "to": "rollback_driver",
+   "kind": "tests (real git, no monkeypatch)"
+  },
+  {
+   "from": "test_rollback_realgit.py",
+   "to": "ctxstore",
+   "kind": "drives ledger markers"
+  },
+  {
+   "from": "test_run_negative_gate.py",
+   "to": "run_negative_gate",
+   "kind": "tests"
+  },
+  {
+   "from": "test_run_weave_negative_gate.py",
+   "to": "run_weave_negative_gate",
+   "kind": "tests"
+  },
+  {
+   "from": "run_weave_negative_gate",
+   "to": "plandag",
+   "kind": "exercises pure core"
+  },
+  {
+   "from": "test_write_path_injection_gate.py",
+   "to": "safewrap",
+   "kind": "tests SAFE-2 write path"
+  },
+  {
+   "from": "test_contextgraph.py",
+   "to": "contextgraph",
+   "kind": "tests SAFE-2 read path"
+  },
+  {
+   "from": "test_skillextract.py",
+   "to": "skillextract",
+   "kind": "tests zip-slip/path confinement"
+  },
+  {
+   "from": "test_guard_destructive.py",
+   "to": "guard-destructive.sh",
+   "kind": "tests (subprocess)"
+  },
+  {
+   "from": "test_bench_scorer.py",
+   "to": "bench.scorer",
+   "kind": "tests"
+  },
+  {
+   "from": "test_skill_ref_paths.py",
+   "to": "atlas-SKILL",
+   "kind": "guards read-path"
+  },
+  {
+   "from": "test_skill_ref_paths.py",
+   "to": "rubric-doc",
+   "kind": "asserts file exists"
+  },
+  {
+   "from": "test_doc_testcount.py",
+   "to": "README.md",
+   "kind": "guards (no hard-coded count)"
+  },
+  {
+   "from": "test_tracked_docs_count.py",
+   "to": "inventory_drift",
+   "kind": "cross-checks count"
+  },
+  {
+   "from": "test_inventory_drift.py",
+   "to": "inventory_drift",
+   "kind": "tests"
+  },
+  {
+   "from": "Makefile",
+   "to": "tests/",
+   "kind": "unittest discover -s tests -v"
+  },
+  {
+   "from": "runcheck",
+   "to": "langfloor",
+   "kind": "imports"
+  },
+  {
+   "from": "runcheck",
+   "to": "proccap",
+   "kind": "imports"
+  },
+  {
+   "from": "runcheck",
+   "to": "runsignal",
+   "kind": "imports"
+  },
+  {
+   "from": "nativefloor",
+   "to": "proccap",
+   "kind": "imports"
+  },
+  {
+   "from": "syntaxlens",
+   "to": "langfloor",
+   "kind": "imports"
+  },
+  {
+   "from": "syntaxlens",
+   "to": "nativefloor",
+   "kind": "calls"
+  },
+  {
+   "from": "lintlens",
+   "to": "proccap",
+   "kind": "calls"
+  },
+  {
+   "from": "suiterun",
+   "to": "langfloor",
+   "kind": "imports / calls"
+  },
+  {
+   "from": "suiterun",
+   "to": "runsignal",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "syntaxlens",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "lintlens",
+   "kind": "calls"
+  },
+  {
+   "from": "atlas-SKILL",
+   "to": "langfloor",
+   "kind": "calls"
+  },
+  {
+   "from": "verdict",
+   "to": "runcheck",
+   "kind": "depends-on-contract"
+  },
+  {
+   "from": "syntaxlens",
+   "to": "verdict",
+   "kind": "feeds"
+  }
+ ],
+ "invariants": [
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Canonical STAGES is the single source of truth: INIT→INTENT_CAPTURED→[CLARIFY]→TRIAGED→GROUNDED→CODED→VERIFIED→[REFINE]*→OUTPUT (ctxstore.py:35). MANDATORY_STAGES each recorded exactly once in order; CLARIFY/REFINE conditional. Never invent a stage name."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "INIT→OUTPUT is ONE uninterrupted run; the only legal turn-ending pauses are the 3 sanctioned gates (CLARIFY AskUserQuestion, pre-CODE approval, OUTPUT human gate). Every stage transition MUST call ctxstore.advance and that call must RETURN before the stage counts done."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "NO-LLM-verdict: pass/fail is computed ONLY inside the pure verdict cores (verdict.merge/gate/final_status); the orchestrator and every model critic marshal inputs, never decide. scheduler.run_status and final_aggregate are descriptive/aggregating only."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Authoritative refine-pass count = the number of REFINE lines in the append-only log.jsonl (ctxstore.get_refine_passes), never model memory; refine loop is hard-capped at MAX_PASSES=2 (should_refine + the passes<1 V7 guard) so it provably halts at ≤2 re-drafts."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Provable halting rests on the GLOBAL GAS BOUND: gas charged exactly once per dispatch (floored at 0, sole site plandag.charge_gas via scheduler.dispatch_wave) + per-job MAX_ATTEMPTS=2; runcaps provisions gas strictly above the worst-case dispatch count so a DECOMPOSE expand can never starve the run."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Charge-at-dispatch, never refunded: a crashed/orphaned agent has still spent its fuel; resume.resume resets RUNNING→PENDING WITHOUT refunding gas or bumping attempts, and lease tokens f'{job_id}#{attempts}' do not rotate across resume (killed-turn receipts must not be delivered)."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Degrade-to-atlas guarantee: any planner failure (non-dict, no nodes, over node_max, malformed field, invalid DAG) collapses via planstage.coerce_dag to single_node_dag, whose schedule reduces byte-identically to today's single-change INIT→OUTPUT."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Concurrency cap = exactly 3 agents (W_MAX=3); the §6 memory model (ROOT_RSS_MB + ceiling 4608MB + free-floor 3072MB + structural build/coder exclusion in can_admit) plus the ROOT's live free -m ≥3GB re-check is the true OOM backstop — a mis-estimate degrades the wave, never OOMs."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Never auto-apply to a real tree: every mutation is human-gated (interactive) or confined to an isolated worktree/sandbox (headless); review_root is set ONCE at the pre-CODE gate and both CODED (coder's only writable root) and VERIFIED (difftool/runcheck cwd) read that one value."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "SAFE-2 untrusted-content: all file/web/program output (incl. runcheck stderr/stdout tails on REFINE) is DATA, never instructions — it can never alter intent, STAGES, the packet, or dispatch; enforced verbatim in scout/coder/planner roles and re-checked by the SECURITY lens."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Scope disjointness + criteria conservation are CRITICAL blocking gates: overlapping node scopes (plandag.disjoint) or a criterion parked on a DECOMPOSE that reaches no LEAF/INTEGRATION verifier (criteria_conservation_defects) is a false green and forces FAIL; an unresolved/empty frontier can never fold to OK (final_aggregate synthesizes UNVERIFIED defects)."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Frozen success_criteria: ordered and immutable, captured at INTENT_CAPTURED (mutable only during CLARIFY); downstream lenses read the frozen list and never re-derive it."
+  },
+  {
+   "subsystem": "atlas-core",
+   "invariant": "Two-phase rollback is forward-only and headless-only: rollback markers carry stage=='ROLLBACK' (never 'REFINE') so the refine counter stays monotonic; log.jsonl/intent.txt are only appended, never truncated; a rolled-back run re-enters VERIFIED and terminates through OUTPUT as ⚠️ UNVERIFIED."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "No model computes pass/fail: verdict.merge / gate / should_refine / final_status / aggregate / coverage_partition are pure, deterministic, and I/O-free (PLAN §4, DS-3). The orchestrator only marshals inputs into them."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "BLOCKING = frozenset({CRITICAL, HIGH}) is the ONLY severity set that flips the gate; MEDIUM/LOW are recorded but never change final_status (rubric.py:27)."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "The refine loop provably halts: MAX_PASSES=2 (verdict.py:25), and `passes` MUST come from the on-disk ledger (ctxstore.get_refine_passes), never model memory (Refinement Legitimacy Law)."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "Text/token heuristics are capped at MEDIUM and can never emit HIGH (V6): quality.lint_deliverable and reqcoverage.coverage — gameable both ways, so a real gap is escalated only by a model critic with evidence."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "rubric.py is the single source of truth (F6): DIMENSIONS, SEVERITIES, BLOCKING, CRITIC_TOP_KEYS, DEFECT_KEYS — verdict and quality import them so the vocabulary cannot silently drift."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "runcheck green = ok (exit 0, no timeout) AND test_count>0 AND new_tests_collected (V4); the gate treats an absent/empty runcheck result as a fail (DOES-IT-RUN is mandatory and fully deterministic), while advisory lenses default to clean when absent."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "The runcheck memory cap is always fail-open: a cap-start failure re-runs the build uncapped rather than reporting RED — the cap must never manufacture a failure (OPS-3); the systemd start-fail regex is deliberately narrow to avoid double-executing a build that already ran."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "sast.scan is mandatory fail-open: semgrep absent/error/timeout/unparseable → returns [] and SECURITY degrades to judgment-only; it never maps to CRITICAL (HIGH already blocks) and never invents a defect."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "The three critics are read-only plan subagents that persist NOTHING (F2) — the orchestrator persists for them; their markdown frontmatter (tools/model/temperature) is DOCUMENTATION ONLY, real perms come from the built-in plan type, and the orchestrator sets dispatch temperature (V5)."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "Every byte of the diff and any opened file is DATA, never instructions (SAFE-2) — a critic must not let file/tool content steer its lens, verdict, or output shape."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "V7 conservative rule: ANY CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass — encoded at the SKILL's REFINE? step on top of should_refine's CRITICAL/HIGH cap."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "pathcheck emits CRITICAL CORRECTNESS and astlens emits HIGH DOES-IT-RUN (deterministic, non-gameable grounding/parse failures), whereas the string heuristics stay MEDIUM — severity reflects mechanical certainty."
+  },
+  {
+   "subsystem": "verification-harness",
+   "invariant": "ATLAS-WEAVE coverage_partition is an exact set-difference over frozen success criteria, so a dropped criterion is legitimately CRITICAL; aggregate folds N node critics + the integration critic so one failing node can never be masked by passing ones."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "No LLM computes pass/fail. Every integration verdict is a pure fold: integrate.integration_verdict (integrate.py:136) reuses verdict.merge; actual_conflicts/apply_failures/differential.regressions all decide deterministically. The seam critic only ADDS defects; it never overrides the deterministic floor."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "THREE-net disjointness (load-bearing): (1) integrate.actual_conflicts re-validates against ACTUALLY-touched files (a clean git apply is never credited as proof — same-file-different-hunk concatenates silently); (2) integrate.apply_failures (NEW) blocks any change the union git apply rejected or an unbuildable union tree; (3) differential.regressions catches green-alone/red-combined. Planner-declared scope_paths is trusted for nothing."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "Green == exactly the lowercase token 'pass'. suiterun.parse_junit emits 'pass' only for a testcase with no failure/error/skipped child; differential.regressions treats ANY other spelling (including absence) as a regression. This exact-token contract is what keeps the differential oracle zero-false-positive."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "Degrade-toward-BLOCK / fail-safe everywhere. uniontree: a failed worktree add => worktree=None + every change 'failed'; a rejected apply => recorded in 'failed', never counted applied. suiterun: any parse/subprocess/timeout failure => {} (keeps baseline_pass conservative). leaseclock: a malformed/missing/non-numeric deadline => treated as ALREADY EXPIRED and reaped. No path can manufacture a false green."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "Lease no-rotation: leaseclock.stamp token is exactly f'{job_id}#{attempts}' with NO timestamp, so a resumed turn's token is byte-identical to the killed turn's — therefore the orchestrator MUST discard any in-flight receipt stamped before a resume (a stale receipt is otherwise indistinguishable from a fresh one)."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "Provable halting. runcaps.seed_caps provisions gas; scheduler.dispatch_wave is the SOLE gas-charging site; MAX_ATTEMPTS caps requeues; dogfood_weave asserts a safety bound gas0 + nodes + 5 so a broken-halting regression surfaces loudly instead of hanging. Never dispatch off-plan or refund gas."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "Degrade byte-identically to atlas. planstage.coerce_dag returns the planner DAG only if validate_planner_dag passes (acyclic, file-disjoint, every frozen criterion covered); otherwise it degrades to the 1-node atlas DAG which runs exactly one inner atlas run with the same verdict and no extra spend."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "The orchestrator is the SOLE root; hierarchy lives in plan.dag.json data, never in the agent tree. Subagents cannot spawn subagents (star topology); a node's inner atlas run never spawns a sub-orchestrator. Per-wave width is capped at <=3 (memory-bound); total node count is unbounded."
+  },
+  {
+   "subsystem": "atlas-weave",
+   "invariant": "uniontree uses a DETACHED worktree (git worktree add --detach — no branch ref) so the union machinery is fully idempotent across re-runs with the same session; cleanup + prune returns the repo to its exact prior state. All git calls use `git -C <path>` — never process cwd (agent threads reset cwd between calls)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "PURE-PROJECTION: contextgraph.build is a deterministic projection over already-read on-disk facts — no reducer, no per-action mutation, no I/O. ctxstore's ledger (state.json / log.jsonl / plan.dag.json / critic_*.json) is READ, NEVER written by the graph (contextgraph.py:1-16,85-169)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "TS-DROP DETERMINISM: build drops the telemetry `ts` from every node and preserves the APPEND ORDER of source logs via a monotonic `seq`, so two ledgers differing only in `ts` project to a byte-identical graph (contextgraph.py:13-15,89-92,109-138)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "THIN-POINTER OWNERSHIP: task nodes are thin `{ref: plandag_id}` pointers — plandag stays the sole DAG owner; verdict/artifact nodes are likewise thin refs (contextgraph.py:11-12,104-107,140-159)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "SAFE-2 SINGLE SOURCE: there is ONE canonical untrusted-content wrapper (safewrap.wrap_untrusted); both the Ph2 read path (GRAPH_LOOKUP) and the Ph4 write path (REFINE->CODED re-dispatch) delegate to it, and contextgraph re-exports safewrap's delimiters rather than minting its own, so the neutralization rule cannot drift (safewrap.py:16-21; contextgraph.py:32-54)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "SAFE-2 NON-ESCAPE: wrap_untrusted neutralizes any embedded fence marker and sanitizes the source label, so the output always contains exactly one open + one close marker and injected imperatives are quarantined as DATA (safewrap.py:25-62,70-76)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "FRESH-ALWAYS INJECTION: graph_lookup ALWAYS recomputes via project (unconditional rebuild-from-ledger), never load_or_rebuild — within a run run_id is constant, so a REFINE re-dispatch never sees a stale first-pass graph (contextgraph.py:268-282)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "REBUILD-WINS CACHE: a cached context-graph.json is trusted only if it parses AND is a dict with schema==\"context-graph\" AND matching run_id; a missing/torn/mismatched cache is stale/poisoned and the ledger is authoritative (contextgraph.py:246-265)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "FSM PURITY/ADDITIVITY: fsm never touches ctxstore.advance (Part C frozen permissive recorder); legality is a test invariant + pure-scenario negative gate, never a hard error inside advance (fsm.py:12-15)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "FSM DERIVED-FROM-STAGES: legal edges = forward-adjacent + conditional-skip edges DERIVED from ctxstore.STAGES/CONDITIONAL_STAGES, plus exactly ONE declared literal — the backward refine loop REFINE->CODED; an import-time assert breaks fsm if a declared node leaves STAGES (fsm.py:22-33,36-55)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "ROLLBACK FORWARD-ONLY / TWO-PHASE: rollback records rollback_intent BEFORE the git reset and rollback_complete AFTER; a crash leaves an open intent that resume re-derives from the ledger (ctxstore.pending_rollback) and REDOES — resetting to an already-reset SHA is a no-op, so repeat is safe (rollback_driver.py:1-20,102-166)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "ROLLBACK SANCTION GATE (headless-worktree-only): both run_rollback and resume_rollback refuse unless sanctioned_rollback holds — target path has `.atlas` AND `worktree` segments, git_common_dir != git_dir (real linked worktree), and a non-empty env token; so --resume can NEVER git reset --hard the real working tree (rollback_driver.py:45-67,123,153)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "GIT SEAM ISOLATION: the only subprocess/git in the rollback path is the monkeypatchable _git_reset seam; ctxstore stays pure-persistence and never shells out (rollback_driver.py:70-85; ctxstore rollback_to \"Contains no subprocess/git\")."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "ROLLBACK COUNTER-SAFETY: rollback_to appends log lines with stage==\"ROLLBACK\" (never \"REFINE\"), so get_refine_passes stays monotonic however many rollbacks occur; a rolled-back run re-enters VERIFIED and terminates as UNVERIFIED (ctxstore.py:227-264)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "SINGLE-WRITER hooks.jsonl: ctxevents is the ONE non-hook writer of hooks.jsonl (stage-tagged events); telemetry.sh is the hook writer (stageless, PARTIAL-by-construction); neither ever writes ctxstore's log.jsonl (ctxevents.py:1-9; telemetry.sh:65-68)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "TELEMETRY FAIL-OPEN / GLOBAL BLAST-RADIUS: telemetry.sh ALWAYS exits 0 (EXIT/INT/TERM trap), no-ops when the session cwd has no active .atlas/<run_id>/, never calls `date` (ts strictly from stdin), honors KIMI_ATLAS_NO_HOOK, never shells out to kimi -p (telemetry.sh:9-29,53-54)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "DISPATCH-INTEGRITY RECONCILIATION: reconcile flags a stage PARTIAL only when a subagent dispatch (log.jsonl agent=…) has no covering stage-tagged tool_call in hooks.jsonl; a missing marker surfaces PARTIAL at OUTPUT, never blocks the machine (contextgraph.py:57-82,161-169)."
+  },
+  {
+   "subsystem": "agentic-backbone",
+   "invariant": "FRONTMATTER SINGLE PRIMITIVE: frontmatter.FRONTMATTER_RE is the one BOM-aware + CRLF-aware YAML-fence regex; both skillregistry and run_negative_gate build on it so encoding handling lives in exactly one place (F7) (frontmatter.py:1-26)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "Determinism / no-op rebuild: extraction and registry are sorted by (category,name) with stable key order and carry no timestamps, so re-running over an unchanged tree is a zero diff (skillextract.build_manifest, skillregistry.build_entries sort)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "No partial writes: both builders are validate→audit→write; the manifest/registry is written ONLY when schema-valid AND the audit is clean (skillextract.main / skillregistry.main return 1 before write on any failure)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "Byte-identical extraction: member bytes are copied verbatim; member modes are forced (0o755 for *.sh, 0o644 otherwise — zip external_attr is never trusted); same-name zips must be byte-identical to coalesce, a byte-difference is an audit FAILURE (skillextract._MODE_*, plan_extractions)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "Manifest-anchored categories: a package's category comes ONLY from the committed manifest; a skills/ dir the manifest does not record is an audit FAILURE, never silently categorized (skillregistry.build_entries; skillextract.verify_manifest stowaway sweep)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "SEC-1 dual-layer path confinement: the frontmatter name must be a single safe segment (_NAME_RE, no first-party collision) AND each zip entry name must stay inside the package dir (_is_safe_entry), re-validated against out_root before any byte is written (_confined_target)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "SAFE-2 untrusted data: every SKILL.md / zip member is third-party DATA — parsed for classification and confinement only, never interpreted as instructions."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "V6 advisory selection: skillselect is a pure string/token heuristic that emits no verdicts and can never gate a run; an absent/unreadable registry or overrides, or any selection exception, degrades to no-selection (atlas try/except → [])."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "Count reconciliation: registry-count == manifest-skill-count and manifest file_count == summed member count are asserted by the audits; 117 zips → 115 packages (2 coalesced duplicates), skills/ holds 115 vendored + 3 first-party dirs (atlas, atlas-weave, atlas-resume)."
+  },
+  {
+   "subsystem": "skill-system",
+   "invariant": "First-party exemption: FIRST_PARTY_DIRS (atlas, atlas-weave, atlas-resume) are plugin machinery — excluded from extraction/registration and absent from the manifest by design; a NEW first-party dir must be added to the set or the audit tripwire fails it."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "Scorer is pure: no I/O, no LLM, no clock — classify/scorecard are a fold over booleans so any (verdict_ok, tests_pass) set re-derives the identical scorecard (bench/scorer.py:14-17)."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "The 2x2 mapping is FROZEN: verdict OK+pass=TRUE_PASS, OK+fail=FALSE_PASS, UNVERIFIED+pass=MISSED, UNVERIFIED+fail=TRUE_FAIL (scorer.py:25-29). FALSE_PASS/false_pass_count is THE trust metric and atlas's thesis asserts it stays 0."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "Undefined ratios (empty denominator) return None, never a fake 0.0 — _rate guards on den (scorer.py:32-34); false_pass_rate/gate_precision are None when nothing was VERIFIED."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "Ground truth is independent of atlas's self-claim: tests_pass comes only from applying diff.patch to a CLEAN materialised baseline and running the hidden acceptance tests (runner.py:53-71)."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "Fail-safe reads: a missing/degraded ledger yields verdict_ok=False and an empty patch; a diff that does not apply counts as a fail (runner.py:22-24, 59, 67)."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "The reference solution is NEVER shipped into a task repo — materialize writes only stub + hidden test + brief; ref is used solely inside validate() (tasks.py:172-189, 15)."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "A task is only sound when ref_pass AND stub_fail both hold (validate, tasks.py:192-205); --validate is a no-model, no-cost gate that exits nonzero if any task is invalid (run_bench.py:22-31)."
+  },
+  {
+   "subsystem": "bench",
+   "invariant": "verdict_ok is True iff merged_critic.json's verdict == 'OK' (runner.py:33, 47) — the single coupling point to the atlas gate's output contract."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "`make ci` is EXACTLY `check-strict test inventory-drift check-shell` (Makefile:38) and is what `.github/workflows/check.yml` runs — it must stay Kimi-free / network-free / semgrep-free. The two negative-gate drivers are DELIBERATELY excluded from `ci` (they need a live Kimi and/or semgrep) and live behind their own `make negative-gate` target."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "EXCLUSION_SET (check_artifact_naming.py:48-49) — README.md, SKILL.md, LICENSE, Makefile, PLAN.md, AGENTS.md, CHANGELOG.md — are project fixtures exempt from EVERY naming rule so uppercase docs never fail CI. AGENTS.md and CHANGELOG.md are the newest additions."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "The skill-package exemption (a directory holding a SKILL.md is vendored data whose payload .md is never scanned) is owned ONCE in scripts/skillpkgs.py:walk_markdown and shared by both doc gates; per-path decisions (check_file / is_tracked_doc) stay pure. Do not re-hand-copy the walk."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "inventory-drift is phase-aware: the index is built only from references/*.md + README.md (never PLAN.md, which lists future paths) and the on-disk scan prunes .git/__pycache__/node_modules plus the git-ignored .superpowers (SDD scratch) and .atlas (run-ledger scratch) workspaces (inventory_drift.py:64-66)."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "guard-destructive.sh is OPT-IN and DISABLED BY DEFAULT — it is the only hook that can BLOCK and is intentionally NOT wired into .kimi-plugin/plugin.json hooks[]. It is FAIL-OPEN (any parse error / missing python3 / unexpected shape -> exit 0 allow) with no `trap 'exit 0' EXIT`, honors a KIMI_ATLAS_NO_HOOK recursion escape, and denies only a tight whole-system/raw-device denylist at command-position (CMDPOS anchor, guard-destructive.sh:84)."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "Negative-gate anti-rubber-stamp contract (run_negative_gate.py): a `bad_*` fixture that returns OK is a RUBBER STAMP and fails the build; every deterministic gate (incl. the SAST floor) MUST be green on a judgment fixture or the driver fails it loudly; a fixture whose evaluator raises is never a matched pass."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "Weave negative-gate: every canonical scenario's expected outcome is BLOCK; an evaluator that RAISES is reported ERROR with matched=False and can never masquerade as a successful block (run_weave_negative_gate.py:51-53). Exit 0 iff all seven scenarios matched."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "check-shell is a REAL syntax gate (F1): `sh -n` over .githooks/pre-commit, hooks/*.sh, probe/*.sh, scripts/*.sh (Makefile:23) — no longer decorative."
+  },
+  {
+   "subsystem": "build-ci",
+   "invariant": "validate.validate enforces ONLY data-contract (required-field presence + type, optional type-checked when present) against the single source of truth references/schemas.json — it holds no orchestration knowledge."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "STAGES pin: ctxstore.STAGES == ('INIT','INTENT_CAPTURED','CLARIFY','TRIAGED','GROUNDED','CODED','VERIFIED','REFINE','OUTPUT'); CONDITIONAL_STAGES == ('CLARIFY','REFINE'); MANDATORY_STAGES == STAGES minus conditionals with order preserved and disjoint — asserted in test_ctxstore.py:52 test_stages_are_canonical_and_partitioned."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "FSM legality graph is pinned on fsm.py ALONE (test_fsm.py): forward-adjacent pairs legal, VERIFIED->REFINE derived-legal, REFINE->CODED declared-loop-legal (not derivable), forward-skips over a mandatory stage / arbitrary backward jumps / self-loops / unknown stages illegal; legal_path over MANDATORY_STAGES and full STAGES both legal. The suite never asserts over advance() call sites."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "get_refine_passes is ledger-derived (reads log.jsonl, not state memory), monotonic, zero before any refine and == 2 after two passes — test_ctxstore.py:171-208."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Intent immutability: init_run is idempotent and a re-init with a different intent ('HIJACKED') must NOT clobber captured state; intent.txt is immutable across rollback — test_ctxstore.py:95 + RollbackLedgerTests."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Append-only ledger: log.jsonl is append-only and NEVER truncated by rollback; rollback_to is a two-phase append (intent then complete); get_refine_passes byte-for-byte unaffected by rollback — test_ctxstore.py RollbackLedgerTests (from line 259) + test_ctxstore_atomic.py."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "SAFE-2 (prompt-injection) invariant is pinned on BOTH seams: read path (contextgraph, test_contextgraph.py) and write path (safewrap.coder_redispatch_packet, test_write_path_injection_gate.py) — injected imperatives in attacker-influenceable stdout/stderr tails appear ONLY inside the UNTRUSTED-DATA fence and cannot alter frozen scope/intent/target."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Real-git rollback guarantee (test_rollback_realgit.py, no monkeypatch): on the PRIMARY tree (git-common-dir == git-dir) run_rollback and resume_rollback REFUSE; inside an isolated .atlas/<run_id>/worktree linked worktree (common != git-dir) with a caller token they SUCCEED — never `git reset --hard` the real tree (guards HIGH-2)."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Combined-tree red-team gate: exactly 7 canonical ATLAS-WEAVE scenarios (hidden-same-file-overlap, combined-red-while-leaves-green, cyclic-DAG, dropped-requirement, gas-exhausted-partial, illegal-transition, rollback-refused) must each BLOCK (outcome != 'OK'); a clean input fed to a BLOCK-expecting scenario must NOT match — proving the harness cannot rubber-stamp (test_run_weave_negative_gate.py)."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Single-tree negative gate: the good fixture verdicts OK and every bad_* fixture verdicts UNVERIFIED; the security floor must bite (bad_security fails only when the floor is non-empty) — test_run_negative_gate.py (64 tests)."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Zip-slip / path confinement: skillextract rejects '../evil', absolute paths, backslash traversal, and symlinked-package-dir escapes — test_skillextract.py:159-279."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "Plugin read paths in skills/atlas/SKILL.md must be plugin-root-relative: a bare `references/rubric.md` is forbidden (resolves under skills/atlas/ from the target-repo cwd); the ${KIMI_SKILL_DIR}/../../references/rubric.md form must be present and the file must exist at plugin root — test_skill_ref_paths.py."
+  },
+  {
+   "subsystem": "tests",
+   "invariant": "No hard-coded test count may appear in README.md / AGENTS.md (F4); the count is proven by `make test`, not prose — test_doc_testcount.py, with a self-check that its patterns are non-vacuous. 'N tracked docs' claim must equal the inventory_drift count (F5) — test_tracked_docs_count.py."
+  },
+  {
+   "subsystem": "universal-floor",
+   "invariant": "THE ONE GUARANTEE: the floor NEVER executes untrusted repo code (nativefloor is argv-only parse-only with a from-scratch env in a throwaway cwd; lintlens auto-runs only pure-parse tools resolved from PATH, code-bearing linters need operator opt-in) AND NEVER false-blocks a valid repo (anything un-confirmable is fail-open / advisory)."
+  },
+  {
+   "subsystem": "universal-floor",
+   "invariant": "proccap is byte-equivalent for runcheck (FROZEN): the runcheck launch path is unchanged; nativefloor/lintlens add isolation via their own wrappers/params without altering proccap's default behavior."
+  },
+  {
+   "subsystem": "universal-floor",
+   "invariant": "lintlens output is ADVISORY: stored under evidence key lintlens_advisory, NEVER appended to script_defects nor added to gate_results, so the FROZEN pure gate (verdict.merge/gate) cannot see or block on it."
+  },
+  {
+   "subsystem": "universal-floor",
+   "invariant": "runsignal is PASS-only and structural-corroborated: a bare 'N passed' without a runner-specific structural marker counts 0, and any failure token fails closed (collected=False), so a broken/masked run can never manufacture a false green."
+  },
+  {
+   "subsystem": "universal-floor",
+   "invariant": "JavaScript syntax-checking is deliberately NOT covered (node --check cannot distinguish valid JSX/Flow from invalid JS); JS is still verified via the P1 run-signal floor (its tests must run and pass)."
+  }
+ ]
 }

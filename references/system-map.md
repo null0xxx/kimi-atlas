@@ -1,13 +1,14 @@
 # kimi-atlas — system map
 
-> **Regenerated 2026-07-22 on `8dfa0a1`** — the whole-system "graphify": **8 subsystems · 87 nodes · 220 edges**. The structured graph is [`system-graph.json`](system-graph.json). Every claim is grounded in the current tree; pure-core/I-O-hand kinds mirror the plugin's own split. `make test` is the authoritative test count.
+> **Regenerated 2026-07-23 on `faa48be`** — the whole-system "graphify": **10 subsystems · 99 nodes · 180 edges · 95 invariants**. The structured graph is [`system-graph.json`](system-graph.json). This rebuild added the **universal-floor** subsystem (P1 run-signal + P2 syntax + P3 advisory — 7 nodes that the pre-P1 graph was missing entirely) and a small **external** layer, then a deterministic structural audit fixed the pre-existing inconsistencies it surfaced (a `atlas-skill`/`atlas-SKILL` case mismatch, ~167 function-level/file-path/external edge endpoints normalized to their declared node, 2 duplicate node ids, self-loops). Post-rebuild the graph is **verified clean**: 0 dangling edges, every node path exists, every real Python import is represented, no duplicate ids. Every claim is grounded in the current tree; pure-core/I-O-hand kinds mirror the plugin's own split. `make test` is the authoritative test count.
 
 ## Subsystems at a glance
 
 | subsystem | nodes | what it is |
 |-----------|-------|------------|
 | **atlas-core** | 12 | atlas-core is the single-change orchestration engine of kimi-atlas: a deterministic INIT→OUTPUT state machine driven by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (ctxstore) and a family of PURE decision cores (plandag, scheduler, planstage, budget, bestofn, resume, runcaps) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements. |
-| **verification-harness** | 13 | The 6-lens verification gate that decides whether a code change is "elite" (OK) or degrades to UNVERIFIED. |
+| **universal-floor** | 7 | The language-agnostic DOES-IT-RUN floor (P1 run-signal + P2 syntax + P3 advisory), under THE ONE GUARANTEE — never execute untrusted repo code, never false-block a valid repo. `runcheck` orchestrates (`proccap` memory-cap, `langfloor` registry, `runsignal` PASS-only recognizer); `nativefloor` is the hermetic parse-only security core with `syntaxlens` its sole consumer; `lintlens` (P3) is the advisory linter, firewalled from the pure gate. |
+| **verification-harness** | 12 | The 6-lens verification gate that decides whether a code change is "elite" (OK) or degrades to UNVERIFIED. (`runcheck` now lives in the universal-floor it anchors.) |
 | **atlas-weave** | 8 | atlas-weave is the OUTER multi-agent meta-machine that wraps the single-change `atlas` inner machine: it decomposes a large multi-file request into a file-disjoint plan-DAG, drains that DAG with a flat pool of <=3 concurrent inner-atlas node runs, and merges the node diffs through a combined-tree INTEGRATE sink. |
 | **agentic-backbone** | 9 | The agentic-backbone is the Graph+Loop+Verification layer that sits atop ctxstore's append-only ledger. |
 | **skill-system** | 6 | The skill-system vendors 115 official skill packages into the plugin and makes the right one addressable at the right moment. |

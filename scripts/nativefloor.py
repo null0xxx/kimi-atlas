@@ -1,8 +1,8 @@
 """nativefloor — the hermetic, argv-only, parse-ONLY runner for the SYNTAX floor.
 
 The single execution engine behind ``syntaxlens`` (Task 3). It runs an external
-*parse checker* (``node --check``, ``ruby -cw``, ``php -l``, ``gofmt -e``,
-``bash -n``) over one materialized source file at a time and reports whether the
+*parse checker* (``ruby -cw``, ``php -l``, ``gofmt -e``, ``bash -n``) over one
+materialized source file at a time and reports whether the
 tool flagged a genuine syntax error — while making it structurally impossible for
 untrusted repo code to *execute*. It is the security core of the universal
 SYNTAX floor (spec §2.4/§2.6/§2.7); every SECURITY-INVARIANT clause below is
@@ -16,8 +16,9 @@ THE SECURITY INVARIANT — parse-only, never executes untrusted repo code:
    the RSS-based cgroup scope when available, else the *uncapped-but-timeout-
    bounded* NONE backend (``argv`` verbatim). This path NEVER takes proccap's
    legacy ``ulimit`` shell backend, so no argv element can reach a ``sh -c`` text.
-2. **Parse flags only** (``ruby -cw`` CHECK, never ``-w``/``-e``; ``node
-   --check``; ``php -l``; ``gofmt -e``; ``bash -n``). The argv is supplied by the
+2. **Parse flags only** (``ruby -cw`` CHECK, never ``-w``/``-e``; ``php -l``;
+   ``gofmt -e``; ``bash -n``; JS is NOT in ``SYNTAX_ARGV`` — dropped floor-wide).
+   The argv is supplied by the
    caller strictly from :data:`langfloor.SYNTAX_ARGV`; this module chooses only
    the executable path and the materialized basename — never a flag.
 3. **Child env CONSTRUCTED FROM SCRATCH** by :func:`_hermetic_env` — exactly
