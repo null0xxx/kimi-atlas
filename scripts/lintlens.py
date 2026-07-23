@@ -20,6 +20,11 @@ from __future__ import annotations
 import os
 import os.path as _osp
 import pathlib
+import shutil
+import subprocess
+import tempfile
+
+from scripts import proccap
 
 # safe-AUTO allowlist. Each entry: the changed-file extension(s) that trigger it,
 # the argv TEMPLATE (binary token first — resolved from PATH later, never repo),
@@ -152,3 +157,145 @@ def _confine_ok(path: str, root: str) -> bool:
     except OSError:
         return False
     return target_real == root_real or target_real.startswith(root_real + os.sep)
+
+
+_MAX_OUTPUT_BYTES = 512_000       # strict output cap before any storage (spec §1.2)
+_TASKS_MAX = 256                  # PID cap: an RSS cap does not bound fork count
+_NOFILE_MAX = 1024                # fd cap for the untrusted GATED sh -c lane (spec §1.2)
+_NETNS: bool | None = None        # cached: `unshare -n` (network-off) works
+
+
+def _tool_path(name: str) -> str | None:
+    """Resolve a safe-AUTO binary from PATH/standard sites only (never repo)."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for cand in (os.path.expanduser(f"~/.local/bin/{name}"),
+                 f"/usr/local/bin/{name}", f"/usr/bin/{name}"):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def _cgroup_cap_available() -> bool:
+    """True iff a ``systemd-run --scope`` MemoryMax cap works (delegates to proccap).
+
+    CGROUP resource props (MemoryMax, TasksMax) ARE valid for ``--scope`` (external-
+    process) units; namespace/sandbox props (PrivateNetwork, PrivateTmp) are NOT — they
+    belong to manager-forked *service* units and make a ``--scope`` invocation fail with
+    "Unknown assignment". So this tier carries ONLY the cgroup caps; network-off is a
+    separate tier via ``unshare -n``. (The plan-challenge caught the original all-in-one
+    ``--scope`` probe failing on every host, disabling every control.)
+    """
+    return proccap._detect_mem_backend() == proccap._BACKEND_CGROUP
+
+
+def _netns_available() -> bool:
+    """True iff ``unshare -n`` yields a private (loopback-only) net namespace (cached).
+
+    Best-effort network-off. Fails (→ False) on hosts without unprivileged netns; the
+    hermetic env (which already strips GITHUB_TOKEN/NPM_TOKEN/…) remains the PRIMARY
+    secret-exfil control, so a False here degrades gracefully rather than disabling caps.
+    """
+    global _NETNS
+    if _NETNS is not None:
+        return _NETNS
+    try:
+        proc = subprocess.run(
+            ["unshare", "-n", "true"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=15,
+        )
+        _NETNS = proc.returncode == 0
+    except Exception:  # noqa: BLE001 — any probe failure → no netns (degrade).
+        _NETNS = False
+    return _NETNS
+
+
+def _harden_argv(workload_argv: list, mem_mb: int) -> list:
+    """Wrap a workload under the isolation ACTUALLY available on this host (spec §1.2).
+
+    Two INDEPENDENT, individually-degrading tiers:
+    * **network-off** — prepend ``unshare -n`` (loopback-only) when ``_netns_available()``.
+    * **cgroup caps** — wrap under ``systemd-run --scope -p MemoryMax -p TasksMax`` when
+      ``_cgroup_cap_available()``. These props DO work for scope units; PrivateNetwork/
+      PrivateTmp do NOT and are never used (that was the challenge-caught bug).
+    HOME/TMPDIR isolation is delivered by the hermetic env's throwaway dirs (not
+    PrivateTmp). If neither tier is available the workload runs bare under the hermetic
+    env. Impure over the two cached probes.
+    """
+    inner = ["unshare", "-n", *workload_argv] if _netns_available() else list(workload_argv)
+    if _cgroup_cap_available() and mem_mb and mem_mb > 0:
+        return [
+            "systemd-run", "--scope", "--quiet",
+            "-p", f"MemoryMax={int(mem_mb)}M",
+            "-p", f"TasksMax={_TASKS_MAX}",
+            "--", *inner,
+        ]
+    return inner
+
+
+def _reset_probe_caches() -> None:
+    """Test hook: clear the cached netns probe (proccap owns its own cgroup cache)."""
+    global _NETNS
+    _NETNS = None
+
+
+def _cap_bytes(text: object) -> str:
+    """Coerce to str, UTF-8-sanitize, and cap to _MAX_OUTPUT_BYTES (pure)."""
+    if not text:
+        return ""
+    s = text if isinstance(text, str) else str(text)
+    s = s.encode("utf-8", errors="replace").decode("utf-8")  # sanitize surrogates
+    encoded = s.encode("utf-8")
+    if len(encoded) > _MAX_OUTPUT_BYTES:
+        return encoded[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+    return s
+
+
+def _empty_result() -> dict:
+    return {"stdout": "", "stderr": "", "returncode": None, "timed_out": False}
+
+
+def _launch(job: dict, review_root: str, timeout_s: int, mem_mb: int) -> dict:
+    """Launch ONE job hardened, IN ``review_root``; return capped output. NEVER raises.
+
+    The workload runs with ``cwd=review_root`` so the linters actually SEE the repo's
+    changed files and discover the repo's (declarative) config — while HOME/TMPDIR are
+    throwaway dirs via the hermetic env (no ~/.npmrc/~/.ssh read, no cache into operator
+    space). safe-AUTO is an argv; the GATED ``sh -c`` lane (untrusted repo, operator-
+    consented command) also caps file descriptors via ``ulimit -n``. Any failure — tool
+    absent, seam exception, malformed job — degrades to an empty result. Throwaway dirs
+    are always rmtree'd. (Running in ``review_root`` — not a throwaway HOME — was the
+    challenge-caught fix; the previous cwd=home made every linter see an empty tree.)
+    """
+    home = tmp = None
+    try:
+        if job["kind"] == "argv":
+            tool = _tool_path(job["argv"][0])
+            if tool is None:
+                return _empty_result()          # tool absent → no-op (never a defect)
+            workload = [tool, *job["argv"][1:]]
+        else:  # GATED shell command (operator-consented) — cap fds for the untrusted repo
+            workload = ["sh", "-c",
+                        f"ulimit -n {_NOFILE_MAX} 2>/dev/null || true; {job['shell']}"]
+        home = tempfile.mkdtemp(prefix="lintlens-home-")
+        tmp = tempfile.mkdtemp(prefix="lintlens-tmp-")
+        wrapped = _harden_argv(workload, mem_mb)
+        res = proccap._launch_and_wait(
+            wrapped, cwd=review_root, timeout_s=timeout_s, env=_hermetic_env(home, tmp)
+        )
+        if not res.get("launched", False):
+            return _empty_result()
+        return {
+            "stdout": _cap_bytes(res.get("stdout", "")),
+            "stderr": _cap_bytes(res.get("stderr", "")),
+            "returncode": res.get("returncode"),
+            "timed_out": bool(res.get("timed_out")),
+        }
+    except Exception:  # noqa: BLE001 — never-raise (spec §1.2).
+        return _empty_result()
+    finally:
+        for d in (home, tmp):
+            if d is not None:
+                shutil.rmtree(d, ignore_errors=True)

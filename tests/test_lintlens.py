@@ -1,9 +1,11 @@
 # tests/test_lintlens.py
 import os
+import subprocess
 import tempfile
 import unittest
 
 from scripts import lintlens
+from scripts import proccap
 
 
 def _tree(files: dict) -> str:
@@ -101,6 +103,128 @@ class TestHardeningHelpers(unittest.TestCase):
         self.assertFalse(lintlens._confine_ok("/etc/passwd", root))
         self.assertFalse(lintlens._confine_ok(os.path.join(root, "..", "x"), root))
         self.assertTrue(lintlens._confine_ok(os.path.join(root, "a.py"), root))
+
+
+class TestLauncher(unittest.TestCase):
+    def setUp(self):
+        lintlens._reset_probe_caches()
+
+    def _stub_tool_path(self):
+        # Force _tool_path to resolve so the launch reaches the stubbed seam even on a
+        # host WITHOUT ruff/gofmt installed. Without this the stdlib-only CI runner short-
+        # circuits at `_tool_path(...) is None` and the cap/sanitize/never-raise asserts
+        # are vacuous (the D10 finding).
+        self._orig_tp = lintlens._tool_path
+        lintlens._tool_path = lambda name: "/usr/bin/true"
+
+    def _restore_tool_path(self):
+        lintlens._tool_path = self._orig_tp
+
+    def test_harden_argv_cgroup_and_netns(self):
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: True
+        lintlens._netns_available = lambda: True
+        try:
+            argv = lintlens._harden_argv(["ruff", "check"], 2048)
+        finally:
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
+        s = " ".join(argv)
+        self.assertIn("systemd-run", argv)
+        self.assertIn("MemoryMax=2048M", s)
+        self.assertIn("TasksMax=", s)
+        self.assertIn("unshare", argv)          # network-off tier
+        self.assertNotIn("PrivateNetwork", s)   # invalid for --scope; must NOT appear
+        self.assertNotIn("PrivateTmp", s)
+        self.assertEqual(argv[-2:], ["ruff", "check"])  # workload verbatim at the tail
+
+    def test_harden_argv_no_isolation_is_bare(self):
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: False
+        lintlens._netns_available = lambda: False
+        try:
+            self.assertEqual(lintlens._harden_argv(["gofmt", "-l"], 2048), ["gofmt", "-l"])
+        finally:
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
+
+    @unittest.skipUnless(
+        proccap._detect_mem_backend() == proccap._BACKEND_CGROUP,
+        "cgroup scope backend unavailable on this host")
+    def test_harden_argv_cgroup_unit_actually_launches(self):
+        # D4: the cgroup props must be VALID for --scope (not merely present as strings).
+        # PrivateNetwork/PrivateTmp made this rc!=0 on every host in the original plan.
+        orig_ns = lintlens._netns_available
+        lintlens._netns_available = lambda: False   # isolate the cgroup tier
+        try:
+            argv = lintlens._harden_argv(["true"], 64)
+            proc = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=20)
+            self.assertEqual(proc.returncode, 0)
+        finally:
+            lintlens._netns_available = orig_ns
+
+    def test_launch_caps_output_and_runs_in_review_root(self):
+        big = "A" * (lintlens._MAX_OUTPUT_BYTES + 5000)
+        seen = {}
+        def fake(argv, cwd, timeout_s, env=None):
+            seen["called"] = True
+            seen["cwd"] = cwd
+            return {"stdout": big, "stderr": "\udce9bad", "returncode": 1,
+                    "timed_out": False, "launched": True}
+        orig = lintlens.proccap._launch_and_wait
+        lintlens.proccap._launch_and_wait = fake
+        self._stub_tool_path()
+        try:
+            job = {"lane": "auto", "tool": "ruff", "kind": "argv",
+                   "argv": ["ruff", "check", "a.py"], "shell": None}
+            res = lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
+            self.assertTrue(seen.get("called"))             # seam actually reached (D10)
+            self.assertEqual(seen.get("cwd"), "/repo")      # runs IN review_root (D1)
+            self.assertLessEqual(len(res["stdout"].encode()), lintlens._MAX_OUTPUT_BYTES + 8)
+            res["stderr"].encode("utf-8")                   # sanitized — must not raise
+        finally:
+            lintlens.proccap._launch_and_wait = orig
+            self._restore_tool_path()
+
+    def test_launch_returns_empty_on_seam_exception(self):
+        def boom(*a, **k):
+            raise RuntimeError("seam blew up")
+        orig = lintlens.proccap._launch_and_wait
+        lintlens.proccap._launch_and_wait = boom
+        self._stub_tool_path()
+        try:
+            job = {"lane": "auto", "tool": "gofmt", "kind": "argv",
+                   "argv": ["gofmt", "-l", "m.go"], "shell": None}
+            res = lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
+            self.assertEqual(res["stdout"], "")
+            self.assertEqual(res["returncode"], None)
+        finally:
+            lintlens.proccap._launch_and_wait = orig
+            self._restore_tool_path()
+
+    def test_launch_gated_shell_caps_fds_in_review_root(self):
+        seen = {}
+        def fake(argv, cwd, timeout_s, env=None):
+            seen["argv"] = argv
+            seen["cwd"] = cwd
+            return {"stdout": "", "stderr": "", "returncode": 0,
+                    "timed_out": False, "launched": True}
+        orig = lintlens.proccap._launch_and_wait
+        lintlens.proccap._launch_and_wait = fake
+        orig_cg, orig_ns = lintlens._cgroup_cap_available, lintlens._netns_available
+        lintlens._cgroup_cap_available = lambda: False   # isolate the sh -c wrapper
+        lintlens._netns_available = lambda: False
+        try:
+            job = {"lane": "gated", "tool": "lint_cmd", "kind": "shell",
+                   "argv": None, "shell": "eslint ."}
+            lintlens._launch(job, "/repo", timeout_s=5, mem_mb=2048)
+            self.assertEqual(seen["argv"][:2], ["sh", "-c"])
+            self.assertIn("ulimit -n", seen["argv"][2])     # fd cap for untrusted repo
+            self.assertIn("eslint .", seen["argv"][2])
+            self.assertEqual(seen["cwd"], "/repo")
+        finally:
+            lintlens.proccap._launch_and_wait = orig
+            lintlens._cgroup_cap_available, lintlens._netns_available = orig_cg, orig_ns
 
 
 if __name__ == "__main__":
