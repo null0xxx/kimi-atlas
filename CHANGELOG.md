@@ -4,6 +4,29 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-07-23
+
+The **advisory linter**: `lintlens` surfaces the repo's **own** linter findings as **non-blocking** hints
+during the VERIFIED stage, under a security-locked **HYBRID exec model**. Pure-parse linters
+(**ruff / shellcheck / gofmt** — declarative config) auto-run with the repo's real rules; every
+code-bearing linter (eslint, rubocop, pylint, php-cs-fixer, …) runs **only** behind an operator-supplied
+`lint_cmd` — the same trusted boundary as `verify_cmd`. The advisory is **firewalled** from the pure gate
+(stored under `lintlens_advisory`, never in `script_defects`/`gate_results`), so it can **never
+false-block a valid repo**, and it can **never auto-execute untrusted repo code** (safe-AUTO binaries
+resolve from `PATH` only; the launcher is hermetic — from-scratch env, throwaway HOME, cgroup + `unshare -n`
+isolation tiers, never-raise). Plus **C5** (the ATLAS-WEAVE differential is now runner-aware, not
+pytest-only — degrading to a whole-suite signal via the P1 run-signal floor) and **C6** (the SKILL's
+`test_glob` default derives from the detected runner, not a hardcoded `test_*.py`). Backward-compatible —
+the FROZEN pure gate (`verdict.merge`/`gate`), the P1 run-signal floor, the P2 syntax floor, and `sast`
+are all untouched. Test suite **1151 → 1193**.
+
+The design nearly shipped a fatal flaw an adversarial security threat-model caught **before any code**:
+auto-running the repo's own linter **executes untrusted repo code** (`.eslintrc.js` is JavaScript;
+`.rubocop.yml require:` loads Ruby; pylint `init-hook` runs) — and advisory-only does not mitigate that,
+since the code runs at linter startup, *before any output*. So execution consent moves to the human
+(GATED) for those ecosystems. Hardened further by a **31-finding 6-lens plan-challenge** and a converged
+**6-lens-on-shipped** pass (THE ONE GUARANTEE verified end-to-end on the built code).
+
 ## [1.3.0] — 2026-07-23
 
 The **syntax floor**: a hermetic, argv-only, **parse-only** deterministic lens (Lens 5c) that checks
