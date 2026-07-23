@@ -409,5 +409,41 @@ class TestConfigAllowlist(unittest.TestCase):
         self.assertIsInstance(langfloor.CONFIG_ALLOWLIST, frozenset)
 
 
+class TestTestGlobForRunner(unittest.TestCase):
+    def test_known_runners(self):
+        cases = {"pytest": "test_*.py", "unittest": "test_*.py",
+                 "go test": "*_test.go", "cargo test": "tests/*.rs",
+                 "jest": "*.test.js", "vitest": "*.test.js", "mocha": "*.test.js",
+                 "rspec": "*_spec.rb", "phpunit": "*Test.php"}
+        for tag, glob in cases.items():
+            self.assertEqual(langfloor.test_glob_for_runner(tag), glob)
+
+    def test_unknown_or_empty_defaults_to_python(self):
+        self.assertEqual(langfloor.test_glob_for_runner(""), "test_*.py")
+        self.assertEqual(langfloor.test_glob_for_runner("no-such-runner"), "test_*.py")
+
+
+class TestC6Wiring(unittest.TestCase):
+    def test_skill_derives_test_glob_from_runner(self):
+        import pathlib
+        text = pathlib.Path("skills/atlas/SKILL.md").read_text(encoding="utf-8")
+        # The Step-1 heredoc must rediscover verify_cmd locally and derive test_glob from
+        # the runner — never reference Step 2's `cmd`, never leave the bare hardcoded literal.
+        self.assertIn("langfloor.test_glob_for_runner(", text)
+        self.assertIn("runcheck.discover_verify_cmd(", text)
+
+    def test_wiring_expression_for_go_and_unknown(self):
+        # Reproduce the EXACT wiring expression via the real resolve_runner_tag ->
+        # test_glob_for_runner composition (Go -> *_test.go; unknown -> test_*.py).
+        import tempfile
+        cwd = tempfile.mkdtemp()
+        go_tags = langfloor.resolve_runner_tag("go test ./...", cwd)
+        self.assertEqual(
+            langfloor.test_glob_for_runner(go_tags[0] if go_tags else ""), "*_test.go")
+        unknown = langfloor.resolve_runner_tag("weird-runner --x", cwd)
+        self.assertEqual(
+            langfloor.test_glob_for_runner(unknown[0] if unknown else ""), "test_*.py")
+
+
 if __name__ == "__main__":
     unittest.main()

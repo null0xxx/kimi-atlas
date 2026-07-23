@@ -342,3 +342,29 @@ def collectable_pytest(cwd: str) -> bool:
     except OSError:
         return False
     return False
+
+
+# The single registry home for a runner tag -> its conventional test-file glob (C6).
+# One representative glob per runner (the SKILL default has always been one glob).
+# cargo maps to the integration-test dir; inline #[cfg(test)] unit tests are not
+# glob-addressable (a documented advisory limitation). Unknown -> the safe status-quo
+# Python default, so a repo whose runner cannot be resolved never regresses.
+_TEST_GLOB_BY_TAG: dict[str, str] = {
+    "pytest": "test_*.py",
+    "unittest": "test_*.py",
+    "go test": "*_test.go",
+    "cargo test": "tests/*.rs",
+    "jest": "*.test.js",
+    "vitest": "*.test.js",
+    "mocha": "*.test.js",
+    "rspec": "*_spec.rb",
+    "phpunit": "*Test.php",
+}
+
+
+def test_glob_for_runner(tag: str) -> str:
+    """Return the conventional test-file glob for a runner tag (pure, C6).
+
+    Unknown/empty -> ``"test_*.py"`` (the safe status-quo default; never empty).
+    """
+    return _TEST_GLOB_BY_TAG.get((tag or "").strip(), "test_*.py")

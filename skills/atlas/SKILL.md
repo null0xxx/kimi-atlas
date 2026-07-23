@@ -426,7 +426,7 @@ reviews nothing:
 ```
 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import os, re, fnmatch
-from scripts import ctxstore, difftool
+from scripts import ctxstore, difftool, langfloor, runcheck
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
@@ -436,7 +436,11 @@ diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
 ctxstore.write_artifact(".atlas", run, "diff.patch", diff)
 # Split the changed files into non-test vs test by the frozen test_glob, reading each
 # from review_root, so quality.lint_deliverable(changed_files, test_files, config) can run.
-test_glob = st.get("test_glob") or "test_*.py"
+# Language-aware default (C6). Explicit override wins; else derive from the runner
+# discovered from verify_cmd, rediscovered HERE (Step 2's `cmd` is a different process).
+_verify = runcheck.discover_verify_cmd(st.get("verify_cmd", ""), review_root)
+_tags = langfloor.resolve_runner_tag(_verify, review_root)
+test_glob = st.get("test_glob") or langfloor.test_glob_for_runner(_tags[0] if _tags else "")
 paths = [p.strip() for p in re.findall(r"^\+\+\+ (?:b/)?(.+)$", diff, re.M)]
 changed_files, test_files = {}, {}
 for rel in dict.fromkeys(p for p in paths if p and p != "/dev/null"):
