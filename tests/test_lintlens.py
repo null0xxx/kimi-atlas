@@ -253,6 +253,20 @@ class TestParsersAndCheck(unittest.TestCase):
         # A malformed changed_files value must not raise.
         self.assertEqual(lintlens.check(None, "/nonexistent", None), [])
 
+    def test_check_swallows_internal_exception(self):
+        # check(None, ...) returns via the isinstance guard BEFORE the risky
+        # _plan_jobs/_launch/_parse/sort path, so it does NOT exercise the outer
+        # try/except. Drive a VALID dict (past the guard) and make _plan_jobs raise:
+        # the outer try/except must swallow it and return []. With that try/except
+        # removed the RuntimeError would propagate and this test would ERROR.
+        cwd = _tree({})
+        orig = lintlens._plan_jobs
+        lintlens._plan_jobs = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom in _plan_jobs"))
+        try:
+            self.assertEqual(lintlens.check({"a.py": "x=1\n"}, cwd, None), [])
+        finally:
+            lintlens._plan_jobs = orig
+
     def test_check_ids_are_unique_and_prefixed(self):
         # With a stubbed launcher, two findings get distinct LNT ids.
         def fake_launch(job, review_root, timeout_s, mem_mb):
