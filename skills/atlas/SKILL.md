@@ -462,7 +462,7 @@ avail=$(free -m | awk '/^Mem:/ {print $7}')
 echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/serialize before launching runcheck"
 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json, pathlib
-from scripts import ctxstore, runcheck, astlens, syntaxlens, quality, reqcoverage, pathcheck, check_artifact_naming, sast
+from scripts import ctxstore, runcheck, astlens, syntaxlens, quality, reqcoverage, pathcheck, check_artifact_naming, sast, lintlens
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
@@ -501,6 +501,11 @@ astlens_defects = astlens.lint(changed_files)
 # (node's nearest-package.json ESM/CJS resolution was removed with JS) but is kept for call-site stability.
 syntaxlens_defects = syntaxlens.check(changed_files, review_root)
 
+# Advisory linter (P3, spec §Component 2) — NON-BLOCKING. Stored under its OWN key;
+# NEVER added to script_defects/gate_results, so the pure gate cannot see or block on
+# it. safe-AUTO {ruff,shellcheck,gofmt} + GATED operator lint_cmd; never-raise.
+lintlens_advisory = lintlens.check(changed_files, review_root, st.get("lint_cmd"))
+
 # Lens 6 REQUIREMENTS-COVERAGE — FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
 reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff, st.get("scope_paths"))
 
@@ -526,12 +531,14 @@ evidence = {"verify_cmd": cmd, "runcheck": rc, "runcheck_green": runcheck.green(
             "lint_defects": lint_defects, "reqcoverage_defects": reqcoverage_defects,
             "pathcheck_defects": pathcheck_defects, "sast_defects": sast_defects,
             "astlens_defects": astlens_defects, "syntaxlens_defects": syntaxlens_defects,
+            "lintlens_advisory": lintlens_advisory,
             "docs_clean": docs_clean}
 ctxstore.write_artifact(".atlas", run, "det_evidence.json", evidence)
 print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": docs_clean,
                   "lint": len(lint_defects), "reqcov": len(reqcoverage_defects),
                   "pathcheck": len(pathcheck_defects), "sast": len(sast_defects),
-                  "astlens": len(astlens_defects), "syntaxlens": len(syntaxlens_defects)}))
+                  "astlens": len(astlens_defects), "syntaxlens": len(syntaxlens_defects),
+                  "lintlens": len(lintlens_advisory)}))
 PY
 ```
 
@@ -607,6 +614,9 @@ script_defects += ev.get("astlens_defects", [])
 # gate()/should_refine() exactly like astlens. Fail-open + fail-safe: [] when the tool is absent,
 # and .get tolerates an older evidence file with no syntaxlens_defects key.
 script_defects += ev.get("syntaxlens_defects", [])
+# P3 firewall: ev["lintlens_advisory"] is ADVISORY and is DELIBERATELY NOT merged
+# into script_defects and NOT added to gate_results below — the pure gate must stay
+# blind to it so advisory lint can never block. Surfaced only at OUTPUT.
 if not runcheck.green(rc):     # green == ok AND test_count>0 AND new/changed tests collected
     script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
         "location": "verify_cmd (%s)" % ev.get("verify_cmd", ""),
@@ -732,6 +742,22 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   # residual CRITICAL/HIGH already forces UNVERIFIED via final_status's _has_blocking.
   budget_exhausted = False   # set True only on the degraded 'could-not-verify' path
   status = verdict.final_status(merged, budget_exhausted)
+  # P3 advisory surface — SAFE-2-wrapped, NON-BLOCKING. Load det_evidence ourselves
+  # (this heredoc otherwise reads only merged_critic.json); a missing artifact omits
+  # the note. lint messages are attacker-controllable → wrap_untrusted (SAFE-2).
+  import sys
+  from scripts import safewrap
+  try:
+      _ev = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "det_evidence.json")
+  except Exception:
+      _ev = {}
+  adv = _ev.get("lintlens_advisory", [])
+  if adv:
+      lines = "\n".join("- [%s/%s] %s%s: %s" % (
+          a["lane"], a["tool"], a["path"] or "", (":%d" % a["line"]) if a["line"] else "",
+          a["message"]) for a in adv)
+      sys.stdout.write(safewrap.wrap_untrusted("lintlens-advisory",
+          "Advisory lint (NOT a gate — informational only):\n" + lines) + "\n")
   ctxstore.advance(".atlas", "${KIMI_SESSION_ID}", "OUTPUT", verdict=status)
   st = ctxstore.get_state(".atlas", "${KIMI_SESSION_ID}")
   print(json.dumps({"status": status, "missing": verdict.missing_stages(st)}))
@@ -746,6 +772,10 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
     `merged_critic.json` and why the gate failed (e.g. `runcheck` red, budget exhausted).
   - The **diff location** (`.atlas/${KIMI_SESSION_ID}/diff.patch`, and the isolated worktree/branch
     path if headless).
+  - **Advisory lint (informational, NEVER a gate).** The SAFE-2-wrapped `lintlens-advisory` note
+    printed above is shown as a non-blocking hint; if a REFINE pass is already running for a real
+    (gate-blocking) defect, the same lines are appended — SAFE-2-wrapped — to the coder's fix-hint,
+    but advisory lint **never by itself triggers a REFINE**.
   - **Tool-use completeness (informational, NEVER a gate).** Alongside the `missing_stages`
     completeness reporting above, surface the ContextGraph's *tool-use* completeness so a missing
     dispatch marker is visible to the human. Read the graph the same way CODED does —
