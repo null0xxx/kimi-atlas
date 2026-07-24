@@ -31,11 +31,11 @@ def _heredoc_blocks(text):
 
 def _merge_heredoc_lines(text):
     """The Step-4/5 merge+gate heredoc bodies: build script_defects AND gate_results,
-    importing verdict/quality/runcheck. Scoped so the scan never touches the VERIFIED
+    anchored on the floorsynth merge call. Scoped so the scan never touches the VERIFIED
     Step-2 heredoc (where lintlens_advisory legitimately appears as an assignment)."""
     return [
         body for body in _heredoc_blocks(text)
-        if any("from scripts import ctxstore, quality, verdict, runcheck" in ln for ln in body)
+        if any("floorsynth.merge_and_validate(" in ln for ln in body)
         and any("script_defects" in ln for ln in body)
         and any("gate_results" in ln for ln in body)
     ]
@@ -102,18 +102,32 @@ class TestAdvisoryFirewall(unittest.TestCase):
         blocks = _merge_heredoc_lines(_skill_text())
         self.assertEqual(len(blocks), 1,
                          "expected exactly one Step-4/5 merge+gate heredoc, got %d" % len(blocks))
+        self.assertTrue(any("lintlens_advisory" in ln for ln in blocks[0]),
+                        "selector matched a block, but not the firewall-commented one")
         non_comment = [ln for ln in blocks[0]
                        if "lintlens_advisory" in ln and not ln.strip().startswith("#")]
         self.assertEqual(non_comment, [],
                          "advisory reached the merge block via a non-comment line: %r" % non_comment)
 
+    def test_floorsynth_never_merges_advisory(self):
+        # Behavioural arm through the REAL synthesiser the SKILL now calls: a NON-EMPTY
+        # lintlens_advisory contributes nothing to script_defects, so the firewall holds
+        # in code and not only in the SKILL's comments.
+        from scripts import floorsynth
+        adv = [{"lane": "auto", "tool": "ruff", "path": "a.py", "line": 1, "message": "E501"}]
+        self.assertTrue(adv)  # non-empty: the empty result below is NOT vacuous
+        ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+              "lintlens_advisory": adv}
+        self.assertEqual(floorsynth.script_defects_from(ev), [])
+
     def test_full_skill_defect_construction_excludes_advisory(self):
-        # Behavioral mirror of the SKILL's FULL script_defects construction (every
-        # `script_defects += ...` line it actually has), fed a det_evidence-shaped dict
-        # whose lintlens_advisory is NON-EMPTY. Because the construction omits the
-        # advisory (the firewall), no advisory record reaches merged["defects"] and the
-        # gate stays OK — so a future edit that folds the advisory in would flip one of
-        # these asserts.
+        # Behavioral mirror of the FULL deterministic-floor construction the SKILL now
+        # delegates to floorsynth.script_defects_from — reimplemented INDEPENDENTLY here
+        # (never by calling floorsynth), so this stays a cross-check on that module rather
+        # than a tautology. Fed a det_evidence-shaped dict whose lintlens_advisory is
+        # NON-EMPTY. Because the construction omits the advisory (the firewall), no
+        # advisory record reaches merged["defects"] and the gate stays OK — so a future
+        # edit that folds the advisory in would flip one of these asserts.
         advisory = [{"id": "LNT1", "tool": "ruff", "lane": "auto", "path": "a.py",
                      "line": 3, "message": "unused import", "rule": "F401"}]
         ev = {
@@ -126,7 +140,7 @@ class TestAdvisoryFirewall(unittest.TestCase):
         self.assertTrue(ev["lintlens_advisory"])  # non-empty: the OK below is NOT vacuous
         rc = ev["runcheck"]
 
-        # ---- mirror of skills/atlas/SKILL.md Step-4/5, every += line, advisory absent ----
+        # ---- independent mirror of the floor construction, every lens, advisory absent ----
         script_defects = []
         script_defects += ev["lint_defects"]
         script_defects += ev["reqcoverage_defects"]

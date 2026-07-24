@@ -4,16 +4,17 @@ Every ``verdict.gate`` failure condition MUST also become a blocking defect insi
 ``merged_critic.json`` — otherwise ``should_refine``/``final_status`` (which read
 ONLY the merged critic) disagree with ``gate``, and a run can ship a false
 ``VERIFIED`` while the fallible critics emit nothing. That marshalling lived as
-inline heredoc text in ``skills/atlas/SKILL.md:601-631``, retyped by the model on
-every run; a single dropped ``+=`` line silently deleted a whole floor lens with
-nothing detecting it. Hoisting it here makes floor completeness a ``make ci``
-invariant instead of a per-run transcription lottery.
+inline heredoc text in the SKILL's Step 4+5 block, retyped by the model on every
+run; a single dropped ``+=`` line silently deleted a whole floor lens with
+nothing detecting it. Hoisting it here — Step 4+5 now CALLS this module — makes
+floor completeness a ``make ci`` invariant instead of a per-run transcription
+lottery.
 
 INVARIANTS THIS MODULE PRESERVES
 - ``scripts/verdict.py`` is FROZEN and is not modified: this module only ever
   ADDS entries to the ``script_defects`` list handed to the pure ``verdict.merge``.
 - The P3 advisory firewall: ``lintlens_advisory`` is DELIBERATELY never merged and
-  never reaches ``gate_results`` (``skills/atlas/SKILL.md:621-623``). Advisory lint
+  never reaches ``gate_results`` (the SKILL Step 4+5 firewall comments). Advisory lint
   can never block.
 - No I/O, no subprocess, no clock: importing this module has zero side effects.
 - Every ``category`` this module synthesises BEFORE validation (``DOES-IT-RUN``,
@@ -44,15 +45,15 @@ OPTIONAL_EVIDENCE_KEYS: tuple[str, ...] = (
 
 
 def script_defects_from(evidence: dict) -> list[dict]:
-    """The deterministic lens defect-lists, in ``skills/atlas/SKILL.md:602-620`` order.
+    """The deterministic lens defect-lists, in the SKILL's Step 4+5 fold order.
 
     ``lintlens_advisory`` is never included (the P3 firewall). A MANDATORY key that
     is absent OR ``None`` yields one blocking ``evidence-incomplete`` defect rather
     than raising or — far worse — silently contributing nothing. The ``is None``
     test subsumes absence: a present-but-NULL key contributes nothing through
     ``ev.get(key) or []``, so a mere key-presence check would report complete
-    evidence for a lens that never ran (fail-OPEN), where today's SKILL raises a
-    ``TypeError`` and writes no ``merged_critic.json`` at all (fail-CLOSED).
+    evidence for a lens that never ran (fail-OPEN), where the pre-floorsynth SKILL
+    raised a ``TypeError`` and wrote no ``merged_critic.json`` at all (fail-CLOSED).
     """
     ev = evidence or {}
     out: list[dict] = []
@@ -74,7 +75,7 @@ def script_defects_from(evidence: dict) -> list[dict]:
 
 
 def synth_runcheck(rc: dict, verify_cmd: str = "") -> list[dict]:
-    """Mirror ``gate``'s runcheck condition as a blocking defect (SKILL :624-627)."""
+    """Mirror ``gate``'s runcheck condition as a blocking defect (SKILL Step 4+5)."""
     from scripts import runcheck
 
     if runcheck.green(rc or {}):
@@ -89,7 +90,7 @@ def synth_runcheck(rc: dict, verify_cmd: str = "") -> list[dict]:
 
 
 def synth_docs(docs_clean: bool) -> list[dict]:
-    """Mirror ``gate``'s ``docs_clean`` condition as a blocking defect (SKILL :628-631)."""
+    """Mirror ``gate``'s ``docs_clean`` condition as a blocking defect (SKILL Step 4+5)."""
     if docs_clean:
         return []
     return [{
@@ -102,7 +103,7 @@ def synth_docs(docs_clean: bool) -> list[dict]:
 
 
 # (artifact basename, the rubric dimension that artifact's critic owns).
-# skills/atlas/SKILL.md:588 reads exactly these three, in this order.
+# The SKILL's Step 4+5 critic read loop iterates exactly these, in this order.
 CRITIC_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("critic_correctness.json", "CORRECTNESS"),
     ("critic_code_quality.json", "CODE-QUALITY"),
@@ -110,10 +111,10 @@ CRITIC_ARTIFACTS: tuple[tuple[str, str], ...] = (
 )
 
 # Defect ids naming ORCHESTRATOR work. The REFINE loop hands CRITICAL/HIGH `fix`
-# strings to the CODER as trusted instructions (skills/atlas/SKILL.md:687-690), and in
-# interactive mode .atlas/ sits inside the coder's writable root (SKILL.md:322) — so a
-# fix telling the coder to "persist the critic JSON" would invite the LLM under review
-# to author gate input. These ids are never coder tasks.
+# strings to the CODER as trusted instructions (the SKILL's REFINE `True` branch),
+# and in interactive mode .atlas/ sits inside the coder's writable root
+# (SKILL.md:322) — so a fix telling the coder to "persist the critic JSON" would
+# invite the LLM under review to author gate input. These ids are never coder tasks.
 ORCHESTRATOR_DEFECT_IDS: frozenset[str] = frozenset(
     {"evidence-incomplete", "critic-schema"}
     | {"critic-missing:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
@@ -158,12 +159,13 @@ def empty_diff_defect(diff: str) -> list[dict]:
 def critics_missing_defects(loaded_artifacts) -> list[dict]:
     """One BLOCKING defect per judgment-critic artifact that failed to load.
 
-    ``skills/atlas/SKILL.md:588-592`` substitutes ``{"dimensions": {}, "defects":
-    [], "verdict": "OK"}`` on a read failure, and ``verdict.merge``
-    (``scripts/verdict.py:95-98``) then SYNTHESISES all six dimensions as ``yes``.
-    ``quality.enforce_critic_schema`` cannot see it, because it only ever validates
-    the MERGED shape — so an undispatched or lost critic is indistinguishable from
-    a clean lens.
+    The pre-floorsynth Step 4+5 substituted ``{"dimensions": {}, "defects": [],
+    "verdict": "OK"}`` on a read failure; today's block appends nothing and records
+    which artifacts loaded. Either way ``verdict.merge``
+    (``scripts/verdict.py:95-98``) SYNTHESISES all six dimensions as ``yes`` for a
+    critic that is not there, and ``quality.enforce_critic_schema`` cannot see it,
+    because it only ever validates the MERGED shape — so without this function an
+    undispatched or lost critic is indistinguishable from a clean lens.
 
     The category is the MISSING LENS'S OWN dimension, never ``"SCHEMA"``:
     ``enforce_critic_schema`` (``scripts/quality.py:78-82``) rejects any category
@@ -188,7 +190,7 @@ def critics_missing_defects(loaded_artifacts) -> list[dict]:
 
 
 def merge_and_validate(critics: list[dict], script_defects: list[dict]) -> tuple[dict, list[str]]:
-    """The two-phase merge → validate → re-merge cycle (SKILL :633-641).
+    """The two-phase merge → validate → re-merge cycle (SKILL Step 4+5).
 
     Load-bearing: without the re-merge, ``gate`` returns UNVERIFIED (its
     ``schema_errors`` condition) while ``merged_critic.json`` — the artifact OUTPUT

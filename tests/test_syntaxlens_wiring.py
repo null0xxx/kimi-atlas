@@ -4,17 +4,22 @@ Mirrors ``tests/test_astlens_wiring.py``. Two contracts are pinned:
 
 * **Behavioral (both arms, mandatory control).** An otherwise-green merge input —
   green ``runcheck``; empty ``lint``/``reqcoverage``/``pathcheck``/``sast``/``astlens``;
-  ``docs_clean``; no schema errors — is folded exactly the way the SKILL's VERIFIED
-  heredoc folds ``det_evidence`` into ``script_defects`` (``ev.get("syntaxlens_defects",
-  [])`` last). Arm (a) CONTROL proves that with an EMPTY ``syntaxlens_defects`` the
-  gate returns ``OK`` (so the test cannot pass vacuously); arm (b) proves that ONE real
+  ``docs_clean``; no schema errors — is folded the way the deterministic floor folds
+  ``det_evidence`` into ``script_defects`` (``syntaxlens_defects`` last). The fold is
+  reimplemented INDEPENDENTLY here rather than by calling ``floorsynth`` — the module
+  the SKILL now delegates to — so this stays a cross-check, not a tautology. Arm (a)
+  CONTROL proves that with an EMPTY ``syntaxlens_defects`` the gate returns ``OK``
+  (so the test cannot pass vacuously); arm (b) proves that ONE real
   ``syntaxlens`` HIGH ``DOES-IT-RUN`` defect flips the SAME merge → gate to
   ``UNVERIFIED``. Both defect lists come from a REAL ``syntaxlens.check`` call (a broken
   vs a valid strict ``package.json``) so the fold is exercised end to end, host-independent
   (in-process config parse — no tool needed).
 * **String-pin.** The SKILL's VERIFIED heredoc actually names the ``syntaxlens`` import,
-  the ``syntaxlens.check(changed_files, review_root)`` call, the ``"syntaxlens_defects"``
-  evidence key, and the ``script_defects += ev.get("syntaxlens_defects", [])`` merge line.
+  the ``syntaxlens.check(changed_files, review_root)`` call, and the
+  ``"syntaxlens_defects"`` evidence key. The merge line the SKILL used to inline now
+  lives in ``floorsynth``, so its successor pin is behavioural: ``syntaxlens_defects`` is
+  an ``OPTIONAL_EVIDENCE_KEYS`` member and a real syntaxlens defect comes back out of
+  ``floorsynth.script_defects_from`` — the list the SKILL hands to the merge.
 """
 import pathlib
 import unittest
@@ -44,7 +49,7 @@ def _green_evidence(syntaxlens_defects):
 
 
 def _fold_and_gate(ev):
-    """Reproduce the SKILL VERIFIED merge→gate EXACTLY (Step 4/5 of the heredoc)."""
+    """Reproduce the VERIFIED merge→gate fold independently (SKILL Step 4/5)."""
     script_defects = []
     script_defects += ev["lint_defects"]
     script_defects += ev["reqcoverage_defects"]
@@ -96,8 +101,15 @@ class TestSkillWiringPin(unittest.TestCase):
         self.assertRegex(text, r"syntaxlens\.check\(changed_files,\s*review_root\)")
         # the evidence key carrying the defects to the merge step
         self.assertIn('"syntaxlens_defects": syntaxlens_defects', text)
-        # the fail-safe .get fold into script_defects (mirrors astlens)
-        self.assertRegex(text, r'script_defects \+= ev\.get\("syntaxlens_defects", \[\]\)')
+
+    def test_syntaxlens_defects_still_reach_the_merge_and_block(self):
+        from scripts import floorsynth
+        self.assertIn("syntaxlens_defects", floorsynth.OPTIONAL_EVIDENCE_KEYS)
+        d = {"id": "SX1", "category": "DOES-IT-RUN", "severity": "HIGH",
+             "location": "a.rb:1", "fix": "f"}
+        ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+              "syntaxlens_defects": [d]}
+        self.assertIn(d, floorsynth.script_defects_from(ev))
 
     def test_prose_names_syntaxlens_as_syntax_floor(self):
         text = _SKILL.read_text(encoding="utf-8")

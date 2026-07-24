@@ -580,75 +580,59 @@ PY
 ```
 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json
-from scripts import ctxstore, quality, verdict, runcheck
+from scripts import ctxstore, floorsynth, verdict
 run = "${KIMI_SESSION_ID}"
 ev = ctxstore.read_artifact(".atlas", run, "det_evidence.json")
-rc = ev["runcheck"]
-critics = []
-for name in ("critic_correctness.json", "critic_code_quality.json", "critic_security.json"):
+try:
+    diff = ctxstore.read_artifact(".atlas", run, "diff.patch")
+except Exception:
+    diff = ""          # an unreadable diff == no diff == the blocking empty-diff CRITICAL
+
+# Load the three judgment critics. A missing artifact is NOT a clean lens:
+# floorsynth.critics_missing_defects synthesizes a BLOCKING defect for each one
+# that fails to load, so an undispatched critic can never read as "yes".
+critics, loaded_critics = [], []
+for name, _dim in floorsynth.CRITIC_ARTIFACTS:
     try:
         critics.append(ctxstore.read_artifact(".atlas", run, name))
+        loaded_critics.append(name)
     except Exception:
-        critics.append({"dimensions": {}, "defects": [], "verdict": "OK"})
+        pass
 
-# script_defects = the 3 deterministic lens defect-lists + synthesized CRITICALs. Feeding these
-# into merge() is what keeps should_refine()/final_status() (which read ONLY merged_critic's
-# blocking defects) in AGREEMENT with gate(): EVERY deterministic gate() failure condition MUST
-# become a blocking merged defect, or the run could ship a false ✅ VERIFIED while the fallible
-# critics emit nothing. That covers a red runcheck (lens 5), schema errors, AND docs_clean (PASS-bar
-# item 5) — each a gate() condition, so each is synthesized here. Lens 5 is never entrusted to the
-# LLM critic the design forbids trusting for it.
-script_defects = []
-script_defects += ev["lint_defects"]
-script_defects += ev["reqcoverage_defects"]
-script_defects += ev["pathcheck_defects"]
-# SECURITY deterministic floor (semgrep SAST). A semgrep ERROR is a HIGH SECURITY defect, so
-# merging it here makes it a BLOCKING SECURITY defect that gate() (via _has_blocking on the merged
-# critic) and should_refine()/V7 honor — a mechanically-detectable vuln blocks even if the SECURITY
-# critic misses it. Fail-open: sast_defects is [] whenever semgrep is absent/failed, so this line
-# is a no-op that degrades the lens to judgment-only. `.get` tolerates an older evidence file.
-script_defects += ev.get("sast_defects", [])
-# AST syntax/parse + lint floor (astlens). A syntax/parse or undefined-name hit is a HIGH
-# DOES-IT-RUN defect, so merging it here makes it BLOCKING for gate()/should_refine(). Fail-safe
-# for older evidence files via .get. This is a syntax/parse floor, never a type-check.
-script_defects += ev.get("astlens_defects", [])
-# Universal SYNTAX floor for non-Python source (syntaxlens, Lens 5c). A confirmed native
-# parse error (ruby -cw / php -l / gofmt -e / bash -n, hermetic + argv-only; JS is NOT dispatched)
-# or a broken STRICT config is a HIGH DOES-IT-RUN defect, so merging it here makes it BLOCKING for
-# gate()/should_refine() exactly like astlens. Fail-open + fail-safe: [] when the tool is absent,
-# and .get tolerates an older evidence file with no syntaxlens_defects key.
-script_defects += ev.get("syntaxlens_defects", [])
-# P3 firewall: ev["lintlens_advisory"] is ADVISORY and is DELIBERATELY NOT merged
-# into script_defects and NOT added to gate_results below — the pure gate must stay
-# blind to it so advisory lint can never block. Surfaced only at OUTPUT.
-if not runcheck.green(rc):     # green == ok AND test_count>0 AND new/changed tests collected
-    script_defects.append({"id": "runcheck", "category": "DOES-IT-RUN", "severity": "CRITICAL",
-        "location": "verify_cmd (%s)" % ev.get("verify_cmd", ""),
-        "fix": "make build+tests green: exit 0, test_count>0, new/changed tests collected"})
-if not ev["docs_clean"]:       # gate() returns UNVERIFIED on a dirty doc — mirror it as a blocking
-    script_defects.append({"id": "docs-naming", "category": "CODE-QUALITY", "severity": "CRITICAL",
-        "location": "changed .md docs",
-        "fix": "fix artifact naming / inventory-drift so check_artifact_naming passes"})
+# script_defects = every deterministic gate() failure condition, synthesized as a
+# blocking merged defect so should_refine()/final_status() (which read ONLY the
+# merged critic) stay in AGREEMENT with gate(). floorsynth owns this marshalling;
+# it is unit-tested over all twelve conditions, and lintlens_advisory is
+# DELIBERATELY excluded there (the P3 firewall) so advisory lint can never block.
+script_defects = floorsynth.script_defects_from(ev)
+script_defects += floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("verify_cmd", ""))
+script_defects += floorsynth.synth_docs(ev.get("docs_clean", True))
+script_defects += floorsynth.empty_diff_defect(diff)
+script_defects += floorsynth.critics_missing_defects(loaded_critics)
 
-merged = verdict.merge(critics, script_defects)             # PURE — no model judgment
-schema_errors = quality.enforce_critic_schema(merged)       # validate the MERGED (canonical) shape
-if schema_errors:      # a critic returned a malformed shape → synthesize a blocking SCHEMA defect
-    script_defects.append({"id": "critic-schema", "category": "SCHEMA", "severity": "CRITICAL",
-        "location": "merged_critic.json", "fix": "critic JSON must satisfy enforce_critic_schema"})
-    merged = verdict.merge(critics, script_defects)
+merged, schema_errors = floorsynth.merge_and_validate(critics, script_defects)
 
 # gate() reads these EXACT keys (verdict.gate): runcheck, schema_errors, lint_defects,
 # reqcoverage_defects, pathcheck_defects, docs_clean. This is the full PASS bar.
-gate_results = {"runcheck": rc, "schema_errors": schema_errors,
-                "lint_defects": ev["lint_defects"], "reqcoverage_defects": ev["reqcoverage_defects"],
-                "pathcheck_defects": ev["pathcheck_defects"], "docs_clean": ev["docs_clean"]}
+# lintlens_advisory is deliberately ABSENT — the pure gate stays blind to it.
+gate_results = {"runcheck": ev.get("runcheck") or {}, "schema_errors": schema_errors,
+                "lint_defects": ev.get("lint_defects", []),
+                "reqcoverage_defects": ev.get("reqcoverage_defects", []),
+                "pathcheck_defects": ev.get("pathcheck_defects", []),
+                "docs_clean": ev.get("docs_clean", True)}
 status = verdict.gate(merged, gate_results)                 # PURE — "OK" | "UNVERIFIED"
 ctxstore.write_artifact(".atlas", run, "merged_critic.json", merged)
 ctxstore.write_artifact(".atlas", run, "gate_results.json", gate_results)
 blocking = [d for d in merged["defects"] if d.get("severity") in ("CRITICAL", "HIGH")]
-print(json.dumps({"provisional_status": status, "schema_errors": schema_errors, "blocking": blocking}))
+print(json.dumps({"provisional_status": status, "schema_errors": schema_errors,
+                  "critics_loaded": "%d/3" % len(loaded_critics), "blocking": blocking}))
 PY
 ```
+If `critics_loaded` is not `3/3`, re-dispatch the missing critic(s) **once** (Step 3) and re-run
+this block. This is a decision, not a pause — **do not end your turn**. If a critic is still
+missing after one retry, the synthesized `critic-missing:<lens>` CRITICAL keeps
+`merged_critic.json` blocking and the run degrades to `⚠️ UNVERIFIED`.
+
 If `schema_errors` is non-empty, re-dispatch the offending critic **once** quoting the exact errors +
 the required shape; still malformed → the synthesized `SCHEMA` CRITICAL keeps `merged_critic.json`
 blocking, so the run degrades to `⚠️ UNVERIFIED` rather than presenting a false ✅. Because
