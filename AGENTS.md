@@ -119,7 +119,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (`make test`) · `make ci` clean · 30 tracked docs, no inventory drift · v1.4.0 released (P3 advisory linter merged: `lintlens` HYBRID exec — safe-AUTO `ruff`/`shellcheck`/`gofmt` + operator-gated `lint_cmd`; advisory-firewalled — never blocks, never auto-executes untrusted code; hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
+unit-test suite green (`make test`) · `make ci` clean · 31 tracked docs, no inventory drift · v1.4.0 released (P3 advisory linter merged: `lintlens` HYBRID exec — safe-AUTO `ruff`/`shellcheck`/`gofmt` + operator-gated `lint_cmd`; advisory-firewalled — never blocks, never auto-executes untrusted code; hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
 `fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;
