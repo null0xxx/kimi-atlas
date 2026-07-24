@@ -112,20 +112,38 @@ A pure, stdlib-only module (no I/O) owning six functions transcribed from `skill
 | `synth_runcheck(rc)` | `:624-627` | no |
 | `synth_docs(docs_clean)` | `:628-631` | no |
 | `merge_and_validate(critics, script_defects)` | the whole two-phase cycle at `:633-641` incl. the SCHEMA CRITICAL re-merge | no |
-| `empty_diff_defect(diff, changed_files, test_files)` | `{id:"empty-diff", category:"CORRECTNESS", severity:"CRITICAL"}` | **YES** |
-| `critics_loaded_defect(n_loaded)` | `{id:"critic-missing:<lens>", category:"SCHEMA", severity:"CRITICAL"}` when `n_loaded < 3` | **YES** |
+| `empty_diff_defect(diff)` | `{id:"empty-diff", category:"CORRECTNESS", severity:"CRITICAL"}` | **YES** |
+| `critics_missing_defects(loaded_artifacts)` | one `{id:"critic-missing:<lens>", category:<that lens's own dimension>, severity:"CRITICAL"}` per artifact of `CRITIC_ARTIFACTS` that failed to load | **YES** |
+
+**Two amendments to the two new rows, made when they were built (Phase 0), so this table matches the
+code:**
+
+1. `empty_diff_defect` takes the **diff alone**. `changed_files`/`test_files` are neither available at
+   Step 4/5 without a second read nor needed: the diff alone establishes "the coder wrote nothing", and
+   "wrote outside `scope_paths`" is already `pathcheck`'s job. False-positive-free because
+   `difftool.capture` renders untracked in-scope files as full new-file diffs
+   (`scripts/difftool.py:138-140`), so an add-only change never looks empty.
+2. The `critic-missing` category is **the missing lens's own rubric dimension, never `"SCHEMA"`**.
+   `quality.enforce_critic_schema` (`scripts/quality.py:78-82`) rejects any category outside
+   `rubric.DIMENSIONS`, and this defect is added *before* validation — a `SCHEMA` category would
+   therefore raise a schema error *about this very defect* (measured). Using the lens's own dimension
+   also makes `merged["dimensions"][<lens>] == "no"` — honest — and names *which* lens is missing.
+   Only the `critic-schema` defect inside `merge_and_validate` keeps category `"SCHEMA"`, because the
+   SKILL appends it *after* validation.
 
 `scripts/verdict.py` is **not opened**. The new defects enter `script_defects` *before*
 `verdict.merge`, using the exact synthesis pattern the SKILL already uses for `runcheck`/`docs_clean`.
 This serves invariant G3 — more work pushed onto the free deterministic floor.
 
-**Regression test** (`tests/test_floorsynth.py`): parametrised over all **nine** deterministic failure
-conditions (runcheck red, lint HIGH, reqcoverage HIGH, pathcheck non-empty, `docs_clean` False,
-schema errors, `critics_loaded<3`, empty diff, ledger tamper), asserting **both** `verdict.gate` and
+**Regression test** (`tests/test_floorsynth.py`): parametrised over **twelve** deterministic failure
+conditions (runcheck red, lint HIGH, reqcoverage HIGH, pathcheck non-empty, sast HIGH, astlens HIGH,
+syntaxlens HIGH, incomplete evidence, `docs_clean` False, empty diff, a critic artifact that failed to
+load, schema errors) plus a green control arm proving non-vacuity, asserting **both** `verdict.gate` and
 `verdict.final_status` return `UNVERIFIED`. Catches the gate/merged divergence mutation — deleting any
 `script_defects +=` line, a key typo, appending *after* the merge, or dropping the re-merge — each of
 which today yields a green `make ci` and a false ✅. The empty-diff case **fails at HEAD**; that is the
-finding.
+finding. The originally-listed ninth condition, **ledger tamper**, moves to Phase 5 alongside the M4′
+digest that produces it — deferred by schedule, not by oversight.
 
 ---
 
@@ -376,7 +394,7 @@ real `N`. **If `N > 19`, Phases 4–5 are re-scoped before commitment, not after
 
 | Phase | Contents | Verified by |
 |---|---|---|
-| **0** | `scripts/floorsynth.py` (F0); Step-4/5 heredoc rewritten to call it | `make ci` + the nine-condition parametrised test; the empty-diff test fails at HEAD |
+| **0** | `scripts/floorsynth.py` (F0); Step-4/5 heredoc rewritten to call it | `make ci` + the twelve-condition parametrised test; the empty-diff test fails at HEAD |
 | **1** | SKILL text only, no new runtime code: M8, M9, M7's deletion half | text pins + `make ci` |
 | **2** | Pure cores, nothing wired: `rubric.lens_section`, `contextgraph.render_for_injection`, `ctxstore.valid_run_id`, the hardened write hand | unit tests per core |
 | **3** | `scripts/atlasrun.py` (M1, M5, M12a, M7's driver half) + the seven pin ports | ledger-drive tests + **the hard measurement gate** |

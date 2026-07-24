@@ -41,6 +41,7 @@ class TestScriptDefectsFrom(unittest.TestCase):
         out = floorsynth.script_defects_from(ev)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], "evidence-incomplete")
+        self.assertEqual(out[0]["category"], "DOES-IT-RUN")
         self.assertEqual(out[0]["severity"], "CRITICAL")
         self.assertIn("lint_defects", out[0]["fix"])
         # The synthesized category must be a rubric dimension, or the merged critic
@@ -61,6 +62,18 @@ class TestScriptDefectsFrom(unittest.TestCase):
             out = floorsynth.script_defects_from(ev)
             self.assertEqual([d["id"] for d in out], ["evidence-incomplete"], key)
             self.assertIn(key, out[0]["fix"])
+
+    def test_present_but_null_mandatory_key_is_incomplete_not_silently_empty(self):
+        # A present-but-NULL key is not evidence: ``ev.get(key) or []`` contributes
+        # nothing, so a mere key-PRESENCE check would report complete evidence for a
+        # lens that never ran. Today's SKILL does ``ev["lint_defects"]`` -> ``+= None``
+        # -> TypeError -> the heredoc dies and no merged_critic.json is written, i.e.
+        # fail-CLOSED; a silent empty contribution here would be fail-OPEN.
+        out = floorsynth.script_defects_from(
+            {"lint_defects": None, "reqcoverage_defects": [], "pathcheck_defects": []})
+        self.assertEqual([d["id"] for d in out], ["evidence-incomplete"])
+        self.assertEqual(out[0]["category"], "DOES-IT-RUN")
+        self.assertIn("lint_defects", out[0]["fix"])
 
     def test_incomplete_evidence_never_swallows_a_present_defect(self):
         from scripts import verdict
@@ -96,6 +109,144 @@ class TestSynthesizedGateMirrors(unittest.TestCase):
 
     def test_clean_docs_synthesize_nothing(self):
         self.assertEqual(floorsynth.synth_docs(True), [])
+
+
+from scripts import quality, verdict
+
+
+class TestEmptyDiff(unittest.TestCase):
+    def test_empty_diff_is_a_blocking_correctness_defect(self):
+        out = floorsynth.empty_diff_defect("")
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["id"], out[0]["category"], out[0]["severity"]),
+                         ("empty-diff", "CORRECTNESS", "CRITICAL"))
+
+    def test_whitespace_only_diff_is_still_empty(self):
+        self.assertEqual(len(floorsynth.empty_diff_defect("  \n\t\n")), 1)
+
+    def test_real_diff_synthesizes_nothing(self):
+        self.assertEqual(floorsynth.empty_diff_defect("--- a/x.py\n+++ b/x.py\n+1\n"), [])
+
+
+class TestCriticsMissing(unittest.TestCase):
+    def test_all_three_present_synthesizes_nothing(self):
+        self.assertEqual(floorsynth.critics_missing_defects(
+            [n for n, _ in floorsynth.CRITIC_ARTIFACTS]), [])
+
+    def test_missing_critic_uses_its_own_dimension_not_SCHEMA(self):
+        out = floorsynth.critics_missing_defects(["critic_correctness.json"])
+        cats = sorted(d["category"] for d in out)
+        self.assertEqual(cats, ["CODE-QUALITY", "SECURITY"])
+        self.assertNotIn("SCHEMA", cats)
+
+    def test_missing_critic_defect_is_schema_valid_and_flips_its_dimension(self):
+        out = floorsynth.critics_missing_defects([])
+        merged = verdict.merge([], out)
+        self.assertEqual(quality.enforce_critic_schema(merged), [])
+        self.assertEqual(merged["dimensions"]["SECURITY"], "no")
+        self.assertEqual(merged["verdict"], "FAIL")
+
+    def test_orchestrator_ids_cover_every_non_coder_actionable_synthesis(self):
+        ids = {d["id"] for d in floorsynth.critics_missing_defects([])}
+        ids |= {d["id"] for d in floorsynth.script_defects_from({})}
+        self.assertTrue(ids <= floorsynth.ORCHESTRATOR_DEFECT_IDS, ids)
+        for d in floorsynth.critics_missing_defects([]):
+            self.assertTrue(d["fix"].startswith("ORCHESTRATOR ACTION"))
+
+
+class TestGateAgreementMatrix(unittest.TestCase):
+    """For EVERY deterministic failure condition, gate AND final_status must both
+    say UNVERIFIED. This is the standing invariant that floor completeness used to
+    lack."""
+
+    GREEN_RC = {"ok": True, "test_count": 3, "new_tests_collected": True}
+    ALL_LOADED = ("critic_correctness.json", "critic_code_quality.json", "critic_security.json")
+
+    def _run(self, evidence, diff="--- a/x.py\n+++ b/x.py\n+1\n", loaded=None, docs_clean=True, critics=()):
+        loaded = self.ALL_LOADED if loaded is None else loaded
+        sd = floorsynth.script_defects_from(evidence)
+        sd += floorsynth.synth_runcheck(evidence.get("runcheck", {}), evidence.get("verify_cmd", ""))
+        sd += floorsynth.synth_docs(docs_clean)
+        sd += floorsynth.empty_diff_defect(diff)
+        sd += floorsynth.critics_missing_defects(loaded)
+        merged, schema_errors = floorsynth.merge_and_validate(list(critics), sd)
+        gate_inputs = {"runcheck": evidence.get("runcheck", {}), "schema_errors": schema_errors,
+                       "lint_defects": evidence.get("lint_defects", []),
+                       "reqcoverage_defects": evidence.get("reqcoverage_defects", []),
+                       "pathcheck_defects": evidence.get("pathcheck_defects", []),
+                       "docs_clean": docs_clean}
+        return verdict.gate(merged, gate_inputs), verdict.final_status(merged, False)
+
+    def _clean(self, **over):
+        ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+              "sast_defects": [], "astlens_defects": [], "syntaxlens_defects": [],
+              "runcheck": dict(self.GREEN_RC), "verify_cmd": "make test"}
+        ev.update(over)
+        return ev
+
+    def test_control_arm_is_genuinely_green(self):
+        """Non-vacuity: if this ever fails UNVERIFIED, every arm below is vacuous."""
+        self.assertEqual(self._run(self._clean()), ("OK", "OK"))
+
+    def test_every_failure_condition_blocks_both_gate_and_final_status(self):
+        cases = {
+            "runcheck-red": dict(evidence=self._clean(
+                runcheck={"ok": False, "test_count": 0, "new_tests_collected": False})),
+            "lint-HIGH": dict(evidence=self._clean(lint_defects=[_defect("CODE-QUALITY", "HIGH")])),
+            "reqcov-HIGH": dict(evidence=self._clean(
+                reqcoverage_defects=[_defect("REQUIREMENTS-COVERAGE", "HIGH")])),
+            "pathcheck": dict(evidence=self._clean(
+                pathcheck_defects=[_defect("CORRECTNESS", "CRITICAL")])),
+            "sast-HIGH": dict(evidence=self._clean(sast_defects=[_defect("SECURITY", "HIGH")])),
+            "astlens-HIGH": dict(evidence=self._clean(astlens_defects=[_defect("DOES-IT-RUN", "HIGH")])),
+            "syntaxlens-HIGH": dict(evidence=self._clean(
+                syntaxlens_defects=[_defect("DOES-IT-RUN", "HIGH")])),
+            "evidence-incomplete": dict(evidence={"reqcoverage_defects": [], "pathcheck_defects": [],
+                                                  "runcheck": dict(self.GREEN_RC)}),
+            "docs-dirty": dict(evidence=self._clean(), docs_clean=False),
+            "empty-diff": dict(evidence=self._clean(), diff=""),
+            "critic-missing": dict(evidence=self._clean(), loaded=("critic_security.json",)),
+            "schema-errors": dict(evidence=self._clean(), critics=[
+                {"dimensions": {}, "verdict": "OK",
+                 "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
+                              "location": "a.py:1", "fix": "f"}]}]),
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(condition=name):
+                self.assertEqual(self._run(**kwargs), ("UNVERIFIED", "UNVERIFIED"))
+
+    def test_advisory_lint_never_blocks(self):
+        adv = [{"lane": "auto", "tool": "ruff", "path": "a.py", "line": 3, "message": "E501"}]
+        self.assertEqual(self._run(self._clean(lintlens_advisory=adv)), ("OK", "OK"))
+
+
+class TestMergeAndValidate(unittest.TestCase):
+    def test_malformed_critic_yields_schema_errors_and_a_blocking_merged_critic(self):
+        # A malformed DEFECT, not a malformed dimensions map: merge copies defects
+        # verbatim but REBUILDS dimensions, so only a defect survives to validation.
+        # Severity MEDIUM is deliberate — merge alone yields "OK", so the FAIL below
+        # is attributable to the re-merge and nothing else.
+        bad = {"dimensions": {}, "verdict": "OK",
+               "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
+                            "location": "a.py:1", "fix": "f"}]}
+        merged, schema_errors = floorsynth.merge_and_validate([bad], [])
+        self.assertTrue(schema_errors)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertTrue(any(d["id"] == "critic-schema" for d in merged["defects"]))
+
+    def test_a_bad_dimension_value_is_invisible_to_merged_validation(self):
+        """Documented limit, not a bug: merge rebuilds dimensions from rubric.DIMENSIONS,
+        so only a malformed DEFECT can ever populate schema_errors. This is exactly why
+        critics_missing_defects has to exist."""
+        merged, errs = floorsynth.merge_and_validate(
+            [{"dimensions": {"CORRECTNESS": "maybe"}, "defects": [], "verdict": "OK"}], [])
+        self.assertEqual(errs, [])
+
+    def test_wellformed_critic_yields_no_schema_error_and_no_synthetic_defect(self):
+        good = verdict.merge([], [])
+        merged, schema_errors = floorsynth.merge_and_validate([good], [])
+        self.assertEqual(schema_errors, [])
+        self.assertEqual(merged["defects"], [])
 
 
 if __name__ == "__main__":
