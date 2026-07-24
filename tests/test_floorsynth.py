@@ -128,6 +128,62 @@ class TestEmptyDiff(unittest.TestCase):
         self.assertEqual(floorsynth.empty_diff_defect("--- a/x.py\n+++ b/x.py\n+1\n"), [])
 
 
+def _every_synthesized_defect():
+    """Every defect this module can emit, gathered by CALLING it (never by reading a
+    constant), so a test over this corpus cannot shrink when a `fix` string changes."""
+    out = list(floorsynth.script_defects_from({}))                     # evidence-incomplete
+    out += floorsynth.synth_runcheck(
+        {"ok": False, "test_count": 0, "new_tests_collected": False}, "make test")
+    out += floorsynth.synth_docs(False)
+    out += floorsynth.empty_diff_defect("")
+    out += floorsynth.critics_missing_defects([])
+    bad = {"dimensions": {}, "verdict": "OK",
+           "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
+                        "location": "a.py:1", "fix": "f"}]}
+    merged, _errs = floorsynth.merge_and_validate([bad], [])           # critic-schema
+    out += [d for d in merged["defects"] if d["id"] == "critic-schema"]
+    return out
+
+
+class TestFixStringAudience(unittest.TestCase):
+    """A `fix` this module writes is either shown to a human (orchestrator ids) or handed
+    to the CODER as a trusted instruction (skills/atlas/SKILL.md:687-690). The two
+    audiences admit different content, so the split has to be enforced, not assumed."""
+
+    ALL_IDS = {"evidence-incomplete", "runcheck", "docs-naming", "empty-diff",
+               "critic-missing:correctness", "critic-missing:code-quality",
+               "critic-missing:security", "critic-schema"}
+
+    def test_the_audited_corpus_covers_every_synthesis(self):
+        """Non-vacuity: if a new synthesis is added and not gathered above, the two
+        audits below would silently skip it."""
+        self.assertEqual({d["id"] for d in _every_synthesized_defect()}, self.ALL_IDS)
+
+    def test_no_coder_facing_fix_names_review_root(self):
+        # review_root is the `cwd` for BOTH difftool.capture and runcheck.run, and
+        # interactively it is persisted inside the coder's own writable root
+        # (SKILL.md:313, :322) — it is gate input. A `fix` routed to the coder must
+        # never tell the LLM under review to inspect or adjust it. Asserted literally
+        # first, so the loop cannot be emptied by moving empty-diff into the frozenset.
+        self.assertNotIn("empty-diff", floorsynth.ORCHESTRATOR_DEFECT_IDS)
+        audited = 0
+        for d in _every_synthesized_defect():
+            if d["id"] in floorsynth.ORCHESTRATOR_DEFECT_IDS:
+                continue
+            audited += 1
+            self.assertNotIn("review_root", d["fix"], d["id"])
+        self.assertEqual(audited, 3)   # empty-diff, runcheck, docs-naming
+
+    def test_every_orchestrator_fix_is_labelled_as_such(self):
+        seen = set()
+        for d in _every_synthesized_defect():
+            if d["id"] not in floorsynth.ORCHESTRATOR_DEFECT_IDS:
+                continue
+            seen.add(d["id"])
+            self.assertTrue(d["fix"].startswith("ORCHESTRATOR ACTION"), d["id"])
+        self.assertEqual(seen, set(floorsynth.ORCHESTRATOR_DEFECT_IDS))
+
+
 class TestCriticsMissing(unittest.TestCase):
     def test_all_three_present_synthesizes_nothing(self):
         self.assertEqual(floorsynth.critics_missing_defects(
@@ -224,15 +280,24 @@ class TestMergeAndValidate(unittest.TestCase):
     def test_malformed_critic_yields_schema_errors_and_a_blocking_merged_critic(self):
         # A malformed DEFECT, not a malformed dimensions map: merge copies defects
         # verbatim but REBUILDS dimensions, so only a defect survives to validation.
-        # Severity MEDIUM is deliberate — merge alone yields "OK", so the FAIL below
-        # is attributable to the re-merge and nothing else.
+        # Severity MEDIUM keeps the malformed critic's own defect non-blocking, so
+        # nothing asserted below is attributable to the bad input.
         bad = {"dimensions": {}, "verdict": "OK",
                "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
                             "location": "a.py:1", "fix": "f"}]}
-        merged, schema_errors = floorsynth.merge_and_validate([bad], [])
+        # A real deterministic-floor defect rides along, because the re-merge is the
+        # ONLY thing keeping it in merged_critic.json: re-merging over a fresh
+        # [critic-schema] list would drop every floor defect (SECURITY flips back to
+        # "yes") while gate/final_status still blocked on critic-schema — so REFINE's
+        # fix list and OUTPUT's blocking list would silently lose the real findings.
+        sast = {"id": "S1", "category": "SECURITY", "severity": "CRITICAL",
+                "location": "a.py:1", "fix": "patch"}
+        merged, schema_errors = floorsynth.merge_and_validate([bad], [sast])
         self.assertTrue(schema_errors)
         self.assertEqual(merged["verdict"], "FAIL")
         self.assertTrue(any(d["id"] == "critic-schema" for d in merged["defects"]))
+        self.assertIn("S1", [d["id"] for d in merged["defects"]])
+        self.assertEqual(merged["dimensions"]["SECURITY"], "no")
 
     def test_a_bad_dimension_value_is_invisible_to_merged_validation(self):
         """Documented limit, not a bug: merge rebuilds dimensions from rubric.DIMENSIONS,

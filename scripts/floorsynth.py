@@ -132,6 +132,16 @@ def empty_diff_defect(diff: str) -> list[dict]:
     the V7 refine rule (CORRECTNESS/SECURITY only). Category CORRECTNESS is chosen
     deliberately: it is schema-valid AND it fires V7, so an empty diff drives one
     re-attempt rather than only a red label.
+
+    This id is deliberately NOT in ``ORCHESTRATOR_DEFECT_IDS``: producing the change
+    IS the coder's job, so REFINE correctly hands this ``fix`` to the coder as a
+    trusted instruction. Because of that, the ``fix`` names ONLY coder work and never
+    ``review_root`` — that value is the ``cwd`` for both ``difftool.capture`` and
+    ``runcheck.run`` and, interactively, is persisted inside the coder's own writable
+    root (``skills/atlas/SKILL.md:313``, ``:322``), i.e. it is gate input the LLM under
+    review must never be told to inspect or adjust. The orchestrator-side possibility
+    that ``review_root`` pointed at the wrong tree is carried by ``location`` instead,
+    which OUTPUT shows to the human and REFINE never sends.
     """
     if (diff or "").strip():
         return []
@@ -140,8 +150,8 @@ def empty_diff_defect(diff: str) -> list[dict]:
         "category": "CORRECTNESS",
         "severity": "CRITICAL",
         "location": "diff.patch (captured from review_root)",
-        "fix": "the coder produced no change under scope_paths in review_root — re-dispatch it, "
-               "and confirm review_root points at the tree the coder actually wrote to",
+        "fix": "no change was produced under scope_paths — implement the task by editing the "
+               "files under scope_paths; an empty diff satisfies no acceptance criterion",
     }]
 
 
