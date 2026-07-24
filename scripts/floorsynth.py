@@ -4,7 +4,7 @@ Every ``verdict.gate`` failure condition MUST also become a blocking defect insi
 ``merged_critic.json`` — otherwise ``should_refine``/``final_status`` (which read
 ONLY the merged critic) disagree with ``gate``, and a run can ship a false
 ``VERIFIED`` while the fallible critics emit nothing. That marshalling lived as
-inline heredoc text in ``skills/atlas/SKILL.md:601-641``, retyped by the model on
+inline heredoc text in ``skills/atlas/SKILL.md:601-631``, retyped by the model on
 every run; a single dropped ``+=`` line silently deleted a whole floor lens with
 nothing detecting it. Hoisting it here makes floor completeness a ``make ci``
 invariant instead of a per-run transcription lottery.
@@ -16,10 +16,10 @@ INVARIANTS THIS MODULE PRESERVES
   never reaches ``gate_results`` (``skills/atlas/SKILL.md:621-623``). Advisory lint
   can never block.
 - No I/O, no subprocess, no clock: importing this module has zero side effects.
-- Defect ``category`` is always one of ``rubric.DIMENSIONS`` for anything this
-  module synthesises BEFORE validation, because ``quality.enforce_critic_schema``
-  rejects any other category. The lone ``SCHEMA``-category defect is appended
-  AFTER validation, exactly as the SKILL does, so it is never validated.
+- Every ``category`` this module synthesises (``DOES-IT-RUN``, ``CODE-QUALITY``) is
+  a member of ``rubric.DIMENSIONS``, because ``quality.enforce_critic_schema``
+  rejects any other category — a defect this module invents with an off-rubric
+  category would fail schema validation downstream instead of blocking the run.
 """
 from __future__ import annotations
 

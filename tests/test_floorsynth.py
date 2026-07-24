@@ -43,6 +43,24 @@ class TestScriptDefectsFrom(unittest.TestCase):
         self.assertEqual(out[0]["id"], "evidence-incomplete")
         self.assertEqual(out[0]["severity"], "CRITICAL")
         self.assertIn("lint_defects", out[0]["fix"])
+        # The synthesized category must be a rubric dimension, or the merged critic
+        # fails schema validation downstream instead of blocking the run.
+        from scripts import quality, verdict
+        self.assertEqual(quality.enforce_critic_schema(verdict.merge([], out)), [])
+
+    def test_mandatory_key_set_is_pinned_literally(self):
+        # Spelled out, because the per-key test below reads the tuple from the module:
+        # demoting a key to the HEAD of OPTIONAL preserves collection order, so it
+        # would shrink that loop instead of failing it. Only a literal catches it.
+        self.assertEqual(floorsynth.MANDATORY_EVIDENCE_KEYS,
+                         ("lint_defects", "reqcoverage_defects", "pathcheck_defects"))
+
+    def test_each_mandatory_key_is_individually_required(self):
+        for key in floorsynth.MANDATORY_EVIDENCE_KEYS:
+            ev = {k: [] for k in floorsynth.MANDATORY_EVIDENCE_KEYS if k != key}
+            out = floorsynth.script_defects_from(ev)
+            self.assertEqual([d["id"] for d in out], ["evidence-incomplete"], key)
+            self.assertIn(key, out[0]["fix"])
 
     def test_incomplete_evidence_never_swallows_a_present_defect(self):
         from scripts import verdict
@@ -66,6 +84,10 @@ class TestSynthesizedGateMirrors(unittest.TestCase):
     def test_green_runcheck_synthesizes_nothing(self):
         rc = {"ok": True, "test_count": 3, "new_tests_collected": True}
         self.assertEqual(floorsynth.synth_runcheck(rc, verify_cmd="make test"), [])
+
+    def test_partially_green_runcheck_still_synthesizes_a_critical(self):
+        rc = {"ok": True, "test_count": 0, "new_tests_collected": False}
+        self.assertEqual(len(floorsynth.synth_runcheck(rc, verify_cmd="make test")), 1)
 
     def test_dirty_docs_synthesize_a_critical(self):
         out = floorsynth.synth_docs(False)
