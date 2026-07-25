@@ -46,10 +46,15 @@ This skill runs natively on **Kimi Code v0.23.5** (authored against it; **revali
 
 **Script-call convention** (scripts live at the plugin root `${KIMI_SKILL_DIR}/../..`, one level
 above `skills/`; `PYTHONPATH` must point there so `from scripts import <mod>` resolves and the
-scripts find `references/schemas.json` relative to themselves):
+scripts find `references/schemas.json` relative to themselves. `PYTHONSAFEPATH=1` is **mandatory
+on every invocation**: without it the interpreter puts the target's working directory ahead of
+`PYTHONPATH`, so a target repo shipping its own `scripts/` package — or even a bare stdlib
+shadow module at its root — replaces the module atlas meant to run, including the FROZEN pure
+gate. Never invoke the interpreter from this orchestrator without both variables, and never with
+`-E` or `-I`, which discard them):
 
 ```
-PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "from scripts import <mod>; ..."
+PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "from scripts import <mod>; ..."
 ```
 
 - **Persistence base:** `.atlas` in the target's working directory (per PLAN OD-3). If the target
@@ -68,6 +73,10 @@ PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "from scripts import <mod>; ..."
 > 1. the **single** `CLARIFY` `AskUserQuestion` (interactive only), and
 > 2. the **pre-CODE approval gate** `AskUserQuestion` (interactive only), and
 > 3. the **OUTPUT human gate**.
+>
+> One **terminal abort** is also sanctioned and is not a pause: an `ATLAS-PRECONDITION-FAILED`
+> line from the INIT resume check. The environment cannot give the gate its integrity, so the run
+> ends there and reports; it does not wait for the user and it does not continue.
 >
 > A returned tool call, a finished stage, a completed `Agent` dispatch, or a `###` heading is **NOT**
 > a stopping point — immediately begin the next stage **in the same turn**. Each `###` stage block
@@ -112,7 +121,13 @@ refine-pass counter).
 ### INIT → INTENT_CAPTURED
 - **Resume check FIRST.** Before starting fresh, discover any interrupted run to continue instead:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  import sys
+  if sys.version_info < (3, 11):
+      print("ATLAS-PRECONDITION-FAILED: interpreter %d.%d < 3.11 — PYTHONSAFEPATH is "
+            "ignored, so an untrusted target repo can replace atlas's own modules."
+            % sys.version_info[:2])
+      raise SystemExit(2)
   import glob, json, os
   TERMINAL = {"OUTPUT", "DONE"}
   cands = []
@@ -131,6 +146,9 @@ refine-pass counter).
   non-terminal run above. **If a resumable run exists, do NOT restart** — load its `ctxstore` state
   and jump to the stage after its last recorded ledger entry, reusing every persisted artifact
   (`context.json`, `plan.md`, the diff, `critic.json`). If the result is `NONE`, start fresh below.
+  If the output is `ATLAS-PRECONDITION-FAILED`, **abort the run** — this is a sanctioned terminal
+  halt, not a pause — and report the line to the user verbatim: the environment cannot provide the
+  import isolation the gate's integrity depends on. Do not proceed to `INTENT_CAPTURED`.
 - **Parse `$ARGUMENTS`** into the task packet: `intent` = the full request text; extract any
   `verify_cmd:` / `success:` / `scope:` clauses the user supplied; default `debug_tokens` to
   `["TODO","FIXME","XXX"]` (plus any language-appropriate debug print like `console.log`/`print(`)
@@ -139,7 +157,7 @@ refine-pass counter).
   the tracked tree** by appending `.atlas/` to `.git/info/exclude` (a per-clone ignore that never
   touches the user's `.gitignore` — OPS-4):
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import subprocess, pathlib
   try:
       sha = subprocess.run(["git","rev-parse","HEAD"], capture_output=True, text=True).stdout.strip()
@@ -159,7 +177,7 @@ refine-pass counter).
 - **Freeze the packet (DS-7).** `success_criteria[]` is an **ordered, immutable** list captured
   here; downstream lenses read the frozen list and **never re-derive it**. Write the run:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   from scripts import ctxstore
   packet = {
     "intent": """<full request>""",
@@ -183,7 +201,7 @@ refine-pass counter).
 - **Deterministic trigger.** Run `validate.py` on the packet and additionally test the three
   load-bearing fields for emptiness:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import json
   from scripts import ctxstore, validate
   st = ctxstore.get_state(".atlas", "${KIMI_SESSION_ID}")
@@ -226,7 +244,7 @@ refine-pass counter).
   bare JSON object only.
   ```
   # after you have the digest as JSON, persist it as the grounding artifact `context.json`
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import json
   from scripts import ctxstore, validate
   digest = json.loads('''<returned JSON>''')
@@ -255,7 +273,7 @@ refine-pass counter).
   surfaces `PARTIAL` for `GROUNDED` at OUTPUT — a recording gap, by design, not a constant. Its
   first argument is the **run directory** `.atlas/${KIMI_SESSION_ID}` (NOT the base + run_id pair):
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
     "from scripts import ctxevents; ctxevents.record('.atlas/${KIMI_SESSION_ID}', 'tool_call', {'tool': 'Agent', 'stage': 'GROUNDED'})" \
     || true    # a failed marker only surfaces PARTIAL at OUTPUT; it never blocks the machine
   ```
@@ -265,7 +283,7 @@ refine-pass counter).
   selection as `.atlas/<run_id>/skills.json`. Selection is a **hint, never a gate**: an absent/unreadable
   registry degrades to no-selection, and a selection failure must never block the machine:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import json
   from scripts import ctxstore, skillselect
   run = "${KIMI_SESSION_ID}"
@@ -368,7 +386,7 @@ Then branch on the run mode:
   absent/empty/unreadable graph must degrade to **no-injection** (the packet still goes out) — the
   lookup must never block the machine:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
     "import sys; from scripts import contextgraph; sys.stdout.write(contextgraph.graph_lookup('.atlas', '${KIMI_SESSION_ID}'))" \
     2>/dev/null || true    # empty/failed output → no-injection; the run continues either way
   ```
@@ -389,7 +407,7 @@ Then branch on the run mode:
   (same rule as the GROUNDED marker above: run directory `.atlas/${KIMI_SESSION_ID}` first arg; a
   missing marker legitimately surfaces `PARTIAL` for `CODED` at OUTPUT, never blocks the machine):
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
     "from scripts import ctxevents; ctxevents.record('.atlas/${KIMI_SESSION_ID}', 'tool_call', {'tool': 'Agent', 'stage': 'CODED'})" \
     || true    # a failed marker only surfaces PARTIAL at OUTPUT; it never blocks the machine
   ```
@@ -430,7 +448,7 @@ file maps lens 4 needs — from **`review_root`** (the tree the coder actually w
 the pre-CODE gate), **never** a hard-coded `.`, or a headless worktree diff is empty and every lens
 reviews nothing:
 ```
-PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import os, re, fnmatch
 from scripts import ctxstore, difftool, langfloor, runcheck
 run = "${KIMI_SESSION_ID}"
@@ -470,7 +488,7 @@ their defects into `det_evidence.json` — the evidence the judgment critics als
 # Memory guard: runcheck launches an arbitrary build (unbounded RSS) — require >=3 GB available.
 avail=$(free -m | awk '/^Mem:/ {print $7}')
 echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/serialize before launching runcheck"
-PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json, pathlib
 from scripts import ctxstore, runcheck, astlens, syntaxlens, quality, reqcoverage, pathcheck, check_artifact_naming, sast, lintlens
 run = "${KIMI_SESSION_ID}"
@@ -584,7 +602,7 @@ PY
 
 **Step 4 + 5 — Merge (PURE) → enforce schema on the merged shape → Gate (PURE)** the full PASS bar:
 ```
-PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json
 from scripts import ctxstore, floorsynth, verdict
 run = "${KIMI_SESSION_ID}"
@@ -662,7 +680,7 @@ consistent with `gate()`.
   clause is guarded by `passes < 1`, so it forces **exactly one** extra pass and, combined with
   `should_refine`'s cap, the loop still provably halts at **≤2** re-drafts:
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   from scripts import ctxstore, verdict
   passes = ctxstore.get_refine_passes(".atlas", "${KIMI_SESSION_ID}")
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
@@ -718,7 +736,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   invoke the driver — `rollback_driver.run_rollback(...)` records `rollback_intent` **before**
   touching the tree, runs the idempotent `git reset --hard <sha>` seam, then records
   `rollback_complete`:
-  `PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -m scripts.rollback_driver --base .atlas --run-id ${KIMI_SESSION_ID} --cwd .atlas/${KIMI_SESSION_ID}/worktree --target-sha <last_green_sha> --target-stage VERIFIED`
+  `PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -m scripts.rollback_driver --base .atlas --run-id ${KIMI_SESSION_ID} --cwd .atlas/${KIMI_SESSION_ID}/worktree --target-sha <last_green_sha> --target-stage VERIFIED`
   (with `ATLAS_SANCTIONED_ROLLBACK` set). The driver **refuses** — via `sanctioned_rollback` —
   unless the target is an isolated `.atlas/<run_id>/worktree` *linked* worktree carrying the
   sanction token. On resume, an open `rollback_intent` with no `rollback_complete` re-runs the
@@ -734,7 +752,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
 - **Compute final status, record OUTPUT first, then run the bookkeeping backstop** (recording
   OUTPUT *before* `missing_stages` prevents OUTPUT itself showing as "missing"):
   ```
-  PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+  PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import json
   from scripts import ctxstore, verdict
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
@@ -799,7 +817,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
     untouched), and an empty/unreadable graph **degrades to nothing** (omit the line; the summary
     still ships — `used_tools == "COMPLETE"` likewise surfaces no warning):
     ```
-    PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
+    PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
       "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - dispatched stage(s) with no recorded tool_call marker: '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
       2>/dev/null || true    # empty/unreadable graph → no line; the summary still ships
     ```

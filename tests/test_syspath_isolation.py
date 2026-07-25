@@ -286,5 +286,94 @@ class TestHostileTargetCannotShadowPluginModules(unittest.TestCase):
         self.assertEqual(got, "True")
 
 
+def _heredoc_bodies(text: str) -> list[str]:
+    """Every ``<<'PY'`` … ``PY`` body in the SKILL, dedented.
+
+    Used to prove the interpreter-floor guard lives inside a block that a run
+    actually EXECUTES, not merely somewhere in the prose.
+    """
+    bodies: list[str] = []
+    cur: list[str] | None = None
+    for line in text.splitlines():
+        if cur is None:
+            if line.rstrip().endswith("<<'PY'"):
+                cur = []
+        elif line.strip() == "PY":
+            bodies.append("\n".join(cur))
+            cur = None
+        else:
+            cur.append(line)
+    return bodies
+
+
+class TestSkillPinsSafePath(unittest.TestCase):
+    """The textual pin: the shipped atlas SKILL cannot drift back to the bare form."""
+
+    def setUp(self):
+        self.text = _SKILL.read_text(encoding="utf-8")
+        self.lines = self.text.splitlines()
+
+    def test_every_python_invocation_carries_safe_path(self):
+        offenders = [
+            (i, line) for i, line in enumerate(self.lines, 1)
+            if re.search(r"\bpython3\b", line) and _SAFE_PREFIX not in line
+        ]
+        self.assertEqual(offenders, [], f"unguarded python3 line(s): {offenders}")
+
+    def test_no_bare_pythonpath_invocation_survives(self):
+        bare = 'PYTHONPATH="${KIMI_SKILL_DIR}/../.."'
+        for i, line in enumerate(self.lines, 1):
+            if bare in line:
+                self.assertIn(_SAFE_PREFIX, line, f"SKILL.md:{i} has a bare PYTHONPATH")
+
+    def test_the_invocations_were_not_simply_deleted(self):
+        """Anti-vacuity guard ONLY: the siblings above are trivially satisfiable by
+        removing every invocation. This does not independently verify the prefix."""
+        self.assertGreaterEqual(self.text.count(_SAFE_PREFIX), 17)
+
+    def test_no_invocation_discards_the_environment(self):
+        """``-E`` and ``-I`` make CPython ignore every PYTHON* variable, so a line
+        can carry the full prefix and still be fully hijackable. Measured:
+        ``PYTHONSAFEPATH=1 python3 -E -c 'from scripts import verdict'`` imports the
+        TARGET's module.
+
+        The pattern walks the whole contiguous short-flag run (``python3 -B -E -c``),
+        not only the first flag; with zero repetitions it degenerates to
+        ``python3\\s+(-\\w*[EI])``, so every line the narrower form catches is
+        caught here too. Interpreter flags may only appear before ``-c``/``-m``/the
+        script, so the contiguity requirement costs no real coverage.
+        """
+        for i, line in enumerate(self.lines, 1):
+            if re.search(r"\bpython3\b", line):
+                self.assertNotRegex(line, r"python3(\s+-\w+)*\s+-\w*[EI]", f"SKILL.md:{i}")
+
+    def test_interpreter_floor_guard_is_present(self):
+        """PYTHONSAFEPATH is silently ignored below CPython 3.11, which would make
+        the fix absent without any signal. The guard must be fail-closed."""
+        self.assertIn("sys.version_info", self.text)
+        self.assertIn("ATLAS-PRECONDITION-FAILED", self.text)
+        # Stronger than the two lines above (which they imply): the guard must sit
+        # inside a heredoc a run EXECUTES, and must actually halt, so it cannot be
+        # satisfied by prose that merely describes it.
+        guarded = [
+            b for b in _heredoc_bodies(self.text)
+            if "sys.version_info" in b and "ATLAS-PRECONDITION-FAILED" in b
+            and "SystemExit(2)" in b
+        ]
+        self.assertTrue(guarded, "no executed block carries a fail-closed floor guard")
+
+    def test_the_abort_is_a_sanctioned_terminal_halt(self):
+        """The COMPLETION INVARIANT forbids un-sanctioned turn-ending stops; the
+        precondition abort must be named there or a model will resolve the
+        conflict by continuing the run without the isolation."""
+        head = self.text[: self.text.index("## State machine")]
+        self.assertIn("ATLAS-PRECONDITION-FAILED", head)
+        # Stronger than the line above (which it implies): naming the abort in the
+        # script-call prose would satisfy `head` while leaving the invariant block
+        # -- the text that actually forbids the stop -- unaware of it.
+        block = self.text[self.text.index("COMPLETION INVARIANT"):len(head)]
+        self.assertIn("ATLAS-PRECONDITION-FAILED", block)
+
+
 if __name__ == "__main__":
     unittest.main()
