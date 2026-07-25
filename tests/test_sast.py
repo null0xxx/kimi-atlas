@@ -3,12 +3,15 @@
 The pure ``parse_semgrep_json`` is exercised against a **real-shaped** semgrep
 payload (captured from ``semgrep 1.169.0`` on a Python ``subprocess-shell-true``
 finding) plus synthesized WARNING/INFO/malformed inputs; ``scan`` is exercised
-only for its FAIL-OPEN contract with ``semgrep_path`` monkeypatched, so no real
-semgrep run and no network is needed here.
+for its FAIL-OPEN contract with ``semgrep_path`` monkeypatched (no semgrep run,
+no network), and — in ``TestScanRealSemgrep`` — against the REAL binary over a
+``shell=True`` fixture, skipping unless ``semgrep_path()`` resolves (S7: every
+mocked boundary was structurally incapable of observing the argv conflict).
 """
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -278,8 +281,6 @@ class TestScanRealSemgrep(unittest.TestCase):
             self.skipTest("semgrep not installed")
 
     def test_real_scan_finds_shell_true(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(tmp, "vuln.py"), "w", encoding="utf-8") as fh:
                 fh.write(

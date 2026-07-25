@@ -430,7 +430,7 @@ and `gate` are PURE — you (the LLM) never compute pass/fail;** you only marsha
 > becomes a **HIGH SECURITY defect** that is merged into `script_defects` **before** `verdict.merge`,
 > so a mechanically-detectable vulnerability (e.g. `subprocess(shell=True)`, `child_process` on
 > untrusted input) **blocks the gate regardless of whether the critic notices it**. This is
-> **fail-open and OPTIONAL**: if semgrep is not installed, errors, times out, or its `--config auto`
+> **fail-open and OPTIONAL**: if semgrep is not installed, errors, times out, or its `--config p/default`
 > rule-fetch fails, `sast.scan` returns `[]` and the SECURITY lens degrades to **exactly today's
 > judgment-only behavior** — SAST never breaks the harness or manufactures a false failure. The
 > SECURITY judgment critic **still runs** either way; SAST **augments** it, it does not replace it.
@@ -543,7 +543,7 @@ reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff,
 pathcheck_defects = pathcheck.cross_check(diff, ctx, review_root)
 
 # Lens 3 SECURITY -- DETERMINISTIC FLOOR (semgrep SAST). FAIL-OPEN: if semgrep is
-# absent/errors/times out/the --config auto rule-fetch fails, scan() returns [] and
+# absent/errors/times out/the --config p/default rule-fetch fails, scan() returns [] and
 # the SECURITY lens silently degrades to judgment-only (exactly today's behavior).
 # A semgrep ERROR maps to a HIGH SECURITY defect (blocking); WARNING->MEDIUM, INFO->LOW.
 # Restricted to the change's scope_paths so only the diff is scanned. This AUGMENTS

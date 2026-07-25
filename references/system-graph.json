@@ -193,7 +193,7 @@
    "subsystem": "verification-harness",
    "path": "scripts/sast.py",
    "kind": "io-hand",
-   "responsibility": "Partial deterministic floor under lens 3 SECURITY: runs semgrep --config auto --metrics off over scope_paths, maps ERROR→HIGH/WARNING→MEDIUM/INFO→LOW (never CRITICAL); mandatory fail-open — any failure returns [] and the lens degrades to judgment-only."
+   "responsibility": "Partial deterministic floor under lens 3 SECURITY: runs semgrep --config p/default --metrics off over scope_paths, maps ERROR→HIGH/WARNING→MEDIUM/INFO→LOW (never CRITICAL); mandatory fail-open — any failure returns [] and the lens degrades to judgment-only."
   },
   {
    "id": "reqcoverage",

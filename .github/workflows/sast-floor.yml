@@ -27,11 +27,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install semgrep
-        run: pip install semgrep
+        run: pip install semgrep==1.169.0
 
       - name: Assert semgrep resolved (fail, never skip)
         run: |
-          python3 -c "from scripts import sast,sys; sys.exit(0 if sast.semgrep_path() else 1)"
+          python3 -c "import sys; from scripts import sast; sys.exit(0 if sast.semgrep_path() else 1)"
 
       - name: Run the sast suite against the real scanner
         run: |
