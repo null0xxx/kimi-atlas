@@ -169,6 +169,94 @@ def build(ledger_facts: dict) -> dict:
     }
 
 
+INJECTION_MAX_BYTES = 24_000
+INJECTION_MAX_NODE_CHARS = 2_000
+_EVENT_KINDS = ("tool_call", "error")
+
+
+def render_for_injection(graph: dict, max_bytes: int = INJECTION_MAX_BYTES,
+                         max_node_chars: int = INJECTION_MAX_NODE_CHARS) -> dict:
+    """Return a byte-bounded VIEW of ``graph`` for packet injection.
+
+    SCOPE: the ``graph_lookup`` injection path ONLY. ``build``/``project``/
+    ``load_or_rebuild`` — and so ``context-graph.json``, OUTPUT's completeness read
+    and resume — keep seeing every node, uncapped.
+
+    ``max_bytes`` is a HARD post-condition over the WHOLE view. No node class gets
+    unconditional retention: ``task``/``verdict``/``artifact`` nodes derive from
+    ``log.jsonl`` and ``plan.dag.json``, both inside the interactive coder's writable
+    root (``review_root == "."``, SKILL.md:322), so an unbounded structural class
+    would let a coder blow the budget and author 100% of the injected graph — the
+    same attack the per-kind event quotas close. Binding drops WHOLE nodes and
+    re-serialises; never string-slices a node OUT of its JSON, which would emit
+    invalid JSON inside the SAFE-2 fence. ``max_node_chars`` re-applies the
+    ``hooks/telemetry.sh:82,86`` clamp, which a coder appending to ``hooks.jsonl``
+    directly can bypass; every clamped body is counted in ``truncated_event_bodies``.
+    Retained nodes keep ascending original ``seq`` so omissions show as gaps.
+    """
+    edges = list(graph.get("edges") or [])
+    truncated = 0
+
+    def _clamp(n):
+        nonlocal truncated
+        m = dict(n)
+        for f in ("untrusted_output", "untrusted_text", "untrusted_error"):
+            v = m.get(f)
+            if isinstance(v, str) and len(v) > max_node_chars:
+                m[f] = v[:max_node_chars]
+                truncated += 1
+        return m
+
+    nodes = [_clamp(n) for n in (graph.get("nodes") or [])]
+
+    def _window(ot, oe, oo):
+        return {"omitted_tool_calls": ot, "omitted_errors": oe, "omitted_other": oo,
+                "truncated_event_bodies": truncated, "max_bytes": max_bytes}
+
+    kept = [n for n in nodes if n.get("kind") not in _EVENT_KINDS]
+    by_kind = {k: [n for n in nodes if n.get("kind") == k] for k in _EVENT_KINDS}
+
+    def _tail(seq, q):
+        return seq[len(seq) - q:] if q > 0 else []      # q == 0 means NONE, not all
+
+    def _assemble(quotas, structural, omitted_other):
+        retained = list(structural) + [n for k in _EVENT_KINDS
+                                       for n in _tail(by_kind[k], quotas[k])]
+        retained.sort(key=lambda n: n.get("seq", 0))
+        ids = {n.get("id") for n in retained}
+        out = dict(graph)
+        out["nodes"] = retained
+        out["edges"] = [e for e in edges
+                        if e.get("from") in ids and e.get("to") in ids]
+        out["window"] = _window(len(by_kind["tool_call"]) - quotas["tool_call"],
+                                len(by_kind["error"]) - quotas["error"], omitted_other)
+        return out
+
+    full = {k: len(v) for k, v in by_kind.items()}
+    out = _assemble(full, kept, 0)
+    if len(json.dumps(out)) <= max_bytes:
+        return out
+
+    quotas = {k: 0 for k in _EVENT_KINDS}
+    omitted_other = 0
+    while len(json.dumps(_assemble(quotas, kept, omitted_other))) > max_bytes and kept:
+        kept.pop(0)                                     # structural nodes bind too
+        omitted_other += 1
+    grew = True
+    while grew:
+        grew = False
+        for kind in _EVENT_KINDS:
+            if quotas[kind] >= len(by_kind[kind]):
+                continue
+            trial = dict(quotas, **{kind: quotas[kind] + 1})
+            if len(json.dumps(_assemble(trial, kept, omitted_other))) <= max_bytes:
+                quotas, grew = trial, True
+    out = _assemble(quotas, kept, omitted_other)
+    if len(json.dumps(out)) > max_bytes:
+        raise ValueError("render_for_injection could not meet max_bytes")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Thin I/O "hands" — the ONLY code below the pure core that touches disk/CLI.
 # The pure projection above never reads or writes; these hands read the ledger,

@@ -9,6 +9,7 @@ red-team discovery in run_negative_gate never picks it up.
 """
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import tempfile
@@ -208,6 +209,154 @@ class HandsTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn(cg.SAFE2_OPEN, buf.getvalue())
         self.assertIn("context-graph", buf.getvalue())
+
+
+class TestRenderForInjection(unittest.TestCase):
+    def _graph(self, n_tool=0, n_err=0, body="", n_artifact=0):
+        nodes, edges, seq = [], [], 0
+        for i in range(n_tool):
+            nodes.append({"id": "t%d" % i, "kind": "tool_call", "seq": seq,
+                          "tool": "Bash", "untrusted_output": body}); seq += 1
+        for i in range(n_err):
+            # real field name: scripts/contextgraph.py:130 emits untrusted_text
+            nodes.append({"id": "e%d" % i, "kind": "error", "seq": seq,
+                          "untrusted_text": body}); seq += 1
+        for i in range(n_artifact):
+            nodes.append({"id": "a%d" % i, "kind": "artifact", "seq": seq,
+                          "ref": "A" * 2000}); seq += 1
+        for a, b in zip(nodes, nodes[1:]):
+            edges.append({"from": a["id"], "to": b["id"], "rel": "then"})
+        # real schema value: scripts/contextgraph.py:164
+        return {"nodes": nodes, "edges": edges, "run_id": "R", "schema": "context-graph"}
+
+    def test_below_budget_keeps_the_payload_byte_identical(self):
+        g = self._graph(n_tool=20, body="x" * 100)
+        got = cg.render_for_injection(g)
+        self.assertEqual(
+            json.dumps({k: v for k, v in got.items() if k != "window"}, sort_keys=True),
+            json.dumps(g, sort_keys=True))
+        self.assertEqual(got["window"]["omitted_tool_calls"], 0)
+
+    def test_mixed_kinds_never_render_an_empty_graph(self):
+        """Regression: by_kind[k][-0:] is the WHOLE list, which emptied the view for any
+        graph carrying both kinds — i.e. every REFINE-triggering run."""
+        out = cg.render_for_injection(self._graph(n_tool=20, n_err=500, body="x" * 2000),
+                                      max_bytes=24000)
+        self.assertGreater(len(out["nodes"]), 0)
+        self.assertEqual({n["kind"] for n in out["nodes"]}, {"tool_call", "error"})
+        self.assertGreater(len(json.dumps(out)), 24000 // 2)   # not vacuously tiny
+
+    def test_non_event_nodes_cannot_blow_the_budget(self):
+        """artifact/task nodes derive from log.jsonl and plan.dag.json, both inside the
+        interactive coder's writable root — they are NOT a trusted, unbounded class."""
+        out = cg.render_for_injection(self._graph(n_artifact=300), max_bytes=24000)
+        self.assertLessEqual(len(json.dumps(out)), 24000)
+        self.assertGreater(out["window"]["omitted_other"], 0)
+
+    def test_oversized_node_body_is_clamped_and_counted(self):
+        out = cg.render_for_injection(self._graph(n_tool=1, body="z" * 200000),
+                                      max_bytes=24000)
+        self.assertEqual(len(out["nodes"][0]["untrusted_output"]), 2000)
+        self.assertEqual(out["window"]["truncated_event_bodies"], 1)
+
+    def test_above_budget_respects_the_byte_budget(self):
+        g = self._graph(n_tool=200, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        self.assertLessEqual(len(json.dumps(out)), 24000)
+
+    def test_binding_drops_whole_nodes_and_stays_valid_json(self):
+        g = self._graph(n_tool=200, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        json.loads(json.dumps(out))                       # never string-sliced
+        self.assertLess(len(out["nodes"]), len(g["nodes"]))
+
+    def test_errors_are_not_unconditionally_retained(self):
+        """A coder that appends 500 synthetic errors must not evict every tool_call."""
+        g = self._graph(n_tool=20, n_err=500, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        kinds = [n["kind"] for n in out["nodes"]]
+        self.assertIn("tool_call", kinds)
+        self.assertIn("error", kinds)
+
+    def test_retained_nodes_keep_ascending_original_seq(self):
+        g = self._graph(n_tool=200, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        seqs = [n["seq"] for n in out["nodes"]]
+        self.assertEqual(seqs, sorted(seqs))
+        self.assertEqual(len(seqs), len(set(seqs)))
+
+    def test_dangling_edges_are_dropped(self):
+        g = self._graph(n_tool=200, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        ids = {n["id"] for n in out["nodes"]}
+        for e in out["edges"]:
+            self.assertIn(e["from"], ids)
+            self.assertIn(e["to"], ids)
+
+    def test_honesty_markers_report_what_was_dropped(self):
+        g = self._graph(n_tool=200, body="x" * 2000)
+        out = cg.render_for_injection(g, max_bytes=24000)
+        self.assertGreater(out["window"]["omitted_tool_calls"], 0)
+        self.assertIn("omitted_errors", out["window"])
+
+    def test_project_is_untouched_by_the_cap(self):
+        """SCOPE: the cap is an INJECTION view. The on-disk projection, OUTPUT's
+        completeness read and resume must all still see every node."""
+        src = inspect.getsource(cg.project)
+        self.assertNotIn("render_for_injection", src)
+        self.assertNotIn("render_for_injection", inspect.getsource(cg.build))
+
+
+class TestRenderForInjectionMutationGaps(unittest.TestCase):
+    """Pins three invariants that the fixtures above cannot observe.
+
+    Each was found by a SURVIVING mutant of a correct implementation: the graphs
+    built above are kind-blocked (all tool_calls, then all errors) and carry only
+    short bodies, so the seq sort is a no-op for them, a phantom-clamp counter is
+    invisible, and the max_bytes post-condition guard is never reached.
+    """
+
+    def _interleaved(self, n=6):
+        """A graph shaped like `build`'s real output: kinds INTERLEAVED in append order."""
+        nodes = []
+        for i in range(n):
+            nodes.append({"id": "t%d" % i, "kind": "tool_call", "seq": 2 * i,
+                          "tool": "Bash", "untrusted_output": "x"})
+            nodes.append({"id": "e%d" % i, "kind": "error", "seq": 2 * i + 1,
+                          "untrusted_text": "x"})
+        return {"nodes": nodes, "edges": [], "run_id": "R", "schema": "context-graph"}
+
+    def test_interleaved_kinds_are_reordered_to_ascending_seq(self):
+        """Retained nodes keep ascending original seq ACROSS kinds.
+
+        Assembly concatenates the per-kind tails, so without the sort a real
+        (interleaved) graph renders every tool_call before every error — seq order
+        destroyed. The kind-blocked fixtures above cannot catch that.
+        """
+        g = self._interleaved()
+        out = cg.render_for_injection(g)
+        seqs = [n["seq"] for n in out["nodes"]]
+        self.assertEqual(seqs, sorted(seqs))
+        self.assertEqual({n["kind"] for n in out["nodes"]}, {"tool_call", "error"})
+
+    def test_below_budget_reports_no_phantom_truncations(self):
+        """truncated_event_bodies counts ACTUAL clamps, so the honesty marker is honest.
+
+        A clamp applied unconditionally is a no-op on short bodies and leaves the
+        payload byte-identical, so only the counter reveals the lie.
+        """
+        g = self._interleaved()
+        self.assertEqual(cg.render_for_injection(g)["window"]["truncated_event_bodies"], 0)
+
+    def test_unmeetable_budget_raises_instead_of_overflowing(self):
+        """max_bytes is a HARD post-condition: given a budget smaller than even a
+        zero-node view's own envelope, the function fails loudly rather than
+        returning a view that exceeds it."""
+        g = self._interleaved()
+        # A budget well under the envelope (schema/run_id/window keys) that survives
+        # after every droppable node is gone, so no assembly can ever satisfy it.
+        with self.assertRaises(ValueError):
+            cg.render_for_injection(g, max_bytes=1)
 
 
 if __name__ == "__main__":
