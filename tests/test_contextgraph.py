@@ -359,5 +359,22 @@ class TestRenderForInjectionMutationGaps(unittest.TestCase):
             cg.render_for_injection(g, max_bytes=1)
 
 
+class TestInjectionCapScopeMutationGap(unittest.TestCase):
+    """Pins the half of the SCOPE boundary that `project`/`build` cannot observe.
+
+    `test_project_is_untouched_by_the_cap` inspects `project` and `build` only.
+    OUTPUT's completeness read reaches the graph through `project` (pinned), but
+    RESUME reaches it through `load_or_rebuild`. A cap applied one call inward —
+    on `load_or_rebuild`'s cached-hit return — would silently truncate the
+    projection resume depends on, and that mutant SURVIVED the whole file.
+    """
+
+    def test_load_or_rebuild_is_untouched_by_the_cap(self):
+        """SCOPE: resume reads the graph via `load_or_rebuild`, on BOTH its
+        cached-hit and rebuild paths; the byte-bounded injection view must stay
+        out of it so resume keeps seeing every node."""
+        self.assertNotIn("render_for_injection", inspect.getsource(cg.load_or_rebuild))
+
+
 if __name__ == "__main__":
     unittest.main()
