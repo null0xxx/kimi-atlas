@@ -45,9 +45,15 @@ def enforce_critic_schema(critic: dict) -> list[str]:
     Stricter than structural ``validate.py``: enforces the *value* shapes the
     rubric mandates (yes/no dimensions, canonical categories/severities,
     verdict-vs-defect consistency, no stray top-level keys), so the orchestrator
-    can re-prompt a critic whose output drifts.
+    can re-prompt a critic whose output drifts. Never raises on malformed input
+    — a non-dict ``critic`` is itself a violation (S4: a valid-JSON non-object
+    critic must reach the documented CRITIC_SCHEMA_ERRORS re-dispatch path, not
+    crash the validate block with a bare AttributeError).
     """
     errs: list[str] = []
+
+    if not isinstance(critic, dict):
+        return ["critic: must be a JSON object, got %s" % type(critic).__name__]
 
     dims = critic.get("dimensions")
     if not isinstance(dims, dict):
@@ -61,6 +67,12 @@ def enforce_critic_schema(critic: dict) -> list[str]:
                     f"dimensions.{d}: must be the string 'yes' or 'no', "
                     f"got {type(dims[d]).__name__} ({dims[d]!r})"
                 )
+        stray_dims = sorted(set(dims) - set(_DIMENSIONS))
+        if stray_dims:
+            errs.append(
+                "dimensions: unknown dimension keys (not rubric dimensions): "
+                f"{stray_dims}"
+            )
 
     defects = critic.get("defects")
     if not isinstance(defects, list):

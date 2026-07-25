@@ -295,9 +295,10 @@ def dimension_dissent_defects(raw_critics) -> list[dict]:
     (the SKILL's ``loaded_map``). HIGH rather than CRITICAL, deliberately:
     CRITICAL is this project's idiom for hard deterministic failures, and a
     synthesized proxy for unarticulated judgment would overstate confidence —
-    HIGH already blocks AND fires V7. One defect per critic, category = the
-    FIRST dissented dimension in rubric order (cross-lens dissent keeps the
-    dissented dimension, fail-closed). Orchestrator-facing: the fix re-
+    HIGH already blocks (and a CORRECTNESS/SECURITY-category dissent also fires
+    V7). One defect per critic, category = the FIRST dissented dimension in
+    rubric order (cross-lens dissent keeps the dissented dimension,
+    fail-closed). Orchestrator-facing: the fix re-
     dispatches the critic, so the ids live in ``ORCHESTRATOR_DEFECT_IDS``.
     Malformed entries are skipped — the schema floor (Step 3.4) and
     ``critics_missing_defects`` own those shapes.

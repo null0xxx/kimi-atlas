@@ -1,4 +1,5 @@
 """Unit tests for scripts/quality.py (enforce_critic_schema + lint_deliverable)."""
+import json
 import unittest
 
 from scripts import quality
@@ -57,6 +58,22 @@ class TestEnforceCriticSchema(unittest.TestCase):
         del critic["dimensions"]["SECURITY"]
         errs = quality.enforce_critic_schema(critic)
         self.assertTrue(any("missing dimension 'SECURITY'" in e for e in errs))
+
+    def test_unknown_dimension_key_rejected(self):
+        # A dissent filed under a made-up dimension key must not merge clean.
+        critic = _well_formed_critic()
+        critic["dimensions"]["EXTRA"] = "no"
+        errs = quality.enforce_critic_schema(critic)
+        self.assertTrue(any("unknown dimension keys" in e for e in errs), errs)
+
+    def test_non_dict_critic_is_a_violation_not_a_crash(self):
+        # S4: a valid-JSON non-object critic reaches the documented
+        # CRITIC_SCHEMA_ERRORS path — the validator never raises.
+        for bad in ([{"dimensions": {}}], 42, None, "oops"):
+            with self.subTest(bad=bad):
+                errs = quality.enforce_critic_schema(bad)
+                self.assertEqual(len(errs), 1)
+                self.assertIn("must be a JSON object", errs[0])
 
     def test_bad_severity_and_category(self):
         bad = {"id": "D", "category": "NONSENSE", "severity": "SEV0",
@@ -157,6 +174,29 @@ class TestLintDeliverable(unittest.TestCase):
         locations = [d["location"] for d in defects]
         # sorted by path: a.py before z.py.
         self.assertEqual(locations[:2], ["a.py:1", "z.py:1"])
+
+
+class TestRoleFileExamplesValidate(unittest.TestCase):
+    """C1 (Task-3 review): the critic role files must model the shape the
+    Step-3.4 raw validation accepts — a role-file example the validator rejects
+    manufactures a RED on every honest run whose critic imitates it. Pin every
+    ```json example in the four role files against the REAL schema."""
+
+    def test_every_role_file_json_example_is_schema_clean(self):
+        import pathlib
+        agents = pathlib.Path(__file__).resolve().parents[1] / "agents"
+        seen = 0
+        for name in ("correctness-critic.md", "code-quality-critic.md",
+                     "security-critic.md", "integration-critic.md"):
+            text = (agents / name).read_text(encoding="utf-8")
+            for block in text.split("```json")[1:]:
+                raw = block.split("```", 1)[0]
+                with self.subTest(role=name, example=seen):
+                    obj = json.loads(raw)
+                    self.assertEqual(quality.enforce_critic_schema(obj), [],
+                                     "%s models a shape Step 3.4 rejects" % name)
+                seen += 1
+        self.assertGreaterEqual(seen, 4, "each role file must carry an example")
 
 
 if __name__ == "__main__":

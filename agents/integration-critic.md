@@ -88,7 +88,8 @@ defects, else `"FAIL"`.
 
 ```json
 {
-  "dimensions": {"CORRECTNESS": "no"},
+  "dimensions": {"CORRECTNESS": "no", "CODE-QUALITY": "yes", "SECURITY": "yes",
+                 "DOES-IT-RUN": "yes", "REQUIREMENTS-COVERAGE": "yes", "TEST-ADEQUACY": "yes"},
   "defects": [
     {"id": "S1", "category": "CORRECTNESS", "severity": "HIGH",
      "location": "combined: src/api.py:12 (node n2) vs src/client.py:88 (node n5)",
@@ -97,5 +98,8 @@ defects, else `"FAIL"`.
   "verdict": "FAIL"
 }
 ```
+
+Emit **all six** canonical dimensions as above, each `"yes"` or `"no"` — the same full-object
+contract the single-change critics are validated against.
 
 Return **only** the JSON object — no fenced prose around it, no commentary before or after.

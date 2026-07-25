@@ -641,7 +641,10 @@ PY
    PY
    ```
    On `CRITIC_INVALID` / `CRITIC_SCHEMA_ERRORS`, re-dispatch that **one** critic **once**,
-   quoting the exact errors and the required shape. If it still fails, **do NOT persist** it:
+   quoting the exact errors and the required shape. **Any** exit other than `PERSISTED` —
+   including the block itself failing to run (e.g. a compile error from the embedded text) —
+   counts as a rejection and follows the same single re-dispatch. If it still fails, **do NOT
+   persist** it:
    a missing artifact is not a clean lens — Step 4+5 synthesizes the blocking
    `critic-missing:<lens>` CRITICAL and the run degrades to `⚠️ UNVERIFIED` rather than
    adopting a judgment the schema rejected. Never persist invalid JSON to "refresh" an older
@@ -749,17 +752,27 @@ without a blocking defect is never read as a clean lens.
   the **V7 conservative rule** — **any CORRECTNESS or SECURITY defect at ANY severity forces at least
   one refine pass** (a downgraded-but-present correctness/security concern still drives a fix). The V7
   clause is guarded by `passes < 1`, so it forces **exactly one** extra pass and, combined with
-  `should_refine`'s cap, the loop still provably halts at **≤2** re-drafts:
+  `should_refine`'s cap, the loop still provably halts at **≤2** re-drafts. Orchestrator-facing
+  defects (`critic-missing` / `critic-schema` / `dimension-dissent` / `evidence-incomplete`) have
+  their own pre-REFINE remediation paths above; the coder cannot act on them, so they are excluded
+  from this decision — they never burn a coder pass, and the run still ends `⚠️ UNVERIFIED`
+  because `final_status` reads the FULL merged critic at OUTPUT:
   ```
   PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
-  from scripts import ctxstore, verdict
+  from scripts import ctxstore, floorsynth, verdict
   passes = ctxstore.get_refine_passes(".atlas", "${KIMI_SESSION_ID}")
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
-  should = verdict.should_refine(merged, passes)            # CRITICAL/HIGH + passes < MAX_PASSES(2)
+  # The refine DECISION considers only coder-actionable defects: orchestrator ids
+  # (ORCHESTRATOR_DEFECT_IDS) are re-dispatch/re-run work with their own paths, and a
+  # persistent one burns coder passes to no effect. final_status is unaffected --
+  # it reads the full merged critic, so the terminal label can never go green on this.
+  actionable = {"defects": [d for d in merged.get("defects", [])
+                            if d.get("id") not in floorsynth.ORCHESTRATOR_DEFECT_IDS]}
+  should = verdict.should_refine(actionable, passes)        # CRITICAL/HIGH + passes < MAX_PASSES(2)
   # V7: any CORRECTNESS/SECURITY defect at ANY severity forces >=1 refine pass. Guard passes < 1
   # so it drives exactly one pass (should_refine's cap still bounds the blocking case at 2) -- halts.
   v7 = passes < 1 and any(d.get("category") in ("CORRECTNESS", "SECURITY")
-                          for d in merged.get("defects", []))
+                          for d in actionable["defects"])
   print("REFINE=" + str(should or v7) + " PASSES=" + str(passes))
   PY
   ```

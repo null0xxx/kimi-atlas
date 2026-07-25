@@ -55,6 +55,8 @@ _VALIDATE_BLOCK = _one(
     "Step-3.4 validate-and-persist")
 _STEP45_BLOCK = _one(
     lambda b: "floorsynth.merge_and_validate(" in b, "Step-4+5 merge/gate")
+_REFINE_BLOCK = _one(
+    lambda b: "verdict.should_refine(" in b, "REFINE? decision")
 
 _ARTIFACTS = ("critic_correctness.json", "critic_code_quality.json",
               "critic_security.json")
@@ -185,6 +187,75 @@ class TestS4ShapesEndToEnd(_RunDirMixin, unittest.TestCase):
             self.assertEqual(proc.returncode, 2)
             self.assertIn("CRITIC_INVALID", proc.stdout)
         self.assertEqual(out["provisional_status"], "UNVERIFIED")
+
+
+class TestRefineSkipsOrchestratorDefects(_RunDirMixin, unittest.TestCase):
+    """I1: the REFINE? decision must not burn coder passes on defects the coder
+    cannot act on. Orchestrator-facing ids are filtered from BOTH should_refine
+    AND the V7 clause; final_status still reads the FULL merged critic, so the
+    terminal label can never go green on this filter."""
+
+    def _refine(self, root, env, defects, refine_advances=0):
+        init = (
+            "from scripts import ctxstore\n"
+            "ctxstore.write_artifact('.atlas', 'RUN', 'merged_critic.json', {\n"
+            " 'dimensions': {}, 'verdict': 'FAIL', 'defects': %s})\n"
+            % json.dumps(defects)
+        )
+        for _i in range(refine_advances):
+            init += "ctxstore.advance('.atlas', 'RUN', 'REFINE')\n"
+        proc = subprocess.run([sys.executable, "-c", init], cwd=root, env=env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        body = _REFINE_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        proc = subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def test_orchestrator_only_defects_do_not_refine(self):
+        root, env = self._make_run()
+        out = self._refine(root, env, [
+            {"id": "dimension-dissent:correctness", "category": "CORRECTNESS",
+             "severity": "HIGH", "location": "l", "fix": "f"},
+            {"id": "critic-missing:security", "category": "SECURITY",
+             "severity": "CRITICAL", "location": "l", "fix": "f"},
+        ])
+        self.assertEqual(out, "REFINE=False PASSES=0")
+
+    def test_orchestrator_correctness_defect_does_not_fire_v7(self):
+        # THE I1 pin: dimension-dissent:correctness carries category
+        # CORRECTNESS — an unfiltered V7 clause would force a coder pass on it.
+        root, env = self._make_run()
+        out = self._refine(root, env, [
+            {"id": "dimension-dissent:correctness", "category": "CORRECTNESS",
+             "severity": "HIGH", "location": "l", "fix": "f"},
+        ])
+        self.assertEqual(out, "REFINE=False PASSES=0")
+
+    def test_coder_facing_blocking_defect_still_refines(self):
+        root, env = self._make_run()
+        out = self._refine(root, env, [
+            {"id": "C7", "category": "CORRECTNESS", "severity": "HIGH",
+             "location": "l", "fix": "f"},
+        ])
+        self.assertEqual(out, "REFINE=True PASSES=0")
+
+    def test_coder_facing_medium_correctness_still_fires_v7(self):
+        root, env = self._make_run()
+        out = self._refine(root, env, [
+            {"id": "C9", "category": "CORRECTNESS", "severity": "MEDIUM",
+             "location": "l", "fix": "f"},
+        ])
+        self.assertEqual(out, "REFINE=True PASSES=0")
+
+    def test_pass_cap_still_holds(self):
+        root, env = self._make_run()
+        out = self._refine(root, env, [
+            {"id": "C7", "category": "CORRECTNESS", "severity": "HIGH",
+             "location": "l", "fix": "f"},
+        ], refine_advances=2)
+        self.assertEqual(out, "REFINE=False PASSES=2")
 
 
 class TestS4Controls(_RunDirMixin, unittest.TestCase):

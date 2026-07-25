@@ -353,9 +353,10 @@ class TestRawCriticValidationAtProduction(unittest.TestCase):
     def test_step34_prose_instructs_redispatch_once_and_never_persist(self):
         step3 = SKILL.read_text(encoding="utf-8").split("**Step 3", 1)[1]
         step3 = step3.split("**Step 4", 1)[0]
-        self.assertIn("re-dispatch", step3)
-        self.assertIn("once", step3)
-        self.assertIn("do NOT persist", step3)
+        flat = " ".join(step3.split())   # wrap-tolerant: prose line-breaks are not signal
+        self.assertIn("re-dispatch", flat)
+        self.assertIn("once", flat)
+        self.assertIn("do NOT persist", flat)
 
     def test_schema_rejects_a_stamped_critic(self):
         # CF-0 hazard documentation: enforce_critic_schema MUST reject the

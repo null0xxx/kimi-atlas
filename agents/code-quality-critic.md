@@ -79,14 +79,19 @@ removal/rename is a defect; "feels over-engineered" is not.
 
 You are **read-only**: you do **not** write any file. Emit **only** a single JSON object matching the
 `critic` schema (`references/schemas.json` → `critic`) as your final message; the orchestrator
-persists it (as `critic_code_quality.json`). Set `dimensions."CODE-QUALITY"` to `"no"` iff you
-emitted a blocking (CRITICAL/HIGH) defect; `verdict` is `"OK"` iff you emitted **zero CRITICAL and
-zero HIGH** defects, else `"FAIL"`. Every `category` must be a canonical rubric dimension (here,
-`CODE-QUALITY`).
+persists it (as `critic_code_quality.json`). Emit **all six** canonical dimensions — `CORRECTNESS`,
+`CODE-QUALITY`, `SECURITY`, `DOES-IT-RUN`, `REQUIREMENTS-COVERAGE`, `TEST-ADEQUACY` — each `"yes"`
+or `"no"`: `CODE-QUALITY` (and any other you evaluated) is `"no"` iff you emitted a blocking
+(CRITICAL/HIGH) defect there, everything else `"yes"`. The orchestrator validates the full
+six-dimension object where you produce it — a partial map is rejected and never persisted, so an
+omitted dimension reads as a lost lens, never a clean one. `verdict` is `"OK"` iff you emitted
+**zero CRITICAL and zero HIGH** defects, else `"FAIL"`. Every `category` must be a canonical rubric
+dimension (here, `CODE-QUALITY`).
 
 ```json
 {
-  "dimensions": {"CODE-QUALITY": "yes"},
+  "dimensions": {"CORRECTNESS": "yes", "CODE-QUALITY": "yes", "SECURITY": "yes",
+                 "DOES-IT-RUN": "yes", "REQUIREMENTS-COVERAGE": "yes", "TEST-ADEQUACY": "yes"},
   "defects": [
     {"id": "Q1", "category": "CODE-QUALITY", "severity": "MEDIUM",
      "location": "src/report.py:12 `class ReportBuilder`",
