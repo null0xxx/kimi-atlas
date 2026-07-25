@@ -253,6 +253,18 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
     ``difftool.git_tree_has_baseline`` holds (fold T2-F2): on a non-git tree or
     an unresolvable baseline this fold contributes ``[]``, because a non-git
     capture renders every pre-existing file as new.
+
+    ADJUDICATED honest-false-positive, named for the CHANGELOG: git cannot
+    timestamp untracked files, so a file that is UNTRACKED AT BASELINE and
+    outside ``scope_paths`` fires even though nobody changed it this run
+    (whole-branch review, Important-2). That is the correct terminal state,
+    not a defect: an unreviewed file inside the executed tree (a root
+    ``conftest.py`` pytest auto-loads is the canonical shape) is precisely the
+    S3 class, and the human gate resolves it — widen scope or remove the file
+    deliberately. The ``fix`` therefore forbids deleting a pre-existing file:
+    the in-loop hazard was a coder "reverting" a user's scratch file to go
+    green. A snapshot-at-INIT exclusion was rejected: the snapshot would be
+    gate input living in the same writable ``.atlas/`` (the T4-F8 class).
     """
     scopes = _normalize_scopes(scope_paths)
     if scopes is None:
@@ -270,9 +282,10 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
             "category": "CORRECTNESS",
             "severity": "HIGH",
             "location": path,
-            "fix": "the change to %s is outside the frozen scope_paths (%s); revert "
-                   "that change, or leave it for the human to widen scope at the "
-                   "OUTPUT gate — do not edit scope_paths"
+            "fix": "the change to %s is outside the frozen scope_paths (%s); if you "
+                   "made that change, revert it; if the file pre-existed the run "
+                   "(untracked at baseline), leave it UNTOUCHED — either way the "
+                   "human may widen scope at the OUTPUT gate; do not edit scope_paths"
                    % (path, ", ".join(scopes) if scopes else "<none>"),
         })
     return out

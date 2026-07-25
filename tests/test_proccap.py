@@ -454,6 +454,9 @@ class TestScopeUnitInjection(unittest.TestCase):
             proccap._teardown_transient_scope("../x")
             proccap._teardown_transient_scope("atlas-proccap-../../x")
             proccap._teardown_transient_scope("user-0.slice")
+            # Whole-branch Minor-1: a CONFORMING-PREFIX traversal — the shape
+            # only fullmatch (never match) rejects.
+            proccap._teardown_transient_scope("atlas-proccap-1-2/../x")
         self.assertEqual(opened, [], "a non-conforming unit name reached the filesystem")
 
 

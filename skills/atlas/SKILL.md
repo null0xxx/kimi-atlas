@@ -707,7 +707,11 @@ script_defects += floorsynth.dimension_dissent_defects(loaded_map)
 # changed OUTSIDE scope_paths (machine-derived path list, never patch bytes), so a
 # change beyond the lenses' scope-restricted diff can no longer hide. Gated on a
 # git tree with a resolvable baseline -- elsewhere (non-git tarball, no baseline)
-# the fold contributes [] rather than flagging every pre-existing file.
+# the fold contributes [] rather than flagging every pre-existing file. NOTE the
+# adjudicated honest-false-positive: an untracked-at-baseline file outside scope
+# fires too (git cannot timestamp untracked files) -- that is intended (it is
+# unreviewed executed surface; the human gate resolves it), and the fix forbids
+# deleting a pre-existing file.
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
 baseline = (st.get("baseline_sha") or "").strip()
 full_paths = difftool.change_paths(baseline, review_root) \

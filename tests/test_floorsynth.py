@@ -353,6 +353,11 @@ class TestOutOfScopeDefects(unittest.TestCase):
         self.assertIn("human", d["fix"].lower())
         self.assertIn("widen scope", d["fix"])
         self.assertIn("do not edit scope_paths", d["fix"])
+        # Whole-branch Important-2: the fix must forbid deleting a file that
+        # pre-existed the run (untracked at baseline) — the in-loop hazard was
+        # a coder "reverting" a user's scratch file to go green.
+        self.assertIn("pre-existed", d["fix"])
+        self.assertIn("UNTOUCHED", d["fix"])
 
     def test_id_is_coder_facing_not_orchestrator(self):
         d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]

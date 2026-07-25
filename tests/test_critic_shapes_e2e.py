@@ -280,6 +280,42 @@ class TestRefineSkipsOrchestratorDefects(_RunDirMixin, unittest.TestCase):
         self.assertEqual(out, "REFINE=False PASSES=2")
 
 
+class TestLoadedMapAttributionE2E(_RunDirMixin, unittest.TestCase):
+    """Whole-branch Important-1: loaded_map pairs artifact NAMES with their
+    objects; a swap (zip order) survives the whole suite when fixtures are
+    symmetric, then attributes staleness/dissent to the WRONG lens — the
+    remediation re-dispatches a healthy critic and the genuinely stale one is
+    never re-stamped: an unhealable RED. These fixtures are deliberately
+    ASYMMETRIC so a pairing swap cannot hide."""
+
+    def test_exactly_the_stale_lens_is_named(self):
+        root, env = self._make_run()
+        self._persist_clean(root, env)                     # all stamped pass=0
+        self._advance(root, env, "REFINE")                  # passes -> 1
+        # Only correctness and code-quality are re-dispatched (stamped pass=1);
+        # security's re-dispatch "fails to persist" (the documented degradation
+        # path) — its pass-0 artifact is now the ONLY stale one.
+        for name in ("critic_correctness.json", "critic_code_quality.json"):
+            proc = self._persist(root, env, name, json.dumps(_CLEAN))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "UNVERIFIED")
+        ids = [d["id"] for d in out["blocking"] if d["id"].startswith("critic-stale:")]
+        self.assertEqual(ids, ["critic-stale:security"])
+
+    def test_exactly_the_dissenting_lens_is_named(self):
+        root, env = self._make_run()
+        raws = [json.dumps(_CLEAN), json.dumps(_CLEAN),
+                json.dumps(_critic(dim_no=("SECURITY",)))]
+        for name, raw in zip(_ARTIFACTS, raws):
+            self.assertEqual(self._persist(root, env, name, raw).returncode, 0)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "UNVERIFIED")
+        ids = [d["id"] for d in out["blocking"]
+               if d["id"].startswith("dimension-dissent:")]
+        self.assertEqual(ids, ["dimension-dissent:security"])
+
+
 class TestCriticArtifactCurrencyE2E(_RunDirMixin, unittest.TestCase):
     """S5 (Task 4 Step 1): the spec's two-pass scenario against a real ctxstore
     run dir — pass-1 CLEAN artifacts must NOT read as fresh lenses on pass 2."""
