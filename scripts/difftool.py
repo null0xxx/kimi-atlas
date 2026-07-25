@@ -21,6 +21,26 @@ All formatting is pinned (``--no-color``/``--no-ext-diff``/``--no-pager``) so th
 same tree state always yields byte-identical output, and every failure mode
 (no git, non-repo, unresolved baseline, missing file) degrades to "no diff",
 never an exception. The working tree and index are never mutated.
+
+Pathspec contract (v1.5.2): ``.``, ``""`` and ``./`` — and any spec reducing to
+them after stripping one leading ``./`` and trailing ``/`` — mean THE WHOLE
+TREE and are normalized away before reaching git: ``cat-file`` rejects
+``<rev>:.`` ("path '.' exists on disk, but not in ...") and ``diff`` /
+``ls-files`` are BOTH fatal on the empty-string pathspec, so an un-normalized
+whole-tree scope silently hid every tracked modification (and, for ``""``,
+even the new files). Concrete paths are probed as ``<rev>:./<path>``, which
+resolves CWD-relative — a deliberate change from ``<rev>:<path>``, which
+resolves ROOT-relative and silently lost every tracked modification when a run
+was launched from a monorepo subdirectory.
+
+Two companion entry points serve the integration layer:
+
+* :func:`capture_full` — the whole-tree evidence capture (``capture`` with a
+  whole-tree scope), named so call sites read as intent.
+* :func:`change_paths` — the machine-derived list of changed paths. Consumers
+  must NEVER parse patch TEXT for paths: patch text is content-spoofable (a
+  file whose added content contains a line like ``++ b/evil.py`` fools
+  ``+++``-regex extraction, and a pure rename emits no ``+++`` lines at all).
 """
 from __future__ import annotations
 
@@ -54,15 +74,56 @@ def _is_git_repo(cwd: str) -> bool:
     return rc == 0 and out.strip() == "true"
 
 
+def _normalize_pathspec(path: str) -> str:
+    """Reduce a scope pathspec: strip ONE leading ``./`` and any trailing ``/``."""
+    stripped = path[2:] if path.startswith("./") else path
+    return stripped.rstrip("/")
+
+
+def _is_whole_tree(path: str) -> bool:
+    """True iff ``path`` names the whole tree: ``.``, ``""``, ``./`` or an equivalent."""
+    return _normalize_pathspec(path) in ("", ".")
+
+
+def _concrete_pathspecs(scope_paths: list[str]) -> list[str]:
+    """Normalized scope paths with whole-tree specs dropped (those mean "no
+    restriction" and must become the ABSENCE of a ``--`` pathspec, since git
+    rejects ``""`` and ``cat-file`` rejects ``.``)."""
+    return [p for p in (_normalize_pathspec(path) for path in scope_paths)
+            if p not in ("", ".")]
+
+
 def _tracked_at(cwd: str, baseline: str, path: str) -> bool:
-    """True iff ``path`` exists (as a blob or tree) in the ``baseline`` commit."""
-    _, rc = _run(["cat-file", "-e", f"{baseline}:{path}"], cwd)
+    """True iff ``path`` exists (as a blob or tree) in the ``baseline`` commit.
+
+    A whole-tree ``path`` probes ``<baseline>:`` — ``<baseline>:.`` is fatal
+    ("path '.' exists on disk, but not in ..."). A concrete path probes
+    ``<baseline>:./<path>``, which resolves CWD-relative from BOTH the repo
+    root and any subdirectory; the old ``<baseline>:<path>`` form resolves
+    ROOT-relative, so a run launched from a monorepo subdirectory silently
+    lost every tracked modification. That is a deliberate behavior change.
+    """
+    if _is_whole_tree(path):
+        _, rc = _run(["cat-file", "-e", f"{baseline}:"], cwd)
+    else:
+        _, rc = _run(
+            ["cat-file", "-e", f"{baseline}:./{_normalize_pathspec(path)}"], cwd
+        )
     return rc == 0
 
 
 def _tracked_diff(cwd: str, baseline: str, path: str) -> str:
-    """Diff a baseline-tracked ``path`` against the working tree (scope-restricted)."""
-    out, rc = _run(["diff", "--no-color", "--no-ext-diff", baseline, "--", path], cwd)
+    """Diff a baseline-tracked ``path`` against the working tree (scope-restricted).
+
+    A whole-tree ``path`` diffs the ENTIRE tree with NO ``--`` pathspec — the
+    empty-string pathspec is fatal ("please use . instead"), so it must never
+    reach the command line.
+    """
+    if _is_whole_tree(path):
+        argv = ["diff", "--no-color", "--no-ext-diff", baseline]
+    else:
+        argv = ["diff", "--no-color", "--no-ext-diff", baseline, "--", path]
+    out, rc = _run(argv, cwd)
     return out if rc in (0, 1) else ""
 
 
@@ -71,17 +132,27 @@ def _new_file_diff(cwd: str, rel_path: str) -> str:
 
     ``git diff --no-index /dev/null <file>`` renders the entire file as added
     lines; it exits 1 when the files differ (i.e. there is content) and 0 when
-    identical, so both are "real output".
+    identical, so both are "real output". ``--`` precedes the path so a file
+    named like a flag (``-foo.py``) is not parsed as an option — without it git
+    exits 129 and the file is silently dropped from the evidence channel.
     """
     out, rc = _run(
-        ["diff", "--no-color", "--no-ext-diff", "--no-index", "/dev/null", rel_path], cwd
+        ["diff", "--no-color", "--no-ext-diff", "--no-index", "/dev/null", "--", rel_path],
+        cwd,
     )
     return out if rc in (0, 1) else ""
 
 
 def _untracked_in_scope(cwd: str, scope_paths: list[str]) -> list[str]:
-    """New (untracked, non-ignored) files within scope, per ``git ls-files --others``."""
-    argv = ["ls-files", "--others", "--exclude-standard", "--", *scope_paths]
+    """New (untracked, non-ignored) files within scope, per ``git ls-files --others``.
+
+    Whole-tree specs are dropped from the list; if nothing remains the command
+    runs with NO ``--`` pathspec (an empty-string pathspec is fatal).
+    """
+    concrete = _concrete_pathspecs(scope_paths)
+    argv = ["ls-files", "--others", "--exclude-standard"]
+    if concrete:
+        argv += ["--", *concrete]
     out, rc = _run(argv, cwd)
     if rc != 0:
         return []
@@ -130,9 +201,13 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
                     parts.append(_tracked_diff(cwd, baseline, path))
         else:
             # No baseline: fall back to working-tree-vs-index for tracked files.
-            out, rc = _run(
-                ["diff", "--no-color", "--no-ext-diff", "--", *scope_paths], cwd
-            )
+            # Whole-tree specs become the ABSENCE of a `--` pathspec (the
+            # empty-string pathspec is fatal).
+            concrete = _concrete_pathspecs(scope_paths)
+            argv = ["diff", "--no-color", "--no-ext-diff"]
+            if concrete:
+                argv += ["--", *concrete]
+            out, rc = _run(argv, cwd)
             if rc in (0, 1):
                 parts.append(out)
         # 2. New (untracked) files in scope -> full new-file diffs (else invisible).
@@ -145,3 +220,49 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
             parts.append(_new_file_diff(cwd, rel))
 
     return _join(parts)
+
+
+def capture_full(baseline_sha: str, cwd: str) -> str:
+    """Whole-tree evidence capture: every tracked change vs the baseline plus
+    every new (untracked) file — exactly ``capture(baseline_sha, ["."], cwd)``.
+
+    A thin wrapper so call sites that want the whole tree read as intent
+    instead of passing a magic scope string.
+    """
+    return capture(baseline_sha, ["."], cwd)
+
+
+def change_paths(baseline_sha: str, cwd: str) -> list[str]:
+    """Machine-derived list of paths changed vs the baseline, review_root-relative.
+
+    The path-list companion to :func:`capture_full`: ``git diff --name-only -z
+    --relative <baseline>`` (tracked changes; an empty baseline falls back to
+    worktree-vs-index, mirroring :func:`capture`'s no-baseline branch) UNION
+    ``git ls-files --others --exclude-standard -z`` (new files), deduplicated
+    and sorted deterministically. Both channels are NUL-separated so filenames
+    containing newlines parse correctly, and ``--relative`` keeps the diff
+    channel CWD-relative like ``ls-files`` — so both lists are
+    review_root-relative. A rename yields one entry, the new path.
+
+    Consumers must NEVER parse patch TEXT for paths instead: patch text is
+    content-spoofable (a file whose added content contains a line like
+    ``++ b/evil.py`` fools ``+++``-regex extraction) and a pure rename emits no
+    ``+++`` lines at all.
+
+    Pure of side effects; never raises — a non-git tree or any git failure
+    degrades to ``[]`` (same discipline as :func:`_run`).
+    """
+    if not _is_git_repo(cwd):
+        return []
+    baseline = baseline_sha.strip() if baseline_sha else ""
+    paths: set[str] = set()
+    argv = ["diff", "--name-only", "-z", "--relative"]
+    if baseline:
+        argv.append(baseline)
+    out, rc = _run(argv, cwd)
+    if rc in (0, 1):
+        paths.update(field for field in out.split("\0") if field)
+    out, rc = _run(["ls-files", "--others", "--exclude-standard", "-z"], cwd)
+    if rc == 0:
+        paths.update(field for field in out.split("\0") if field)
+    return sorted(paths)
