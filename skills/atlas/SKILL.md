@@ -389,7 +389,7 @@ Then branch on the run mode:
   ```
   PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
     "import sys; from scripts import contextgraph; sys.stdout.write(contextgraph.graph_lookup('.atlas', '${KIMI_SESSION_ID}'))" \
-    2>/dev/null || true    # empty/failed output → no-injection; the run continues either way
+    2>/dev/null || true    # empty/failed output -> no-injection; the run continues either way
   ```
   Capture that stdout; if it is non-empty, append it to the coder packet **verbatim** under a
   "current run state graph" heading (it is already inside its SAFE-2 wrapper, so it is DATA, not
@@ -820,7 +820,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
     ```
     PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c \
       "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - dispatched stage(s) with no recorded tool_call marker: '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
-      2>/dev/null || true    # empty/unreadable graph → no line; the summary still ships
+      2>/dev/null || true    # empty/unreadable graph -> no line; the summary still ships
     ```
 - **Do NOT auto-apply** any change to a real tree.
   - **Interactive:** after the block, call `AskUserQuestion` — Apply / Refine further / Discard —

@@ -25,16 +25,32 @@ casual "what if the target has a `scripts/` directory?" check would have observe
 RED build and atlas printed `✅ VERIFIED`. No LLM was involved in the wrong answer — the deterministic
 gate itself had been swapped, which is the one failure mode the architecture exists to make impossible.
 
-**The hooks were worse, and they are not part of a run at all.** `hooks/telemetry.sh` is registered in
+**The CRITICAL rests on the run itself, not on the hooks.** The severity of this release is carried
+entirely by the 17 invocation sites in `skills/atlas/SKILL.md` (plus the scout's sha one-liner, the
+installer heredocs and the probes), which genuinely execute with the untrusted TARGET repository as the
+working directory — the reproduction above. The hooks are a weaker case, and the first draft of these
+notes overstated them; this is the corrected account.
+
+**The hooks: hardening, not a second reachable hole.** `hooks/telemetry.sh` is registered in
 `.kimi-plugin/plugin.json` on PostToolUse, SubagentStart and SubagentStop, so it loads for **every Kimi
-session** once the plugin is installed and parses the event JSON in the session's own directory. A
-repository containing a bare `json` shadow module therefore obtained **arbitrary code execution in the root
-session on the first tool use** — before any sandboxed build, any gate, or any human review.
-`hooks/guard-destructive.sh` has the identical shape and, by deliberate design, **fails open**: a
-hijacked `import json` that exits the interpreter leaves an empty `tool_name`, which the fail-open path
-reads as "not Bash" and ALLOWS. Reproduced: `rm -rf /` → `GUARD EXIT=0`. Under the fix the same input
-DENYs with `GUARD EXIT=2`. The same import also wrote `__pycache__/` into a tree the hook only observes,
-so both reads now carry `PYTHONDONTWRITEBYTECODE=1` as well.
+session** once the plugin is installed, and it parses the event JSON with a plain interpreter that ranks
+its own working directory above the stdlib. Under the shipped runtime that directory is the **plugin
+root**, not the session's: `references/kimi-runtime.md` §7 records `cwd=pluginRoot` for
+manifest-registered hooks, and a live re-probe on Kimi CLI v0.28.1 (throwaway `KIMI_CODE_HOME`, manifest
+`PostToolUse` hook, session cwd elsewhere) reported `HOOK_PWD == KIMI_PLUGIN_ROOT`. The installed plugin
+root holds no top-level Python file, so nothing shadows the stdlib there — measured, the **unfixed**
+v1.5.0 guard already DENYs (`exit 2`) at the real runtime cwd. So the switch on the two hooks is
+**defence in depth, not the closing of a reachable ACE**.
+
+**It is not decorative, either.** `sys.path[0]` is still the interpreter's own cwd, and a hook wired
+through the user's Kimi config.toml `[[hooks]]` inherits the **session's** cwd rather than the plugin
+root — that is the configuration the reproduction runs, and there the defect is live.
+`hooks/guard-destructive.sh` (opt-in, not manifest-wired, and **fail-open** by deliberate design) is the
+sharp end: a hijacked `import json` that exits the interpreter leaves an empty `tool_name`, which the
+fail-open path reads as "not Bash" and ALLOWS. Reproduced from a hostile working directory:
+`rm -rf /` → `GUARD EXIT=0`; with the switch, `GUARD EXIT=2`. The same import also wrote `__pycache__/`
+into a tree the hook only observes, so both reads now carry `PYTHONDONTWRITEBYTECODE=1` as well.
+`tests/test_syspath_isolation.py` pins both directions behaviourally.
 
 **The fix is `PYTHONSAFEPATH=1` on every plugin-owned invocation** — the 17 sites in
 `skills/atlas/SKILL.md`, both hooks, the scout's sha one-liner in `agents/context-scout.md`, both

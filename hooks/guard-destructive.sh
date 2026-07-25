@@ -22,15 +22,24 @@
 # allow is recoverable; a false global block is not. (There is deliberately NO
 # `trap 'exit 0' EXIT` here, because that would override the deny `exit 2`.)
 #
-# INTERPRETER ISOLATION (v1.5.1, CRITICAL): both JSON reads below carry
-# `PYTHONSAFEPATH=1`. This hook parses stdin in the SESSION's own directory, and
-# CPython otherwise puts that directory on `sys.path` ahead of the stdlib — so a
-# repository containing a bare `json` shadow module executed arbitrary code in
-# the root session on the first tool use, and (because that import can exit the
-# interpreter) left an empty tool_name behind, which fail-open then read as
-# "not Bash" and ALLOWED. Reproduced on `rm -rf /`: exit 0. With the switch:
-# DENY, exit 2. `PYTHONDONTWRITEBYTECODE=1` rides along because the same import
-# wrote `__pycache__/` into a tree this hook is only supposed to observe.
+# INTERPRETER ISOLATION (v1.5.1, HARDENING): both JSON reads below carry
+# `PYTHONSAFEPATH=1`, because CPython otherwise puts the interpreter's OWN working
+# directory on `sys.path` ahead of the stdlib. Under the SHIPPED runtime that
+# directory is the PLUGIN root, not the session's — `references/kimi-runtime.md`
+# §7 records "cwd=pluginRoot" for manifest-registered hooks (re-probed on Kimi CLI
+# v0.28.1) — and the installed plugin root holds no top-level Python file, so
+# nothing shadows the stdlib there. For a manifest-wired hook this is defence in
+# depth, NOT a reachable ACE.
+#
+# It still matters HERE in particular: this hook is opt-in and is most naturally
+# enabled through the user's Kimi config.toml `[[hooks]]`, which inherits the
+# SESSION's cwd — the configuration the reproduction uses. In that configuration a
+# repository containing a bare `json` shadow module executes arbitrary code on the
+# first tool use and (because that import can exit the interpreter) leaves an empty
+# tool_name behind, which fail-open then reads as "not Bash" and ALLOWS. Reproduced
+# on `rm -rf /`: exit 0. With the switch: DENY, exit 2.
+# `PYTHONDONTWRITEBYTECODE=1` rides along because the same import wrote
+# `__pycache__/` into a tree this hook is only supposed to observe.
 #
 # DUAL DENY EMISSION — the two documented Kimi blocking mechanisms are mutually
 # exclusive on exit code (exit 2  vs  exit 0 + JSON), so we emit BOTH signals and

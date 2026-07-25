@@ -41,9 +41,9 @@ Atlas would print `✅ VERIFIED`. This defeats **invariant 2** (the pure gate) a
 
 **Trigger condition (why this was never seen):** the target's `scripts/` must contain `__init__.py`. Without it, `scripts/` is only a *namespace portion*; the path scan continues and the plugin's regular package still wins.
 
-**Blast radius is wider than `from scripts import`.** Nine SKILL heredocs import stdlib modules by name (`glob`, `json`, `os`, `subprocess`, `pathlib`, `re`, `fnmatch`) at body lines 116, 143, 187, 230, 269, 434, 474, 588, 738. Each is a pure-Python stdlib module, so a plain `json.py` at the target's root shadows it — no `__init__.py` needed. The same variable closes all of them, which is why it is applied to **all 17 sites**, not only the `from scripts import` ones.
+**Blast radius is wider than `from scripts import`.** Nine SKILL heredocs import stdlib modules by name (`glob`, `json`, `os`, `subprocess`, `pathlib`, `re`, `fnmatch`) at body lines 116, 143, 187, 230, 269, 434, 474, 588, 738. Each is a pure-Python stdlib module, so a plain json.py at the target's root shadows it — no `__init__.py` needed. The same variable closes all of them, which is why it is applied to **all 17 sites**, not only the `from scripts import` ones.
 
-**Wider still: the hooks.** `hooks/guard-destructive.sh:43,:56` and `hooks/telemetry.sh:38` run `python3 -c 'import sys, json; …'` with no isolation, and `.kimi-plugin/plugin.json` registers `telemetry.sh` on `PostToolUse`, `SubagentStart` and `SubagentStop`. Reproduced with a `json.py` in cwd: the attacker's module executes in the hook's interpreter, and because `guard-destructive.sh` is deliberately fail-open on a parse error (`:20`), the destructive-command guard then **allows `rm -rf /`** (`GUARD EXIT=0`). Under `PYTHONSAFEPATH=1` the same input correctly yields `DENY … GUARD EXIT=2`.
+**Wider still: the hooks.** `hooks/guard-destructive.sh:43,:56` and `hooks/telemetry.sh:38` run `python3 -c 'import sys, json; …'` with no isolation, and `.kimi-plugin/plugin.json` registers `telemetry.sh` on `PostToolUse`, `SubagentStart` and `SubagentStop`. Reproduced with a json.py in cwd: the attacker's module executes in the hook's interpreter, and because `guard-destructive.sh` is deliberately fail-open on a parse error (`:20`), the destructive-command guard then **allows `rm -rf /`** (`GUARD EXIT=0`). Under `PYTHONSAFEPATH=1` the same input correctly yields `DENY … GUARD EXIT=2`.
 
 **Verified fix** (same session, same interpreter):
 
@@ -278,7 +278,7 @@ class TestHostileTargetCannotShadowPluginModules(unittest.TestCase):
         self.assertEqual(got, str(_ROOT / "scripts" / "verdict.py"))
 
     def test_stdlib_shadow_is_also_closed(self):
-        """A bare ``json.py`` at the target root needs no package to shadow."""
+        """A bare json.py at the target root needs no package to shadow."""
         hijacked = _probe(self.target, safe=False,
                           code="import json; print(getattr(json, 'HIJACKED', False))")
         self.assertEqual(hijacked, "True")
@@ -518,7 +518,7 @@ Verified to match exactly 17 lines (`grep -cF` = 17) and to leave the prose at `
 above `skills/`; `PYTHONPATH` must point there so `from scripts import <mod>` resolves and the
 scripts find `references/schemas.json` relative to themselves. `PYTHONSAFEPATH=1` is **mandatory
 on every invocation**: without it the interpreter puts the target's working directory ahead of
-`PYTHONPATH`, so a target repo shipping its own `scripts/` package — or even a bare `json.py` —
+`PYTHONPATH`, so a target repo shipping its own `scripts/` package — or even a bare json.py —
 replaces the module atlas meant to run, including the FROZEN pure gate. Never invoke the
 interpreter from this orchestrator without both variables, and never with `-E` or `-I`, which
 discard them):
@@ -724,13 +724,13 @@ it that directory outranks `PYTHONPATH`, letting the project replace `scripts/ct
 
 - [ ] **Step 4: Harden the six remaining invocation sites**
 
-`agents/context-scout.md:30` — runs in the **target** tree and imports `hashlib`, a pure-Python stdlib module a target shadows with `hashlib.py` at its root:
+`agents/context-scout.md:30` — runs in the **target** tree and imports `hashlib`, a pure-Python stdlib module a target shadows with hashlib.py at its root:
 
 ```
    `PYTHONSAFEPATH=1 python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" <path>`.
 ```
 
-`hooks/guard-destructive.sh:43` and `:56`, `hooks/telemetry.sh:38` — the highest-value fix in this task. Reproduced: a `json.py` in cwd executes attacker code in the hook's interpreter and makes `guard-destructive.sh` fail open, allowing `rm -rf /` (`GUARD EXIT=0`); under the fix the same input correctly DENYs with `GUARD EXIT=2`. Change each `| python3 -c '` to `| PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 python3 -c '`. `PYTHONDONTWRITEBYTECODE` is included because the repro showed `__pycache__` being written into the user's tree by a hook.
+`hooks/guard-destructive.sh:43` and `:56`, `hooks/telemetry.sh:38` — the highest-value fix in this task. Reproduced: a json.py in cwd executes attacker code in the hook's interpreter and makes `guard-destructive.sh` fail open, allowing `rm -rf /` (`GUARD EXIT=0`); under the fix the same input correctly DENYs with `GUARD EXIT=2`. Change each `| python3 -c '` to `| PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 python3 -c '`. `PYTHONDONTWRITEBYTECODE` is included because the repro showed `__pycache__` being written into the user's tree by a hook.
 
 `scripts/install.sh:35` and `:66` — prefix both heredocs (`python3 - "$INSTALLED" <<'PY'` → `PYTHONSAFEPATH=1 python3 - "$INSTALLED" <<'PY'`, likewise the two-arg form at `:66`).
 

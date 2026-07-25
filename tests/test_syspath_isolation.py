@@ -21,12 +21,16 @@ Six independent pins live here:
 * :class:`TestHostileTargetCannotShadowPluginModules` -- BEHAVIOURAL, the fix.
   Its control case asserts the hijack STILL happens without the variable, so the
   suite cannot pass vacuously.
-* :class:`TestHooksSurviveAHostileCwd` -- BEHAVIOURAL, and the widest blast
-  radius of the lot. The hooks are not part of an atlas run at all: they load
-  for EVERY Kimi session once the plugin is installed, and they parse the event
-  JSON in the session's own directory. Its control cases run the hooks with the
-  fix textually removed and assert the target's shadow module really does execute
-  -- reproduced, that made ``guard-destructive.sh`` ALLOW ``rm -rf /``.
+* :class:`TestHooksSurviveAHostileCwd` -- BEHAVIOURAL, and the one case that is
+  HARDENING rather than a reachable hole. The hooks are not part of an atlas run
+  at all: they load for EVERY Kimi session once the plugin is installed, and each
+  parses the event JSON with an interpreter that ranks its own cwd above the
+  stdlib. Under the shipped runtime that cwd is the PLUGIN root, not the
+  session's, so nothing shadows the stdlib there; a hook wired through the user's
+  Kimi config.toml inherits the SESSION's cwd instead, and that is the
+  configuration these cases run. Its control cases run the hooks with the fix
+  textually removed and assert the shadow module really does execute -- and that
+  it made ``guard-destructive.sh`` ALLOW ``rm -rf /``.
 * :class:`TestSkillPinsSafePath` (Task 2) / :class:`TestConventionIsSweptEverywhere`
   (Task 3) -- TEXTUAL, so a future edit cannot silently drop the variable.
 """
@@ -276,7 +280,7 @@ class TestHostileTargetCannotShadowPluginModules(unittest.TestCase):
         self.assertEqual(got, str(_ROOT / "scripts" / "verdict.py"))
 
     def test_stdlib_shadow_is_also_closed(self):
-        """A bare ``json.py`` at the target root needs no package to shadow."""
+        """A bare json.py at the target root needs no package to shadow."""
         hijacked = _probe(self.target, safe=False,
                           code="import json; print(getattr(json, 'HIJACKED', False))")
         self.assertEqual(hijacked, "True")
@@ -505,8 +509,16 @@ class TestSkillPinsSafePath(unittest.TestCase):
             self.assertEqual(offenders, [], f"non-ASCII on the abort path: {offenders}")
 
     def test_every_executed_block_is_pure_ascii(self):
-        """The same defect class as the sibling above, generalised to every block a
-        run EXECUTES -- because the guard was never the only one at risk.
+        """The same defect class as the sibling above, generalised to every
+        ``<<'PY'`` heredoc body a run EXECUTES -- because the guard was never the
+        only body at risk.
+
+        SCOPE, stated exactly: this scans the ``<<'PY'`` … ``PY`` bodies and nothing
+        else. Those are the bodies a *Python* interpreter runs, so they are the ones
+        where a non-ASCII character becomes a ``UnicodeEncodeError`` on write. The
+        SHELL command lines around them are covered by the sibling
+        :meth:`test_every_executed_invocation_line_is_pure_ascii`, which reads the
+        JOINED logical lines instead -- the two together are the executed surface.
 
         Measured on the shipped OUTPUT block: it printed
         ``"Advisory lint (NOT a gate <U+2014> informational only)"`` through
@@ -544,6 +556,37 @@ class TestSkillPinsSafePath(unittest.TestCase):
         self.assertGreaterEqual(len(bodies), 10, "the heredoc scan lost blocks")
         self.assertTrue(any(".atlas/*/state.json" in b for b in bodies))
         self.assertTrue(any("verdict.final_status(" in b for b in bodies))
+
+    def test_every_executed_invocation_line_is_pure_ascii(self):
+        """The half of the executed surface the heredoc scan does NOT reach.
+
+        Measured on the shipped file: two invocation lines carried a ``->``-shaped
+        arrow in their trailing shell comment (the ContextGraph injection read and
+        the tool-use completeness line). Both sit OUTSIDE any ``<<'PY'`` body, so
+        :meth:`test_every_executed_block_is_pure_ascii` -- which reads heredoc
+        bodies only -- could never have seen them, while its docstring claimed
+        "every block a run EXECUTES". This closes that gap instead of narrating it.
+
+        Harmless as a shell comment, load-bearing as a PROMPT: the orchestrating
+        model retypes every one of these lines each run, and a character it cannot
+        reproduce is a transcription hazard wherever it sits -- the same argument
+        the heredoc pin already makes for its own bodies.
+
+        Scanning JOINED logical lines is what makes this exact. Three of the
+        invocations split across two physical lines with a trailing ``\\``, and the
+        arrows lived on the CONTINUATION -- a physical-line scan keyed on
+        ``python3`` would have inspected the first line and missed them.
+        """
+        invocations = [(n, ln) for n, ln in self.logical if "python3" in ln]
+        # Anti-vacuity: the shipped SKILL carries 17 invocation sites, and this
+        # assertion is worthless if the join or the key ever stops finding them.
+        self.assertGreaterEqual(len(invocations), 17,
+                                "the logical-invocation scan lost lines")
+        for lineno, line in invocations:
+            offenders = sorted({c for c in line if ord(c) > 127})
+            self.assertEqual(offenders, [],
+                             "non-ASCII in an EXECUTED invocation at SKILL.md:%d: %r"
+                             % (lineno, offenders))
 
     def test_the_floor_guard_precedes_every_hijackable_import(self):
         """POSITION is load-bearing and was unpinned. Two mutations kept the whole
@@ -760,19 +803,34 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
 
 
 class TestHooksSurviveAHostileCwd(unittest.TestCase):
-    """BEHAVIOURAL proof for the highest-severity site in this fix.
+    """BEHAVIOURAL proof that the hooks survive a hostile working directory.
 
-    The hooks are registered in ``.kimi-plugin/plugin.json`` on PostToolUse,
-    SubagentStart and SubagentStop, so they load for EVERY Kimi session once the
-    plugin is installed -- no atlas run required, no sandbox, no human gate. Each
-    parses the event JSON with a plain interpreter, which puts the session's own
-    directory on ``sys.path`` ahead of the stdlib. A repository containing a bare
-    shadow module therefore executes arbitrary code in the ROOT session on the FIRST
-    tool use, and ``guard-destructive.sh`` -- which fails OPEN by design -- then
-    read an empty ``tool_name`` and ALLOWED ``rm -rf /``.
+    ``hooks/telemetry.sh`` is registered in ``.kimi-plugin/plugin.json`` on
+    PostToolUse, SubagentStart and SubagentStop, so it loads for EVERY Kimi session
+    once the plugin is installed -- no atlas run required, no sandbox, no human
+    gate. Each hook parses the event JSON with a plain interpreter, which ranks that
+    interpreter's OWN working directory on ``sys.path`` ahead of the stdlib.
+
+    SEVERITY, stated accurately. Under the SHIPPED runtime that directory is the
+    PLUGIN root, not the session's: ``references/kimi-runtime.md`` section 7 records
+    ``cwd=pluginRoot`` for manifest-registered hooks, re-probed on Kimi CLI v0.28.1
+    (a throwaway ``KIMI_CODE_HOME`` with a manifest PostToolUse hook reported
+    ``HOOK_PWD == KIMI_PLUGIN_ROOT``), and the installed plugin root holds no
+    top-level Python file to shadow anything with. So for a manifest-wired hook the
+    switch is HARDENING, not a reachable ACE -- the unfixed v1.5.0 guard already
+    exits 2 at that cwd.
+
+    It is not decorative either. A hook wired through the user's Kimi config.toml
+    ``[[hooks]]`` inherits the SESSION's cwd instead, and THAT is the configuration
+    these cases reproduce: with a bare shadow module in the working directory the
+    unfixed interpreter executes it on the first tool use, and
+    ``guard-destructive.sh`` -- which fails OPEN by design -- reads the empty
+    ``tool_name`` that import leaves behind, calls it "not Bash", and ALLOWS
+    ``rm -rf /``.
 
     Both controls run the SHIPPED hook with the fix textually removed, which is
-    byte-for-byte the v1.5.0 file, so neither direction can pass vacuously.
+    behaviourally the v1.5.0 file -- every non-comment line is identical -- so
+    neither direction can pass vacuously.
     """
 
     GUARD = _ROOT / "hooks" / "guard-destructive.sh"
