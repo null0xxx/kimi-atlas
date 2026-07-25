@@ -11,7 +11,7 @@ what exists, how to verify it, and what is still open. For depth, follow the lin
 
 **kimi-atlas** — a many-agent, quality-calibrated orchestrator plugin for Kimi Code with **115
 vendored official skill packages** built in. Public repo: <https://github.com/null0xxx/kimi-atlas>
-(v1.4.0, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
+(v1.5.0, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
 `~/.kimi-code/plugins/managed/kimi-atlas`); from source: `./scripts/install.sh`
 (installs to `~/.kimi-code/plugins/kimi-atlas`).
 
@@ -103,7 +103,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
   surface the residual for human revert/keep/discard at OUTPUT. Events → `hooks.jsonl` (via
   `hooks/telemetry.sh` + `scripts/ctxevents.py`), never `log.jsonl`.
 
-## Open items (as of v1.4.0)
+## Open items (as of v1.5.0)
 
 - **D1–D7 fix run** — ordered + risk-assessed in
   [`docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md`](docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md):
@@ -119,7 +119,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (`make test`) · `make ci` clean · 32 tracked docs, no inventory drift · v1.4.0 released (P3 advisory linter merged: `lintlens` HYBRID exec — safe-AUTO `ruff`/`shellcheck`/`gofmt` + operator-gated `lint_cmd`; advisory-firewalled — never blocks, never auto-executes untrusted code; hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
+unit-test suite green (`make test`) · `make ci` clean · 32 tracked docs, no inventory drift · **v1.5.0 released — three false-green holes closed**: `scripts/floorsynth.py` now owns the Step-4/5 gate marshalling the orchestrating model used to retype every run, so floor completeness is a `make ci` invariant (twelve-condition matrix: `gate` AND `final_status` must agree on every deterministic failure). An empty captured diff, an unloadable `critic_*.json`, and a dropped `docs_clean` key each used to yield `✅ VERIFIED`; all three now block. FROZEN `verdict.merge`/`gate` untouched; P3 advisory firewall intact; 1536-case old-vs-new differential clean. Also: both SKILL contradictions resolved (advisory skills → coder only, F6 isolation; REFINE re-enters CODED in full), orchestrator-only defects fenced out of the coder re-dispatch, the 80 KB `skill-registry.json` read path deleted, and three **unwired** pure cores landed for the phases that follow (`rubric.lens_section`, `contextgraph.render_for_injection`, `ctxstore.valid_run_id`/`write_artifact_confined`). Prior: v1.4.0 (P3 advisory linter — `lintlens` HYBRID exec, advisory-firewalled, hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
 `fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;

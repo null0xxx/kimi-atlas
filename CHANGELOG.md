@@ -4,6 +4,48 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-07-25
+
+**Three false-green holes, found by measurement and closed.** A runtime-cost investigation instrumented
+ten real atlas runs from Kimi's own per-call `usage.record` accounting, and in the process reproduced a
+defect in shipped v1.4.0: **an empty captured diff plus an already-green suite returned
+`verdict.gate == "OK"`** — so a run whose coder wrote nothing shipped `✅ VERIFIED`. `runsignal.count`
+derives `new_tests_collected` purely from the runner's output and never sees the diff, and
+`reqcoverage`'s "no diff token overlaps criterion" signal is MEDIUM/REQUIREMENTS-COVERAGE, which blocks
+neither `gate` (CRITICAL/HIGH only) nor the V7 refine rule (CORRECTNESS/SECURITY only). Two siblings fell
+out of the same audit: a `critic_*.json` that fails to load was substituted with an empty OK critic and
+`verdict.merge` then synthesised **all six dimensions as `"yes"`** — an undispatched lens was
+indistinguishable from a clean one; and a dropped `docs_clean` key failed **open** on the docs floor.
+
+The fix is **`scripts/floorsynth.py`**, a pure module that now owns the Step-4/5 gate marshalling the
+orchestrating model used to **retype on every run** — a transcription lottery in which one dropped `+=`
+line silently deleted a whole floor lens with nothing detecting it. Floor completeness is now a `make ci`
+invariant, pinned by a twelve-condition matrix asserting `verdict.gate` **and** `verdict.final_status`
+agree on every deterministic failure condition. The FROZEN pure gate (`verdict.merge`/`gate`) is not
+opened; the P3 advisory firewall holds by construction (`lintlens_advisory` is never merged); and a
+1536-case old-vs-new differential over well-formed evidence found **zero** divergence, including a
+byte-identical `merged_critic.json`.
+
+Also: the two long-standing **SKILL contradictions** are resolved — the advisory skill list now goes to
+the coder **only** (critic isolation, F6 anti-anchoring), and the REFINE re-dispatch is documented as
+re-entering CODED **in full** (`safewrap.coder_redispatch_packet` assembles the fix-feedback *fields*, it
+was never an equivalent packet). Orchestrator-only defects are fenced out of the coder re-dispatch, so a
+fix naming a critic artifact can never invite the LLM under review to author gate input. The instruction
+to `Read` the 80,597-byte `references/skill-registry.json` into context is gone. Three pure cores ship
+**unwired** for the phases that follow: `rubric.lens_section` (byte-exact per-lens slicing),
+`contextgraph.render_for_injection` (a byte-bounded injection view — the graph had no cap of any kind),
+and `ctxstore.valid_run_id` + `write_artifact_confined` (a symlink-refusing, base-anchored write hand).
+
+**No token saving is delivered by this release, deliberately** — the levers land in later phases, and
+none of them may weaken the floor this release just strengthened. Test suite **1193 → 1284**.
+
+Hardened by the project's own process: a 6-lens design panel (63 findings), a 6-lens plan-challenge
+(42 raw → 21 folded, 4 CRITICAL), seven opus-reviewed SDD tasks, and a final whole-branch review that
+caught **two mutants of this very code which passed all 1280 tests while reopening the exact false greens
+it exists to close** — re-seeding `loaded_critics`, and an unpinned `synth_docs` argument that yielded
+`gate=UNVERIFIED` with `final_status=OK` on dirty docs. Pinning that a call happens is not pinning what
+it is called with.
+
 ## [1.4.0] — 2026-07-23
 
 The **advisory linter**: `lintlens` surfaces the repo's **own** linter findings as **non-blocking** hints
