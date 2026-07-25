@@ -586,6 +586,35 @@ class TestContradictionsResolved(unittest.TestCase):
                                  d["id"] in floorsynth.ORCHESTRATOR_DEFECT_IDS)
 
 
+class TestCriticPacketFieldsHaveProducers(unittest.TestCase):
+    """S14 (fold T6-F2, non-vacuous form): every runcheck field the SKILL hands
+    the CORRECTNESS critic must have a REAL producer — asserted against the
+    executed result-dict keys of runcheck.run, never a hard-coded map (a
+    field↔producer constant shrinks with the mutation). And the explicit
+    regression pin: revert_red (a constant with no producer) is NOT among them."""
+
+    def test_correctness_slice_fields_are_produced_and_exclude_revert_red(self):
+        from scripts import runcheck
+        text = SKILL.read_text(encoding="utf-8")
+        marker = "**correctness** ← `runcheck` ("
+        self.assertEqual(text.count(marker), 1, "the correctness evidence slice must be unique")
+        slice_ = text.split(marker, 1)[1].split(")", 1)[0]
+        fields = [f.strip().strip("`") for f in slice_.split("/")]
+        self.assertIn("ok", fields)
+        self.assertIn("test_count", fields)
+        self.assertIn("new_tests_collected", fields)
+        self.assertNotIn("revert_red", fields)
+        # Every field must be a real runcheck result key (executed, not hard-coded).
+        result = runcheck.run("true", ".", timeout_s=60, mem_limit_mb=0)
+        for field in fields:
+            if field == "tails":
+                produced = {"stdout_tail", "stderr_tail"}
+            else:
+                produced = {field}
+            self.assertTrue(produced <= set(result),
+                            "%s is shipped as evidence but has no producer" % field)
+
+
 class TestFullDiffNeverEntersCriticPackets(unittest.TestCase):
     """R3 Step-6 (fold T2-F8): ``diff.full.patch`` is persisted at Step 1 as
     HUMAN evidence; it must never enter a critic packet — token cost stays

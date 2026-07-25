@@ -101,5 +101,28 @@ class TestLensSection(unittest.TestCase):
         self.assertNotIn("OTHER", got)
 
 
+class TestV7NamesTheDeterministicFloor(unittest.TestCase):
+    """E3: rubric.md's V7 narrowing ("any defect **a critic emits**") was
+    adjudicated WRONG — the shipped program (skills/atlas/SKILL.md's REFINE?
+    block) filters on category with no origin filter, and floorsynth's
+    CORRECTNESS-category syntheses (empty-diff, pathcheck, sast) deliberately
+    rely on that. The amendment must keep naming the deterministic floor
+    explicitly so it cannot silently re-narrow."""
+
+    def _rubric_text(self):
+        return (pathlib.Path(__file__).resolve().parents[1]
+                / "references" / "rubric.md").read_text(encoding="utf-8")
+
+    def test_v7_names_the_floor_and_rejects_the_narrowed_phasing(self):
+        text = self._rubric_text()
+        v7 = text.split("Severity-trust caveat (V7)", 1)[1]
+        v7 = v7.split("\n## ", 1)[0]
+        for token in ("pathcheck", "sast", "empty-diff"):
+            self.assertIn(token, v7, "V7 no longer names the deterministic floor")
+        self.assertIn("no origin filter", v7)
+        self.assertNotIn("any defect a critic emits", v7,
+                         "the adjudicated-wrong narrowing is back")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -593,7 +593,7 @@ PY
    `${KIMI_SKILL_DIR}/../../references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
    (no orchestrator state, no other critic's output) — isolation is prompt-level (F6), it buys
    anti-anchoring. The per-lens evidence slice:
-   - **correctness** ← `runcheck` (`ok`/`test_count`/`new_tests_collected`/`revert_red`/tails) +
+   - **correctness** ← `runcheck` (`ok`/`test_count`/`new_tests_collected`/tails) +
      `reqcoverage_defects` + the `TEST-ADEQUACY` `lint_defects`,
    - **code-quality** ← the full `lint_defects`,
    - **security** ← the `sast_defects` from the semgrep SAST floor (Step 2). If it is **non-empty**,

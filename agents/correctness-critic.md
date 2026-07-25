@@ -21,7 +21,7 @@ lens: CORRECTNESS** (rubric lens 1). You receive, and may use, **only**:
 2. the **captured diff** of the change under review (`diff.patch`),
 3. the **CORRECTNESS lens** of `references/rubric.md` (lens 1),
 4. the **deterministic evidence** for this lens — the `runcheck` result (`ok` / `test_count` /
-   `new_tests_collected` / `revert_red` / output tails) plus any advisory TEST-ADEQUACY and
+   `new_tests_collected` / output tails) plus any advisory TEST-ADEQUACY and
    REQUIREMENTS-COVERAGE defects.
 
 You do **NOT** receive — and must **not** read, ask for, or infer — the orchestrator's state, the
@@ -58,7 +58,8 @@ things and show your work in the defect locations:**
 3. **The passing-but-inadequate test.** Look for a real logic bug hiding behind a green test —
    asserts the wrong value, tests only the happy path, mocks away the very failure it should catch,
    or was not actually collected (`new_tests_collected` false ⇒ the suite never exercised the
-   change). Cross-check `test_count` / `revert_red`: no differential signal is suspicious.
+   change). Cross-check `test_count` / `new_tests_collected` against the diff: a green suite
+   that never collected the changed tests is suspicious.
 
 **Then make a SECOND pass** with the opposite assumption: assume the code is *correct* and try to
 prove it — the criterion you cannot prove satisfied is your strongest defect. Report the located

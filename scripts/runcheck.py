@@ -32,8 +32,11 @@ whose still-open pipes could hang the call past the deadline.
 
 Per V4 a green ``runcheck`` requires **all of** ``ok`` (exit 0, no timeout) AND
 ``test_count > 0`` AND ``new_tests_collected``. ``revert_red`` (the differential
-mutation signal) is a run-pair property the orchestrator computes across two
-invocations; a single ``run`` reports it as ``False``.
+mutation signal) is a constant ``False`` — **no producer exists**: the run-pair
+differential (revert → RED) was designed as a second ``run`` on the reverted
+tree but is not currently computed anywhere (deferred with S14(a); it doubles
+build time). The key remains for result-shape compatibility and is never
+shipped as critic evidence.
 
 The subprocess wrapper is the only side effect; run-signal recognition
 (``runsignal.count``) and runner resolution (``langfloor.resolve_runner_tag``)
@@ -236,9 +239,10 @@ def run(cmd: str, cwd: str, timeout_s: int, mem_limit_mb: int) -> dict:
 
     Returns ``{ok, returncode, test_count, new_tests_collected, revert_red,
     stdout_tail, stderr_tail}``. ``ok`` is True only on a clean exit-0, non-timed-out
-    run. ``revert_red`` is always ``False`` here — the differential (revert →
-    RED) signal is computed by the orchestrator across a second ``run`` on the
-    reverted tree. Use :func:`green` for the composite V4 pass decision.
+    run. ``revert_red`` is always ``False`` — no orchestrator path computes it
+    (the second-run differential is designed but unbuilt, deferred with S14(a));
+    it is kept for result-shape compatibility and must not be treated as evidence.
+    Use :func:`green` for the composite V4 pass decision.
 
     The memory cap backend is chosen once via :func:`_detect_mem_backend`
     (Node-safe cgroup RSS cap when available, else legacy ``ulimit -v``, else no

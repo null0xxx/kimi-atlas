@@ -47,8 +47,10 @@ concurrency, I/O failure) — is each handled or explicitly out of scope? A subt
 - Fail → `category: CORRECTNESS`. A defect that yields a wrong result = **HIGH**; one that corrupts
   or silently loses data = **CRITICAL**.
 - **Deterministic floor:** `runcheck.py` (build + tests pass, `test_count > 0`, the changed test
-  files were actually collected, revert → RED differential). The floor proves the tests *run and
-  react to the change*; it **cannot** prove they are *adequate*.
+  files were actually collected). The floor proves the tests *run and react to the change*; it
+  **cannot** prove they are *adequate*. A revert → RED differential is **not currently computed**
+  (the `revert_red` field ships as a constant `False` with no producer — deferred with S14(a)) and
+  is never shipped as evidence.
 - **Judgment residual? YES** — a real logic bug hidden behind an adequate-looking passing test. This
   is a named soft spot (V3). Conservative rule (V7): **any** CORRECTNESS defect at **any** severity
   forces at least one refine pass.
@@ -120,8 +122,9 @@ collected.
 
 **Test:** `runcheck.py` executes the frozen `verify_cmd` under a hard memory cap and wall-clock
 timeout (it runs at **root** because `plan` critics have no Bash — G6). Green requires **all of**
-`ok` (exit 0) **AND** `test_count > 0` **AND** `new_tests_collected`; plus a revert → RED
-differential where feasible (V4). The coder's self-reported `STATUS` is **evidence, never proof**.
+`ok` (exit 0) **AND** `test_count > 0` **AND** `new_tests_collected` (V4). A revert → RED
+differential is **not currently computed** (deferred with S14(a)). The coder's self-reported
+`STATUS` is **evidence, never proof**.
 
 - Fail → `category: DOES-IT-RUN`. Build or test failure = **HIGH**; does not build at all / zero
   tests collected = **CRITICAL**.
@@ -190,8 +193,11 @@ on the deterministic gates, not critic count, for the correlated-miss case.**
 **Severity-trust caveat (V7).** For lenses 1–3 the CRITICAL/HIGH severities are assigned **by the
 model critic**, so PASS-bar item 1 is deterministic *over model inputs*, not over ground truth.
 `enforce_critic_schema` only checks verdict-vs-declared-defect **consistency**, not correct severity.
-Conservative mitigation: **any defect a critic emits at ANY severity on CORRECTNESS or SECURITY
-forces at least one refine pass** — a downgraded-but-present defect still drives the loop. The real
+Conservative mitigation: **any defect at ANY severity on CORRECTNESS or SECURITY — whether a
+critic emits it or the deterministic floor synthesizes it (`pathcheck`, `sast`, `empty-diff`, and
+the other `floorsynth` syntheses) — forces at least one refine pass**, encoded at the REFINE?
+decision block of `skills/atlas/SKILL.md` (a category filter with **no origin filter**): a
+downgraded-but-present defect still drives the loop. The real
 guarantee leans on the mechanical gates (PASS-bar items 2–6).
 
 **Advisory heuristics stay MEDIUM (V6).** `reqcoverage` and `lint_deliverable` are string/token
