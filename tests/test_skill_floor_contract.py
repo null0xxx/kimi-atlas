@@ -434,9 +434,10 @@ class TestFullDiffNeverEntersCriticPackets(unittest.TestCase):
         self.assertNotIn("diff.full.patch", step3)
 
     def test_full_capture_is_written_not_fed_to_critics(self):
-        # The write must be a real capture_full call in the Step-1 heredoc —
-        # not a copy of diff.patch, which would silently make the two artifacts
-        # identical and delete the point of persisting both.
+        # The write must be a real capture_full call in the Step-1 heredoc whose
+        # RESULT is what gets persisted — not a copy of diff.patch, which would
+        # silently make the two artifacts identical and delete the point of
+        # persisting both (a dead `full_diff = ...` assignment must not pass).
         bodies = [b for b in _heredoc_bodies(text=SKILL.read_text(encoding="utf-8"))
                   if "diff.full.patch" in b]
         self.assertEqual(len(bodies), 1, "exactly one heredoc touches diff.full.patch")
@@ -445,6 +446,14 @@ class TestFullDiffNeverEntersCriticPackets(unittest.TestCase):
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                  and n.func.attr == "capture_full"]
         self.assertEqual(len(calls), 1)
+        writes = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "write_artifact"
+                  and len(n.args) >= 4 and isinstance(n.args[2], ast.Constant)
+                  and n.args[2].value == "diff.full.patch"]
+        self.assertEqual(len(writes), 1, "exactly one diff.full.patch write")
+        self.assertEqual(ast.unparse(writes[0].args[3]), "full_diff",
+                         "the persisted bytes must be the capture_full result")
 
 
 if __name__ == "__main__":

@@ -331,8 +331,11 @@ class TestOutOfScopeDefects(unittest.TestCase):
         self.assertIn("revert", d["fix"].lower())
         self.assertIn("scope", d["fix"])
         # The second resolution is the HUMAN widening scope at the gate — never
-        # the coder editing the frozen scope_paths (SKILL.md:309).
+        # the coder editing the frozen scope_paths (SKILL.md:309). Both ACTIONS
+        # are pinned literally: one word ("human") survives a dropped clause.
         self.assertIn("human", d["fix"].lower())
+        self.assertIn("widen scope", d["fix"])
+        self.assertIn("do not edit scope_paths", d["fix"])
 
     def test_id_is_coder_facing_not_orchestrator(self):
         d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]

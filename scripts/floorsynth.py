@@ -177,11 +177,17 @@ def empty_diff_defect(diff: str) -> list[dict]:
 # honest runs (challenge fold T2-F1): the coder runs the suite, pytest/py/coverage
 # drop their caches next to the code, and without this set each file below fires a
 # blocking defect the coder can only clear by deleting files runcheck then
-# regenerates — a manufactured, never-resolvable RED. Excluding them is the SAME
-# invisibility class the project already accepts via ``--exclude-standard`` (a
-# deceptive coder can hide payloads under gitignored paths today, invisible to
-# every lens), so the marginal gameability is consistent with the existing threat
-# model; say so here, not just in tests.
+# regenerates — a manufactured, never-resolvable RED. This set is DELIBERATELY
+# BROADER than the invisibility class ``--exclude-standard`` already accepts, in
+# two named ways: (1) it also hides TRACKED files under residue names (a checked-in
+# ``build`` script, a JS project shipping ``dist/`` as source) — narrowing to
+# untracked-only would manufacture a RED on honest runs whose build regenerates
+# TRACKED generated files under residue names (committed codegen); and (2) the
+# ``.coverage*`` prefix also hides unignored untracked names like
+# ``lib/.coverage-evil.py``. The trade-off is conscious: a deceptive coder gains a
+# small set of named hiding places (all of which runcheck still EXECUTES), in
+# exchange for never manufacturing a RED on an honest repository — the governing
+# rule of this program.
 _RESIDUE_SEGMENTS: frozenset[str] = frozenset({
     ".atlas", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache",
     ".tox", ".nox", ".venv", "venv", "node_modules", "dist", "build",
@@ -203,8 +209,8 @@ def _is_residue(path: str) -> bool:
 def _normalize_scopes(scope_paths) -> list[str] | None:
     """Scope specs normalized, or ``None`` when they mean the WHOLE tree.
 
-    Whole-tree spellings are ``.``, ``""`` and ``./`` (after stripping a single
-    leading ``./`` and trailing ``/``); for them nothing can be out of scope.
+    Whole-tree spellings are ``.``, ``""`` and ``./`` (after stripping leading
+    ``./`` segments and trailing ``/``); for them nothing can be out of scope.
     Do NOT reuse ``reqcoverage._under_scope``: it matches NOTHING under
     ``["."]`` / ``["./src"]`` (verified), so it would flag every file under the
     documented headless default. An empty result is NOT whole-tree — no
