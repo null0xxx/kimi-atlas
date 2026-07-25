@@ -123,9 +123,10 @@ refine-pass counter).
   ```
   PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import sys
-  if sys.version_info < (3, 11):
-      print("ATLAS-PRECONDITION-FAILED: interpreter %d.%d < 3.11 — PYTHONSAFEPATH is "
-            "ignored, so an untrusted target repo can replace atlas's own modules."
+  if not getattr(sys.flags, "safe_path", False):
+      print("ATLAS-PRECONDITION-FAILED: import isolation is not active (interpreter "
+            "%d.%d; PYTHONSAFEPATH missing, ignored below 3.11, or discarded by -E) "
+            "-- an untrusted target repo can replace atlas's own modules."
             % sys.version_info[:2])
       raise SystemExit(2)
   import glob, json, os
