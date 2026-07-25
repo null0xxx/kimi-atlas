@@ -108,7 +108,7 @@ class TestSkillWiringPin(unittest.TestCase):
         d = {"id": "SX1", "category": "DOES-IT-RUN", "severity": "HIGH",
              "location": "a.rb:1", "fix": "f"}
         ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
-              "syntaxlens_defects": [d]}
+              "docs_clean": True, "syntaxlens_defects": [d]}
         self.assertIn(d, floorsynth.script_defects_from(ev))
 
     def test_prose_names_syntaxlens_as_syntax_floor(self):

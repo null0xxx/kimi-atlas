@@ -66,6 +66,29 @@ def _appends_to(stmt, name):
             and stmt.value.func.value.id == name)
 
 
+def _initialisers_of(tree, name):
+    """Every value bound to `name` by a plain ``=``, tuple-unpacking included.
+
+    For ``a, b = [], []`` the element paired with `name` is returned, not the whole
+    right-hand side, so a seeded initialiser is visible in either spelling."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for tgt in node.targets:
+            if isinstance(tgt, ast.Name) and tgt.id == name:
+                out.append(node.value)
+            elif isinstance(tgt, ast.Tuple):
+                for i, el in enumerate(tgt.elts):
+                    if not (isinstance(el, ast.Name) and el.id == name):
+                        continue
+                    rhs = node.value
+                    out.append(rhs.elts[i]
+                               if isinstance(rhs, (ast.Tuple, ast.List)) and i < len(rhs.elts)
+                               else rhs)      # unpacked from something opaque
+    return out
+
+
 class TestStep45FoldIsStructural(unittest.TestCase):
     """Substring pins are vacuous against the two mutations that matter (spec §7): a
     synthesis whose result is DISCARDED, and one folded AFTER the merge. Parse the block
@@ -112,14 +135,26 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         """Feeding `critics_missing_defects` a STATIC list of all three artifacts survives
         every other pin here (measured) yet makes the defect unable to EVER fire, silently
         reopening the missing-critic hole. Pin the shape that keeps it live: the argument
-        is `loaded_critics`, and `loaded_critics` is appended exactly once, inside the read
-        try, AFTER the read that can raise — so a lost critic can never read as loaded."""
+        is `loaded_critics`; `loaded_critics` STARTS EMPTY; and it is appended exactly once,
+        inside the read try, AFTER the read that can raise — so a lost critic can never
+        read as loaded. Seeding the initialiser (`critics, loaded_critics = [], [n for n, _d
+        in floorsynth.CRITIC_ARTIFACTS]`) is the same false green wearing the argument pin's
+        clothes: measured, it printed `provisional_status: OK`, `critics_loaded: "5/3"` with
+        `critic_correctness.json` deleted."""
         calls = [n for n in ast.walk(self.tree)
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                  and n.func.attr == "critics_missing_defects"]
         self.assertEqual(len(calls), 1)
         self.assertIsInstance(calls[0].args[0], ast.Name)
         self.assertEqual(calls[0].args[0].id, "loaded_critics")
+
+        inits = _initialisers_of(self.tree, "loaded_critics")
+        self.assertEqual(len(inits), 1, "loaded_critics must be initialised exactly once")
+        self.assertIsInstance(inits[0], ast.List,
+                              "loaded_critics must be initialised to an empty list literal")
+        self.assertEqual(inits[0].elts, [],
+                         "loaded_critics must START empty — pre-seeding it makes every "
+                         "critic read as loaded and critics_missing_defects can never fire")
 
         appends = [n for n in ast.walk(self.tree) if _appends_to(n, "loaded_critics")]
         self.assertEqual(len(appends), 1, "loaded_critics must be appended exactly once")

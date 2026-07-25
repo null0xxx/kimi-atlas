@@ -29,13 +29,21 @@ from __future__ import annotations
 
 from scripts import quality, verdict
 
-# Evidence keys the SKILL reads with ``ev[...]`` — absence is a real fault.
+# Mandatory evidence keys that ARE defect lists: collected AND absence-checked.
+# The pre-floorsynth SKILL read these with ``ev[...]`` and died on absence.
 MANDATORY_EVIDENCE_KEYS: tuple[str, ...] = (
     "lint_defects",
     "reqcoverage_defects",
     "pathcheck_defects",
 )
-# Evidence keys the SKILL reads with ``ev.get(..., [])`` — absence is legitimate
+# Mandatory evidence keys that are NOT defect lists. They are absence-checked but
+# never collected: ``docs_clean`` is a bool whose safe default (``True``) would
+# otherwise make a dropped line in the Step-2 evidence literal fail OPEN on the docs
+# floor, where the pre-floorsynth SKILL died with a ``KeyError`` and wrote nothing.
+# (An absent ``runcheck`` needs no entry here: ``synth_runcheck({})`` synthesises its
+# CRITICAL, so that key already fails CLOSED.)
+MANDATORY_FLAG_KEYS: tuple[str, ...] = ("docs_clean",)
+# Evidence keys this module reads with ``ev.get(...) or []`` — absence is legitimate
 # for an evidence file written by an older plugin version.
 OPTIONAL_EVIDENCE_KEYS: tuple[str, ...] = (
     "sast_defects",
@@ -47,19 +55,28 @@ OPTIONAL_EVIDENCE_KEYS: tuple[str, ...] = (
 def script_defects_from(evidence: dict) -> list[dict]:
     """The deterministic lens defect-lists, in the SKILL's Step 4+5 fold order.
 
-    ``lintlens_advisory`` is never included (the P3 firewall). A MANDATORY key that
-    is absent OR ``None`` yields one blocking ``evidence-incomplete`` defect rather
-    than raising or — far worse — silently contributing nothing. The ``is None``
-    test subsumes absence: a present-but-NULL key contributes nothing through
-    ``ev.get(key) or []``, so a mere key-presence check would report complete
+    ``lintlens_advisory`` is never included (the P3 firewall). A key in
+    ``MANDATORY_EVIDENCE_KEYS`` **or** ``MANDATORY_FLAG_KEYS`` that is absent OR
+    ``None`` yields one blocking ``evidence-incomplete`` defect rather than raising
+    or — far worse — silently contributing nothing. Only the former are COLLECTED;
+    the flag keys are absence-checked here and consumed elsewhere (``docs_clean`` by
+    ``synth_docs``), because they are not defect lists.
+
+    The test is ``is None``, never falsiness, and that is load-bearing for both kinds.
+    For a defect list it subsumes absence: a present-but-NULL key contributes nothing
+    through ``ev.get(key) or []``, so a mere key-presence check would report complete
     evidence for a lens that never ran (fail-OPEN), where the pre-floorsynth SKILL
     raised a ``TypeError`` and wrote no ``merged_critic.json`` at all (fail-CLOSED).
+    For ``docs_clean`` the SKILL reads ``ev.get("docs_clean", True)``, so an absent
+    key would default the docs floor to CLEAN (fail-OPEN) where the old block died
+    with a ``KeyError`` — while ``False`` is the legitimate DIRTY-docs value that a
+    falsiness test would mislabel as missing evidence.
     """
     ev = evidence or {}
     out: list[dict] = []
     for key in MANDATORY_EVIDENCE_KEYS + OPTIONAL_EVIDENCE_KEYS:
         out += list(ev.get(key) or [])
-    missing = [k for k in MANDATORY_EVIDENCE_KEYS if ev.get(k) is None]
+    missing = [k for k in MANDATORY_EVIDENCE_KEYS + MANDATORY_FLAG_KEYS if ev.get(k) is None]
     if missing:
         # ACCUMULATE, never replace: a present CRITICAL must not be swallowed by the
         # report that a sibling key was absent or NULL.

@@ -15,7 +15,7 @@ class TestScriptDefectsFrom(unittest.TestCase):
     def _full_evidence(self, **over):
         ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
               "sast_defects": [], "astlens_defects": [], "syntaxlens_defects": [],
-              "lintlens_advisory": []}
+              "lintlens_advisory": [], "docs_clean": True}
         ev.update(over)
         return ev
 
@@ -33,11 +33,15 @@ class TestScriptDefectsFrom(unittest.TestCase):
         self.assertEqual(floorsynth.script_defects_from(ev), [])
 
     def test_optional_keys_may_be_absent(self):
-        ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": []}
+        # docs_clean=True also proves the flag key is absence-checked but NEVER
+        # collected: ``list(True)`` would raise if it joined the collection loop.
+        ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+              "docs_clean": True}
         self.assertEqual(floorsynth.script_defects_from(ev), [])
 
     def test_missing_mandatory_key_is_a_blocking_defect_not_a_crash(self):
-        ev = {"reqcoverage_defects": [], "pathcheck_defects": []}   # lint_defects absent
+        # lint_defects absent, everything else present.
+        ev = {"reqcoverage_defects": [], "pathcheck_defects": [], "docs_clean": True}
         out = floorsynth.script_defects_from(ev)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], "evidence-incomplete")
@@ -56,12 +60,50 @@ class TestScriptDefectsFrom(unittest.TestCase):
         self.assertEqual(floorsynth.MANDATORY_EVIDENCE_KEYS,
                          ("lint_defects", "reqcoverage_defects", "pathcheck_defects"))
 
+    def test_flag_key_set_is_pinned_literally(self):
+        # Spelled out for the same reason as the tuple above. These keys are NOT
+        # defect lists: they are absence-checked only, so they can never join
+        # MANDATORY_EVIDENCE_KEYS (the collection loop would do ``list(True)``).
+        self.assertEqual(floorsynth.MANDATORY_FLAG_KEYS, ("docs_clean",))
+
     def test_each_mandatory_key_is_individually_required(self):
         for key in floorsynth.MANDATORY_EVIDENCE_KEYS:
             ev = {k: [] for k in floorsynth.MANDATORY_EVIDENCE_KEYS if k != key}
+            ev["docs_clean"] = True
             out = floorsynth.script_defects_from(ev)
             self.assertEqual([d["id"] for d in out], ["evidence-incomplete"], key)
             self.assertIn(key, out[0]["fix"])
+
+    def test_absent_docs_clean_is_incomplete_not_clean_docs(self):
+        # The unique fail-OPEN key. The SKILL reads ``ev.get("docs_clean", True)``, so
+        # a line dropped from the Step-2 evidence literal would default the docs floor
+        # to CLEAN — the exact dropped-line failure floorsynth exists to kill, and the
+        # one place the old block was STRICTLY more blocking (it died with KeyError and
+        # wrote no merged_critic.json). ``runcheck`` needs no such check: an absent one
+        # makes ``synth_runcheck({})`` synthesise its CRITICAL, i.e. it fails CLOSED.
+        out = floorsynth.script_defects_from(
+            {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": []})
+        self.assertEqual([d["id"] for d in out], ["evidence-incomplete"])
+        self.assertEqual(out[0]["category"], "DOES-IT-RUN")
+        self.assertEqual(out[0]["severity"], "CRITICAL")
+        self.assertIn("docs_clean", out[0]["fix"])
+
+    def test_null_docs_clean_is_incomplete(self):
+        out = floorsynth.script_defects_from(
+            {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+             "docs_clean": None})
+        self.assertEqual([d["id"] for d in out], ["evidence-incomplete"])
+        self.assertIn("docs_clean", out[0]["fix"])
+
+    def test_false_docs_clean_is_a_legitimate_value_not_an_absence(self):
+        # False IS the dirty-docs signal, carried by synth_docs — not missing evidence.
+        # A falsiness check (``if not ev.get(k)``) here would report it missing and
+        # relabel a real docs-naming failure as an orchestrator re-run instruction.
+        out = floorsynth.script_defects_from(
+            {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
+             "docs_clean": False})
+        self.assertEqual(out, [])
+        self.assertEqual([d["id"] for d in floorsynth.synth_docs(False)], ["docs-naming"])
 
     def test_present_but_null_mandatory_key_is_incomplete_not_silently_empty(self):
         # A present-but-NULL key is not evidence: ``ev.get(key) or []`` contributes
@@ -70,7 +112,8 @@ class TestScriptDefectsFrom(unittest.TestCase):
         # -> TypeError -> the heredoc dies and no merged_critic.json is written, i.e.
         # fail-CLOSED; a silent empty contribution here would be fail-OPEN.
         out = floorsynth.script_defects_from(
-            {"lint_defects": None, "reqcoverage_defects": [], "pathcheck_defects": []})
+            {"lint_defects": None, "reqcoverage_defects": [], "pathcheck_defects": [],
+             "docs_clean": True})
         self.assertEqual([d["id"] for d in out], ["evidence-incomplete"])
         self.assertEqual(out[0]["category"], "DOES-IT-RUN")
         self.assertIn("lint_defects", out[0]["fix"])
@@ -80,7 +123,8 @@ class TestScriptDefectsFrom(unittest.TestCase):
         sec = {"id": "S1", "category": "SECURITY", "severity": "CRITICAL",
                "location": "a.py:1", "fix": "patch"}
         out = floorsynth.script_defects_from(
-            {"reqcoverage_defects": [], "pathcheck_defects": [], "sast_defects": [sec]})
+            {"reqcoverage_defects": [], "pathcheck_defects": [], "sast_defects": [sec],
+             "docs_clean": True})
         self.assertIn(sec, out)
         self.assertEqual(verdict.merge([], out)["dimensions"]["SECURITY"], "no")
 
@@ -218,19 +262,26 @@ class TestGateAgreementMatrix(unittest.TestCase):
     GREEN_RC = {"ok": True, "test_count": 3, "new_tests_collected": True}
     ALL_LOADED = ("critic_correctness.json", "critic_code_quality.json", "critic_security.json")
 
-    def _run(self, evidence, diff="--- a/x.py\n+++ b/x.py\n+1\n", loaded=None, docs_clean=True, critics=()):
+    def _run(self, evidence, diff="--- a/x.py\n+++ b/x.py\n+1\n", loaded=None, docs_clean=True,
+             critics=(), drop_docs_clean=False):
         loaded = self.ALL_LOADED if loaded is None else loaded
-        sd = floorsynth.script_defects_from(evidence)
-        sd += floorsynth.synth_runcheck(evidence.get("runcheck", {}), evidence.get("verify_cmd", ""))
-        sd += floorsynth.synth_docs(docs_clean)
+        # The SKILL reads docs_clean out of the SAME det_evidence.json, so mirror that:
+        # one source, read everywhere through ev.get("docs_clean", True).
+        ev = dict(evidence)
+        ev["docs_clean"] = docs_clean
+        if drop_docs_clean:                 # simulate the dropped Step-2 literal line
+            ev.pop("docs_clean")
+        sd = floorsynth.script_defects_from(ev)
+        sd += floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("verify_cmd", ""))
+        sd += floorsynth.synth_docs(ev.get("docs_clean", True))
         sd += floorsynth.empty_diff_defect(diff)
         sd += floorsynth.critics_missing_defects(loaded)
         merged, schema_errors = floorsynth.merge_and_validate(list(critics), sd)
-        gate_inputs = {"runcheck": evidence.get("runcheck", {}), "schema_errors": schema_errors,
-                       "lint_defects": evidence.get("lint_defects", []),
-                       "reqcoverage_defects": evidence.get("reqcoverage_defects", []),
-                       "pathcheck_defects": evidence.get("pathcheck_defects", []),
-                       "docs_clean": docs_clean}
+        gate_inputs = {"runcheck": ev.get("runcheck", {}), "schema_errors": schema_errors,
+                       "lint_defects": ev.get("lint_defects", []),
+                       "reqcoverage_defects": ev.get("reqcoverage_defects", []),
+                       "pathcheck_defects": ev.get("pathcheck_defects", []),
+                       "docs_clean": ev.get("docs_clean", True)}
         return verdict.gate(merged, gate_inputs), verdict.final_status(merged, False)
 
     def _clean(self, **over):
@@ -260,6 +311,9 @@ class TestGateAgreementMatrix(unittest.TestCase):
             "evidence-incomplete": dict(evidence={"reqcoverage_defects": [], "pathcheck_defects": [],
                                                   "runcheck": dict(self.GREEN_RC)}),
             "docs-dirty": dict(evidence=self._clean(), docs_clean=False),
+            # A docs_clean line dropped from the Step-2 evidence literal must BLOCK,
+            # not inherit the ev.get(..., True) default the SKILL reads it with.
+            "docs_clean-absent": dict(evidence=self._clean(), drop_docs_clean=True),
             "empty-diff": dict(evidence=self._clean(), diff=""),
             "critic-missing": dict(evidence=self._clean(), loaded=("critic_security.json",)),
             "schema-errors": dict(evidence=self._clean(), critics=[

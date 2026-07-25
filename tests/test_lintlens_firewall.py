@@ -116,8 +116,10 @@ class TestAdvisoryFirewall(unittest.TestCase):
         from scripts import floorsynth
         adv = [{"lane": "auto", "tool": "ruff", "path": "a.py", "line": 1, "message": "E501"}]
         self.assertTrue(adv)  # non-empty: the empty result below is NOT vacuous
+        # COMPLETE evidence (every mandatory key + flag present), so the empty result
+        # is attributable to the firewall alone and never to evidence-incomplete.
         ev = {"lint_defects": [], "reqcoverage_defects": [], "pathcheck_defects": [],
-              "lintlens_advisory": adv}
+              "docs_clean": True, "lintlens_advisory": adv}
         self.assertEqual(floorsynth.script_defects_from(ev), [])
 
     def test_full_skill_defect_construction_excludes_advisory(self):
