@@ -752,6 +752,11 @@ must not burn a coder pass on it. If the dissent persists after one re-dispatch,
 HIGH keeps `merged_critic.json` blocking and the run degrades to `⚠️ UNVERIFIED`: a dissent
 without a blocking defect is never read as a clean lens.
 
+If `blocking` carries a `critic-stale:<lens>` defect, re-dispatch **that** critic **once** (Step 3)
+and re-run this block — its artifact was stamped for an earlier refine pass and never reviewed
+this tree; the re-dispatch stamps it for the current pass. If it persists, the synthesized
+CRITICAL keeps `merged_critic.json` blocking and the run degrades to `⚠️ UNVERIFIED`.
+
 > **V7 — encoded at REFINE? (below).** The PASS bar (`gate`) blocks on CRITICAL/HIGH only, but per
 > V7 **any CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass.** Because
 > those defects are already in `merged_critic.json` (critic + `pathcheck`), REFINE? enforces the rule

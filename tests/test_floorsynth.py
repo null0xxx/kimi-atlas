@@ -623,6 +623,17 @@ class TestStaleVerdictDefects(unittest.TestCase):
                          "CODED", "VERIFIED", "ROLLBACK", "ROLLBACK", "OUTPUT")
         self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
 
+    def test_rollback_stamp_interaction_is_cosmetic_expected(self):
+        # Fold T4-F5 (enumeration): VERIFIED → REFINE → rollback → OUTPUT leaves
+        # artifacts stamped pass=0 while get_refine_passes == 1 (rollback
+        # provably does not move the counter), so critic-stale fires. Every
+        # honest trigger of this shape is already UNVERIFIED by design — pin
+        # the prediction so a future "rollback then continue green" design
+        # gets a warning shot instead of a silent inheritance.
+        raw = {"critic_security.json": dict(_critic(), **{"pass": 0})}
+        out = floorsynth.critics_stale_defects(raw, 1)
+        self.assertEqual([d["id"] for d in out], ["critic-stale:security"])
+
     def test_early_ledger_is_silent(self):
         self.assertEqual(floorsynth.stale_verdict_defects([]), [])
         # Honest prefixes of a live run are legal adjacents and never fire.
