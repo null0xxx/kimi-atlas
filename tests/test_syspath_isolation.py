@@ -11,7 +11,7 @@ variable is inherited, it must be stripped again at the seam where the plugin
 launches the TARGET's own code -- otherwise ``python3 -m unittest discover`` and
 uninstalled-package ``pytest`` runs go RED for a reason unrelated to the change.
 
-Six independent pins live here:
+Seven independent pins live here:
 
 * :class:`TestFixDoesNotLeakIntoTargetBuilds` -- BEHAVIOURAL, the containment.
 * :class:`TestEverySeamContainsTheSwitch` -- BEHAVIOURAL, per-seam. It pins the
@@ -31,12 +31,17 @@ Six independent pins live here:
   configuration these cases run. Its control cases run the hooks with the fix
   textually removed and assert the shadow module really does execute -- and that
   it made ``guard-destructive.sh`` ALLOW ``rm -rf /``.
+* :class:`TestTheFloorGuardHaltsTheRun` -- BEHAVIOURAL, and the only pin that
+  asserts what the INIT floor guard *does* rather than that it exists. It runs
+  the shipped INIT block as written, in a hostile tree, with the isolation on
+  and off.
 * :class:`TestSkillPinsSafePath` (Task 2) / :class:`TestConventionIsSweptEverywhere`
   (Task 3) -- TEXTUAL, so a future edit cannot silently drop the variable.
 """
 from __future__ import annotations
 
 import ast
+import json
 import os
 import pathlib
 import re
@@ -641,6 +646,193 @@ class TestSkillPinsSafePath(unittest.TestCase):
         # -- the text that actually forbids the stop -- unaware of it.
         block = self.text[self.text.index("COMPLETION INVARIANT"):len(head)]
         self.assertIn("ATLAS-PRECONDITION-FAILED", block)
+
+
+def _fenced_blocks(text: str) -> list[str]:
+    """Every ```-fenced block in the SKILL, dedented.
+
+    :func:`_heredoc_bodies` returns the PYTHON body only. That is enough for a
+    textual or a structural pin, but a BEHAVIOURAL one has to run what a run
+    actually runs -- the whole fence, ``PYTHONSAFEPATH=1 PYTHONPATH=... python3 -``
+    line included, because that line is where the isolation comes from and
+    dropping it is the hazard under test. Every fence in the SKILL is a bare
+    ```-only line with no language tag, so a simple open/close toggle is exact;
+    :meth:`TestTheFloorGuardHaltsTheRun.test_the_extracted_block_is_the_shipped_one`
+    is the anti-vacuity guard on that assumption.
+    """
+    out: list[str] = []
+    cur: list[str] | None = None
+    for line in text.splitlines():
+        if line.strip() == "```":
+            if cur is None:
+                cur = []
+            else:
+                out.append(textwrap.dedent("\n".join(cur)))
+                cur = None
+        elif cur is not None:
+            cur.append(line)
+    return out
+
+
+def _init_resume_command(text: str) -> str:
+    """The INIT resume-check fence, verbatim (``${KIMI_SKILL_DIR}`` still unbound).
+
+    Identified by the glob it exists to run, never by position in the file, so
+    moving the block cannot silently retarget the pin -- the same rule
+    :meth:`TestSkillPinsSafePath.test_the_floor_guard_precedes_every_hijackable_import`
+    already follows.
+    """
+    blocks = [b for b in _fenced_blocks(text) if ".atlas/*/state.json" in b]
+    assert len(blocks) == 1, "expected exactly one INIT resume-check fence"
+    return blocks[0]
+
+
+class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
+    """BEHAVIOURAL: what the INIT floor guard DOES, not merely that it exists.
+
+    :meth:`TestSkillPinsSafePath.test_interpreter_floor_guard_is_present` and
+    :meth:`TestSkillPinsSafePath.test_the_floor_guard_precedes_every_hijackable_import`
+    pin PRESENCE and POSITION -- the expression is in the text, ``SystemExit(2)``
+    is in the body, exactly one ``ast.If`` tests it, and it sits above the
+    block's first shadowable import. Not one of them asserts an OUTCOME, and
+    three mutations of the shipped guard were each MEASURED passing the entire
+    suite (``PYTHONDONTWRITEBYTECODE=1``, ``__pycache__`` purged between runs):
+
+    * drop the ``not`` (``if getattr(sys.flags, "safe_path", False):``) -- on a
+      healthy install EVERY run aborts at INIT with rc 2, and on the hazard path
+      the guard is silent while the target's own ``json`` shadow module executes;
+    * ``raise SystemExit(2)`` -> ``pass`` -- a healthy install is identical to
+      HEAD, and on the hazard path the token is printed but the target's
+      ``json`` shadow module executes ANYWAY and the block returns rc 0. The fail-closed
+      contract is gone, and the target gets code execution before the model can
+      act on the abort line;
+    * ``and False`` appended to the test -- fully silent. Healthy install
+      byte-identical, hazard path completely unguarded, nothing printed.
+
+    The last two are the exact class this project's process exists to catch: a
+    green suite, a healthy install indistinguishable from HEAD, and the
+    protection gone on the only path it exists for. Two child interpreters kill
+    all three -- run the shipped block AS WRITTEN in a hostile tree and assert
+    the two outcomes that matter: with the isolation ON the guard stays quiet
+    and the block still does its job, and with it OFF the run stops at rc 2 with
+    the token opening stdout and the target's module never executing.
+    """
+
+    #: The exact prefix the SKILL puts on the block. Removing it reproduces the
+    #: orchestrating model retyping the command WITHOUT the switch -- the
+    #: transcription hazard the runtime guard exists for, and the way to reach
+    #: the hazard path without editing the guard under assertion.
+    SWITCH = "PYTHONSAFEPATH=1 "
+
+    #: Marks the tree on import and then gets out of the way, so what the BLOCK
+    #: does next is the finding rather than a crash.
+    HOSTILE_JSON = 'open("PWNED-BY-TARGET", "w").close()\n'
+
+    #: Neutralises the discovery glob, so a block that runs on DESPITE the guard
+    #: still terminates normally (rc 0, ``NONE``) instead of dying on the
+    #: crippled ``json`` module. The mutant must be caught by the assertions
+    #: below, never by an incidental traceback.
+    HOSTILE_GLOB = "def glob(*a, **k):\n    return []\n"
+
+    def setUp(self):
+        self.text = _SKILL.read_text(encoding="utf-8")
+        self.command = _init_resume_command(self.text)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._aux = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(self._aux.cleanup)
+        self.target = pathlib.Path(self._tmp.name).resolve()
+        (self.target / "json.py").write_text(self.HOSTILE_JSON, encoding="utf-8")
+        (self.target / "glob.py").write_text(self.HOSTILE_GLOB, encoding="utf-8")
+        # A resumable run, so the healthy case asserts the block's REAL answer
+        # rather than the ``NONE`` an empty tree would return for free.
+        run_dir = self.target / ".atlas" / "sess-1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "state.json").write_text(
+            '{"run_id": "sess-1", "current_state": "CODED"}', encoding="utf-8")
+
+    @property
+    def marker(self) -> pathlib.Path:
+        return self.target / "PWNED-BY-TARGET"
+
+    def _run(self, command: str):
+        """Execute `command` through ``sh`` with the TARGET tree as the cwd.
+
+        The script is written OUTSIDE the hostile tree so it cannot perturb what
+        is under assertion, and both ``PYTHON*`` path variables are dropped from
+        the inherited environment: letting the TEST RUNNER supply the isolation
+        the block must carry itself is the one vacuity that would make every
+        assertion here meaningless.
+        """
+        script = pathlib.Path(self._aux.name) / "init.sh"
+        script.write_text(
+            command.replace("${KIMI_SKILL_DIR}", str(_ROOT / "skills" / "atlas")),
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONSAFEPATH", None)
+        env.pop("PYTHONPATH", None)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        return subprocess.run(
+            ["sh", str(script)], cwd=str(self.target), env=env,
+            capture_output=True, text=True, timeout=120,
+        )
+
+    def test_the_extracted_block_is_the_shipped_one(self):
+        """Anti-vacuity for the two cases below, and for :func:`_fenced_blocks`.
+
+        A fence scan that returned the wrong block -- or a stripped one -- would
+        let both behavioural cases pass while testing something other than what
+        ships. Costs no child interpreter."""
+        self.assertIn(_SAFE_PREFIX, self.command, "the block lost the safe prefix")
+        self.assertIn("<<'PY'", self.command, "the block lost its heredoc")
+        self.assertIn(_FLAG_CHECK, self.command, "the block lost the floor guard")
+        self.assertIn("ATLAS-PRECONDITION-FAILED", self.command)
+        self.assertIn("SystemExit(2)", self.command)
+
+    def test_the_guard_is_silent_and_the_block_still_works_with_isolation_on(self):
+        """The block AS SHIPPED, in the hostile tree: rc 0, no abort token, the
+        target's module never runs, and the resume check returns the real
+        interrupted run.
+
+        This half is what kills the dropped-``not`` mutant, which is invisible to
+        every textual and structural pin: with the test inverted the guard fires
+        on every healthy interpreter, so the shipped orchestrator aborts EVERY
+        run at INIT and atlas is dead on arrival for all users."""
+        proc = self._run(self.command)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("ATLAS-PRECONDITION-FAILED", proc.stdout + proc.stderr)
+        self.assertFalse(self.marker.exists(),
+                         "the target's json.py executed despite the isolation")
+        got = json.loads(proc.stdout.strip())
+        self.assertEqual(got[1:], ["sess-1", "CODED"],
+                         "the resume check no longer finds the interrupted run: %r"
+                         % proc.stdout)
+
+    def test_the_guard_halts_before_the_target_executes_with_isolation_off(self):
+        """The hazard path: the model retypes the command without the switch.
+
+        This half kills both SILENT mutants. ``rc == 2`` is the fail-closed
+        contract -- printing the token and running on hands the target code
+        execution BEFORE the model can act on the abort line -- and the absent
+        marker is the proof that the halt happened ahead of the target's own
+        module, not after it. Neither is implied by the other: the ``pass``
+        mutant prints the token and creates the marker at rc 0, the ``and False``
+        mutant prints nothing and creates it."""
+        hazard = self.command.replace(self.SWITCH, "", 1)
+        self.assertNotIn(self.SWITCH, hazard, "the switch was not actually dropped")
+        proc = self._run(hazard)
+        self.assertEqual(proc.returncode, 2,
+                         "the guard did not halt the run: rc=%d %r"
+                         % (proc.returncode, proc.stdout + proc.stderr))
+        self.assertTrue(
+            proc.stdout.startswith("ATLAS-PRECONDITION-FAILED"),
+            "the abort token must OPEN stdout -- the SKILL tells the orchestrator "
+            "to match on what the output BEGINS with, the rest of the line being "
+            "diagnosis: %r" % proc.stdout[:200])
+        self.assertFalse(self.marker.exists(),
+                         "the target's json.py executed anyway: the guard reported "
+                         "the precondition failure but did not halt on it")
 
 
 def _adjacent_switch_re(var: str) -> re.Pattern[str]:

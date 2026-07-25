@@ -37,6 +37,17 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 
 ## Quick start
 
+**Requirements: Kimi Code CLI, and CPython 3.11 or newer as `python3`.** The 3.11 floor is hard, and it is
+new in v1.5.1. Every script atlas runs is launched with `PYTHONSAFEPATH=1`, which is what keeps an
+untrusted target repository from replacing atlas's own modules — including `scripts/verdict.py`, the frozen
+gate that decides pass/fail. That variable, and the `sys.flags.safe_path` the run checks it by, were added
+in **CPython 3.11**; on anything older the variable is silently ignored and the isolation the gate's
+integrity depends on cannot be obtained at all. So atlas fails closed rather than running unprotected: on
+Python 3.10 or older **every run** stops at its first step with
+`ATLAS-PRECONDITION-FAILED: import isolation is not active …` and does nothing else. Ubuntu 22.04 and
+several other LTS distributions still ship `python3` = 3.10 — check with `python3 -V` and install 3.11+ (or
+point `python3` at it) before installing or upgrading. Development and CI run on Python 3.12, stdlib-only.
+
 **The one-liner (Kimi Code CLI)** — install straight from GitHub, no clone needed:
 
 ```

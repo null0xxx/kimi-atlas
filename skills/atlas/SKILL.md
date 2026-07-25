@@ -147,7 +147,8 @@ refine-pass counter).
   non-terminal run above. **If a resumable run exists, do NOT restart** — load its `ctxstore` state
   and jump to the stage after its last recorded ledger entry, reusing every persisted artifact
   (`context.json`, `plan.md`, the diff, `critic.json`). If the result is `NONE`, start fresh below.
-  If the output is `ATLAS-PRECONDITION-FAILED`, **abort the run** — this is a sanctioned terminal
+  If the output **begins with** `ATLAS-PRECONDITION-FAILED` (the token opens the line; everything
+  after it is diagnosis, so never match on equality), **abort the run** — this is a sanctioned terminal
   halt, not a pause — and report the line to the user verbatim: the environment cannot provide the
   import isolation the gate's integrity depends on. Do not proceed to `INTENT_CAPTURED`.
 - **Parse `$ARGUMENTS`** into the task packet: `intent` = the full request text; extract any
