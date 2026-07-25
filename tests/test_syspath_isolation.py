@@ -11,9 +11,13 @@ variable is inherited, it must be stripped again at the seam where the plugin
 launches the TARGET's own code -- otherwise ``python3 -m unittest discover`` and
 uninstalled-package ``pytest`` runs go RED for a reason unrelated to the change.
 
-Three independent pins live here:
+Four independent pins live here:
 
 * :class:`TestFixDoesNotLeakIntoTargetBuilds` -- BEHAVIOURAL, the containment.
+* :class:`TestEverySeamContainsTheSwitch` -- BEHAVIOURAL, per-seam. It pins the
+  env dict handed to each launch that runs TARGET code, so a dropped or
+  truncated ``env=`` at any of the three seams a real run cannot reach cheaply
+  stops being a silent mutation.
 * :class:`TestHostileTargetCannotShadowPluginModules` -- BEHAVIOURAL, the fix.
   Its control case asserts the hijack STILL happens without the variable, so the
   suite cannot pass vacuously.
@@ -178,13 +182,15 @@ class TestEverySeamContainsTheSwitch(unittest.TestCase):
 
         with mock.patch.object(runcheck, "_launch_and_wait", side_effect=fake_launch), \
                 mock.patch.object(runcheck, "_detect_mem_backend", return_value="cgroup"), \
-                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1"}):
+                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
+                                             "ATLAS_SEAM_MARKER": "kept"}):
             runcheck.run("true", str(self.target), timeout_s=30, mem_limit_mb=2048)
 
         self.assertEqual(len(seen), 2, "the fail-open re-run never happened")
         for env in seen:
             self.assertIsInstance(env, dict)
             self.assertNotIn("PYTHONSAFEPATH", env)
+            self.assertEqual(env.get("ATLAS_SEAM_MARKER"), "kept")   # parent env survives
 
     def test_suiterun_junit_path_is_contained(self):
         from scripts import suiterun
@@ -207,11 +213,13 @@ class TestEverySeamContainsTheSwitch(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=fake_run), \
                 mock.patch("scripts.langfloor.resolve_runner_tag",
                            return_value=("pytest",)), \
-                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1"}):
+                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
+                                             "ATLAS_SEAM_MARKER": "kept"}):
             suiterun.run_suite("pytest", str(self.target))
 
         self.assertIsInstance(seen["env"], dict)
         self.assertNotIn("PYTHONSAFEPATH", seen["env"])
+        self.assertEqual(seen["env"].get("ATLAS_SEAM_MARKER"), "kept")   # parent env survives
 
     def test_suiterun_whole_suite_path_is_contained(self):
         from scripts import suiterun
@@ -230,11 +238,13 @@ class TestEverySeamContainsTheSwitch(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=fake_run), \
                 mock.patch("scripts.langfloor.resolve_runner_tag",
                            return_value=("go test",)), \
-                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1"}):
+                mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
+                                             "ATLAS_SEAM_MARKER": "kept"}):
             suiterun.run_suite("go test ./...", str(self.target))
 
         self.assertIsInstance(seen["env"], dict)
         self.assertNotIn("PYTHONSAFEPATH", seen["env"])
+        self.assertEqual(seen["env"].get("ATLAS_SEAM_MARKER"), "kept")   # parent env survives
 
 
 class TestHostileTargetCannotShadowPluginModules(unittest.TestCase):

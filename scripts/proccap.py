@@ -309,10 +309,10 @@ def _launch_and_wait(
     promptly instead of hanging on orphans.
 
     ``env`` controls the child's environment. When ``None`` the child inherits the
-    parent env; ``runcheck.run`` and ``suiterun`` instead pass :func:`target_env`
-    so the plugin's isolation switch never reaches target code. A dict gives the
-    child *exactly* that environment and nothing else, the hermetic path
-    ``nativefloor`` uses.
+    parent env; ``runcheck.run`` passes :func:`target_env`; ``suiterun`` applies
+    the same helper to its own ``subprocess.run`` calls -- so the plugin's
+    isolation switch never reaches target code. A dict gives the child *exactly*
+    that environment and nothing else, the hermetic path ``nativefloor`` uses.
     """
     try:
         proc = subprocess.Popen(
