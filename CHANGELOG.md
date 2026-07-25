@@ -4,6 +4,102 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] — 2026-07-25
+
+**Eight confirmed security findings closed — everything that damages an ordinary, non-attacked run.**
+From the nineteen-finding audit of v1.5.1 (six lenses, proof by execution — see
+[`docs/superpowers/specs/2026-07-25-security-audit-remediation-design.md`](docs/superpowers/specs/2026-07-25-security-audit-remediation-design.md)):
+the deterministic SECURITY floor that had silently never fired, three ways the reviewed tree could
+diverge from the executed tree, a critic's judgment vanishing on its way to the gate, stale artifacts
+reading as fresh lenses, a timeout that was not a bound, and a constant shipped as evidence. Eleven of
+nineteen findings remain open by design — see **What is NOT closed** below. A security release that
+overstates what it fixed is itself a defect; this entry errs on the side of plain speech.
+
+- **S7 — the SECURITY deterministic floor fires again.** `scripts/sast.py`'s semgrep argv combined
+  `--config auto` with `--metrics off`, which are mutually exclusive (semgrep exits 2), so `sast.scan`
+  returned `[]` fail-open on 100% of runs — the promised "a mechanically-detectable vulnerability
+  blocks the gate" never blocked anything. Now `--config p/default` (keeps `--metrics off`; finds the
+  canonical `subprocess-shell-true` ERROR→HIGH), with a real-binary integration test and a
+  hard-asserting CI lane (`.github/workflows/sast-floor.yml`) so a mocked boundary can never hide the
+  regression again. **Honest costs, stated plainly:** `p/default` is a Registry ruleset and semgrep
+  keeps no on-disk ruleset cache (measured on 1.169.0), so the floor requires network on **every**
+  scan; offline it silently degrades to judgment-only (the pre-existing fail-open posture). A vendored
+  offline ruleset remains open. On a machine with semgrep installed but no route to semgrep.dev, the
+  new integration test REDs — a deliberately fail-closed choice.
+- **S3 — the reviewed tree equals the executed tree.** (i) `scope_paths=["."]` — the documented
+  headless default — dropped every tracked-file modification (git rejects `<sha>:`-style `.`
+  pathspecs; the empty-string pathspec was fatal at three call sites). `_tracked_at` now probes
+  `<sha>:` / `<sha>:./<path>`, which also fixes the monorepo-subdirectory launch that lost every
+  tracked change. (ii) The scope-restricted diff was the only evidence channel, so a change outside
+  `scope_paths` — including deleting the very test that would catch the bug — was invisible to all
+  six lenses while `runcheck` ran the whole tree. New `difftool.capture_full` / `change_paths`
+  (machine-derived, NUL-safe, review_root-relative) feed `floorsynth.out_of_scope_defects`: one
+  blocking HIGH CORRECTNESS per file changed outside scope, gated to git trees with a resolvable
+  baseline, with a pinned tool-residue exclusion set, and the whole-tree capture persisted as
+  `diff.full.patch` for the human — never for critic packets. **Adjudicated honest-false-positive:**
+  an *untracked-at-baseline* file outside scope fires too (git cannot timestamp untracked files).
+  That is intended — it is unreviewed executed surface (the root `conftest.py` shape is the S3
+  class), and the human gate resolves it; the fix text forbids deleting a pre-existing file to go
+  green. On non-git trees or an unresolvable baseline the fold contributes nothing.
+- **S4 — a critic's judgment is validated where it is produced.** `verdict.merge` recomputes the
+  verdict from `defects[]` and discarded the critic's own `verdict` field; `dimensions` was read by
+  nothing, so a critic objecting in prose merged as a clean lens (four shapes printed `✅ VERIFIED`).
+  Step 3.4 now validates each raw critic before persistence (duplicate-key-rejecting parse +
+  `enforce_critic_schema`; one re-dispatch; a still-failing critic is never persisted, so
+  `critic-missing` fires instead), and `floorsynth.dimension_dissent_defects` synthesizes a blocking
+  HIGH when a critic reports `dimensions[d]=="no"` or `verdict=="FAIL"` without a corresponding
+  blocking defect. The four role files now mandate the full six-dimension object the validator
+  enforces — they previously modeled a partial map, so the validator would have rejected exactly
+  what the role files taught (caught by review before it shipped).
+- **S5 — critic artifacts carry a currency stamp.** Artifact names are pass-invariant and REFINE
+  re-enters CODED→VERIFIED in the same run dir, so a pass-1 CLEAN artifact read as a fresh lens on
+  code that critic never saw. Each artifact is stamped with the refine pass at write time (added
+  after schema validation); Step 4+5 requires the stamp to match the current pass, blocking
+  `critic-stale:<lens>` CRITICAL otherwise. Upgrade-resume is preserved: unstamped artifacts are
+  accepted at pass 0.
+- **S10 — stage order is a gate input.** `verdict.missing_stages` was set-membership (order-blind),
+  so a ledger showing the tree mutated AFTER verification printed a stale green.
+  `floorsynth.stale_verdict_defects` folds a blocking CRITICAL when the last CODED post-dates the
+  last VERIFIED (append-order, never timestamps) or any adjacent transition is illegal — normalized
+  so honest resumes, crash-duplicates, rollbacks and the sanctioned cancel never trip it — folded
+  into `merged_critic.json` before `final_status`.
+- **S9 + S18 — `timeout_s` actually bounds the run, and a timed-out suite is never green.** The
+  post-kill drain was an unbounded `communicate()`: a `setsid` descendant holding the inherited pipe
+  blocked it (measured 45.1 s against a 3 s bound) — on honest, daemonising builds. The drain is now
+  grace-bounded, and on cgroup hosts the named transient scope's survivors are SIGKILLed (units are
+  named at launch, never discovered — a leader-cgroup lookup misidentifies 1-in-5 on systemd 255).
+  `suiterun` now launches through the same backend with a named 2048 MB cap, and — closing a
+  false-green the naive re-route would have introduced — a timed-out or unlaunched suite degrades to
+  `{}` and can never read green.
+- **S14 + E3 — no more constant-as-evidence, and V7 un-narrowed.** `revert_red` (a constant `False`
+  with no producer) is out of the critic packet and the role file; the rubric and `PLAN.md` no longer
+  advertise a revert→RED differential (it is **not currently computed**). Decision (b) shipped;
+  decision (a) — actually computing it — remains the only real control against an always-green
+  recipe (S19) and is deferred: it doubles build time. The V7 caveat now names the deterministic
+  floor explicitly (`pathcheck`, `sast`, `empty-diff`) instead of the adjudicated-wrong "any defect
+  a critic emits".
+
+**What is NOT closed (the honest list).** S1/S2 — the `.atlas/` ledger and the verdict artifact are
+still unauthenticated: a target's build can rewrite them between computing and printing (lands in
+v1.5.3 as plugin-owned run-dir tokens + verdict recomputation at the point of printing). S8 — the
+Step-3 critic packet's SAFE-2 fence and critic-authored `fix` routing (v1.5.3). S11 — a second
+same-session request still inherits the first's frozen packet (v1.5.3). S12/S13 — worktree
+post-checkout hooks, telemetry symlink append (v1.5.3). S15/S16/S17 — hook false-DENY, installer
+partial-archive, `--verify` blind spots (v1.5.4). **The new pass-stamps are a CURRENCY marker, not
+authenticity:** a target's build can stamp forged artifacts and append legal-looking ledger lines
+from the same writable `.atlas/` — the *attacked* halves of S5/S10 close with v1.5.3's R1/R2, not
+here. And **S6 is not fully closed by this program:** a target's build can still overwrite the
+plugin's own modules directly — `python3 -S` (v1.5.3) closes only the auto-exec half, and full
+closure needs a plugin-integrity mechanism (signed manifest verified at run start, or a read-only
+install), which is a design problem, not a patch.
+
+Process, for the record: 27 adversarial plan-challenge findings folded before any code (3 CRITICAL
+against the plan itself — each a manufactured-RED-on-honest-runs shape); six task reviews (four
+CHANGES-REQUIRED, all fixed with mutants killed); a whole-branch review that found the one-line
+`loaded_map` zip-swap mutant passing all 1458 tests (closed with asymmetric attribution pins) and the
+pre-existing-untracked adjudication above. `scripts/verdict.py` never opened. Test suite
+**1327 → 1460**.
+
 ## [1.5.1] — 2026-07-25
 
 **A CRITICAL `sys.path` hijack, live in shipped v1.5.0, closed.** During an atlas run the working

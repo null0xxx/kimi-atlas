@@ -57,7 +57,7 @@ point `python3` at it) before installing or upgrading. Development and CI run on
 This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
 
 ```
-/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.1
+/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.2
 /plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
 ```
 
