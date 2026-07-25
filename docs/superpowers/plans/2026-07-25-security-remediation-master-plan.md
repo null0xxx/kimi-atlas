@@ -132,11 +132,33 @@ write must be killed by a mutation you actually ran.
 
 ## 4. Release v1.5.2 — what damages an ordinary, non-attacked run
 
-**Branch:** `fix/security-v152` off `main`. **Every task ends with `make ci` EXIT 0.**
+**Branch:** `fix/security-audit-v152` off `main` (already pushed; holds the spec + this plan).
+**Every task ends with `make ci` EXIT 0.**
 
 These are ranked by (probability on an honest run) × (damage), which is deliberately *not* the adversarial
 ranking. S7 fires on 100% of runs. S3's `["."]` case is the documented headless default. S4 is an ordinary
 LLM failure mode, not an attack.
+
+---
+
+### 4.0 Adversarial plan-challenge — 27 findings folded (2026-07-25)
+
+Two independent challengers attacked Tasks 1–6 below **by execution** (fixtures in tmpdirs; the repo never
+modified) before any code was built; the orchestrator re-verified every load-bearing primitive by direct
+probe (`enforce_critic_schema` stray-key rejection, `reqcoverage._under_scope` under `["."]`, `ctxstore._now()`
+second-granularity, `fsm.legal_transition` self-loops / cancel / ROLLBACK, `git cat-file -e <sha>:` vs
+`<sha>:.` vs `-- ""`, the `revert_red` pin sites). Result: **3 CRITICAL, 11 HIGH, 9 MEDIUM, 4 LOW** against
+the task specs as originally written. Each task below carries a **CHALLENGE FOLDS** block; those blocks are
+**binding amendments** to the step list above them. Where a step and its folds conflict, the fold wins.
+
+**CF-0 (CRITICAL, cross-task) — stamp/validate ordering.** Task 4's `pass` stamp MUST be added to the
+critic JSON **after** Task 3's `enforce_critic_schema` passes: the schema rejects stray top-level keys
+(verified: `{..., "pass": 0}` → `unexpected top-level keys (not in critic schema): ['pass']`), so
+stamp-then-validate turns 100% of honest runs RED — the governing-rule failure shipping inside a security
+release. `verdict.merge` ignores the stray key (verified), so validate-then-stamp is pipeline-safe. The
+ordering is pinned in both Tasks 3 and 4, including a pin that a stamped artifact fed to
+`enforce_critic_schema` MUST return the stray-key error (documents the hazard) and an end-to-end pin that
+a stamped pass-0 run still merges and gates green.
 
 ---
 
@@ -190,6 +212,26 @@ network and coverage differs from `auto`'s per-language selection. A vendored of
 `references/semgrep-rules/` is strictly better — no egress, deterministic, no first-run latency — but is a
 larger change. The challenge should decide whether v1.5.2 ships `p/default` with vendoring deferred, and say
 so explicitly in the CHANGELOG either way.
+
+**CHALLENGE FOLDS (binding):**
+
+- **T1-F1 (HIGH) — the regression net is vacuous in every CI lane, and Step 5 pins a literal that does not
+  exist.** `.github/workflows/check.yml` and `.github/workflows/native-floor.yml` install no semgrep, and no
+  `make` target runs the real binary, so the Step-1 skip-unless-resolves test skips in 100% of CI runs —
+  exactly how S7 was born. And `tests/test_sast.py`'s `TestSastMetricsOff` asserts only `--metrics` presence,
+  value and position; nothing pins the `--config` value, so "update the FIX.3 argv pin to the new literal"
+  has no literal to update. Fold: (a) Step 5 gains a mocked literal pin
+  `assertEqual(argv[argv.index("--config") + 1], "p/default")` — mutation-effective against revert-to-`auto`
+  with no semgrep present; (b) add a semgrep CI lane `.github/workflows/sast-floor.yml` mirroring
+  `native-floor.yml`'s hard-assert pattern: `pip install semgrep`, assert `sast.semgrep_path()` resolves
+  (lane fails otherwise), run the integration class. GitHub runners have network, so `p/default` fetches fine.
+- **T1-F2 (HIGH) — open question DECIDED: ship `p/default`, defer vendoring; correct the egress wording.**
+  Measured: cold first fetch 3.9 s; **second run 3.8 s — not faster**; semgrep 1.169.0 keeps **no on-disk
+  ruleset cache** (no `~/.cache/semgrep`; `/root/.semgrep` holds only logs/settings). So the network is
+  required on **every** scan, not "first use" — Step 4's docstring paragraph must say that. Offline
+  (`unshare -n`, verified): `p/default` → EXIT=2/empty stdout → `scan()` → `[]`, parity with today's silent
+  degradation. CHANGELOG must state plainly: the floor requires network per scan; offline runs degrade the
+  SECURITY deterministic floor to judgment-only silently; a vendored offline ruleset remains open.
 
 ---
 
@@ -256,12 +298,77 @@ ordinary unattended runs, and one new file is enough to suppress the `empty-diff
       **If (iii) fires, the wiring is wrong.** Fix it before proceeding.
 - [ ] **Step 8 — mutation check, `make ci`, commit.**
 
+**CHALLENGE FOLDS (binding) — Task 2 was the manufactured-RED risk this plan warned about, realized; every
+fold below is fixture-proven against honest repositories:**
+
+- **T2-F1 (CRITICAL) — untracked tool residue fires phantom blocking defects.** `difftool.capture` includes
+  untracked non-ignored files (`git ls-files --others --exclude-standard`), so `capture_full` does too — and
+  on an honest run where the coder ran pytest, `.coverage`, `.pytest_cache/…`, `__pycache__/…` outside
+  `scope_paths` each fire a blocking HIGH; the coder deletes them, `runcheck` regenerates them, both refine
+  passes burn out → permanent UNVERIFIED on a clean repo (verified end-to-end). Fold:
+  `out_of_scope_defects` excludes a **pinned residue set** — `.atlas/`, `.pytest_cache/`, `__pycache__/`,
+  `*.py[co]`, `.coverage*`, `htmlcov/`, `.mypy_cache/`, `.ruff_cache/`, `.tox/`, `.nox/`, `.venv/`, `venv/`,
+  `node_modules/`, `dist/`, `build/`, `target/`, `*.egg-info/`. The docstring states the threat-model
+  consistency: this is the same invisibility class already accepted via `--exclude-standard` (a deceptive
+  coder can hide payloads under gitignored paths today). Step 7 gains fixture **(iv): non-ignored tool
+  residue outside scope → `[]`.** Do NOT restrict to tracked files instead — that reopens S3(a) for new
+  out-of-scope files (a root `conftest.py` pytest auto-loads).
+- **T2-F2 (CRITICAL) — non-git trees render every pre-existing file as new.** `capture`'s non-git branch
+  renders every in-scope file as a new-file diff, so a full capture on a tarball-unpacked target flags
+  every pre-existing file outside scope (verified) — RED on 100% of narrow-scope non-git runs. Fold: wire
+  `out_of_scope_defects` ONLY when `_is_git_repo(review_root)` AND `baseline_sha` resolves; the docstring,
+  Step 7 and the CHANGELOG state the git-baseline-only degradation honestly.
+- **T2-F3 (HIGH) — do not reuse `reqcoverage._under_scope`; it matches NOTHING under the headless default.**
+  Verified: `_under_scope("src/a.py", ["."]) == False`, `["./src"]` False, `["src/"]` True, `[""]` False
+  (boundary-aware `src2/x` vs `src` is correct). Fold: scope normalization lives INSIDE
+  `out_of_scope_defects` — entries `.` / `""` / `./` mean whole-tree → return `[]` unconditionally; strip a
+  leading `./` and trailing `/` from all other entries; then match `p == s or p.startswith(s + "/")`.
+  Pin the equivalence classes: `["."]` ≡ `[""]` ≡ `["./"]` → `[]` always; `["src"]` ≡ `["src/"]` ≡
+  `["./src"]`; a file-scope entry matches itself only; `src2/x` never matches `src`. Do NOT "fix"
+  `_under_scope` in place either — reqcoverage's MEDIUM scope-creep behavior is a separate pinned surface.
+- **T2-F4 (HIGH) — the normalization is THREE call sites, and a same-shape subdir bug the plan missed.**
+  Verified: `git diff <sha> -- ""` and `git ls-files --others --exclude-standard -- ""` are BOTH fatal
+  (rc=128), so whole-tree normalization must cover `_tracked_diff` and `_untracked_in_scope` as well (a
+  whole-tree spec passes NO `--` pathspec), not just `_tracked_at` (which uses the `<sha>:` form). And
+  worse: `<rev>:<path>` resolves ROOT-relative while `git diff`/`ls-files` resolve CWD-relative — an
+  interactive run launched from a monorepo subdirectory (`review_root == "."` = the subdir) silently loses
+  every tracked modification (verified: 0 bytes). Fold: `_tracked_at` switches to the `<sha>:./<path>`
+  form (verified rc=0 from repo root AND from a subdir) — a deliberate behavior change that FIXES the
+  subdir case; pin root-behavior unchanged via the existing-test differential. Silence on the subdir case
+  is the one unacceptable option.
+- **T2-F5 (MEDIUM) — patch-text path extraction is content-spoofable; the contract becomes a path LIST.**
+  Verified: a fixture whose ADDED content contains the line `++ b/evil_escape.py` fools the
+  `^\+\+\+ (?:b/)?(.+)$` pattern (the only extraction pattern in the codebase, `SKILL.md:470` /
+  `reqcoverage.py:29`); a pure rename emits `rename from/to` with NO `+++` lines (invisible to it); a
+  filename containing ` b/` breaks the naive header split; newline filenames mangle line-based parsing.
+  Fold: `difftool.change_paths(baseline_sha, cwd) -> list[str]` derives the full-capture path list from
+  MACHINE output — `git diff --name-only -z --relative <base>` plus `git ls-files --others
+  --exclude-standard -z`, both run from `review_root` so both lists are review_root-relative — and
+  `out_of_scope_defects(full_paths: list[str], scope_paths)` consumes the LIST (this also matches Step 6's
+  "pass only the path list downstream"). One defect per changed ENTRY; a rename yields one entry (the new
+  path). Pin agreement between `change_paths` and `capture_full`'s own enumeration on the fixtures.
+- **T2-F6 (MEDIUM) — Step 7(i) restated: no in-loop resolution exists, and the pin must say so.**
+  `scope_paths` is FROZEN (`SKILL.md:309` — the coder never alters it), so for a legitimate cross-cutting
+  edit the only in-loop ways to clear the defect are reverting legitimate work or editing the frozen scope.
+  The honest end state: the defect FIRES, its `fix`/`location` names the exact paths and the two
+  resolutions (coder reverts the out-of-scope part; the human widens scope at the OUTPUT gate), one refine
+  pass does NOT clear it, and the run ends UNVERIFIED with the defect visible to the human. Pin THAT —
+  not "one refine pass resolves it".
+- **T2-F7 (LOW) — `_new_file_diff` lacks a `--` separator.** Verified: an untracked file named `-foo.py`
+  makes `git diff --no-index /dev/null -foo.py` exit 129 → silently dropped from the evidence channel.
+  One-word fix (`"--"` before `rel_path`, `difftool.py:76-78`) + pin. Folded into this task.
+- **T2-F8 (LOW) — pin vacuities to avoid.** Step 6's "`diff.full.patch` must never enter a critic packet"
+  needs a real negative pin (enumerate the Step-3 packet fields against producers, in the spirit of
+  `tests/test_skill_floor_contract.py`), not a substring-absence check a rename defeats. Step 7's honest
+  fixtures land as COMMITTED tests in `tests/test_difftool.py` / `tests/test_floorsynth.py`, not a one-off
+  build-time exercise — manufactured-RED is precisely the failure mode that recurs silently.
+
 ---
 
 ### Task 3 — S4: validate a critic's judgment where it is produced (structural change R4, part 1)
 
 **Files:** modify `skills/atlas/SKILL.md` (Step 3.4, around `:602`), `scripts/floorsynth.py`; modify
-`tests/test_floorsynth.py`.
+`tests/test_floorsynth.py`, `tests/test_skill_floor_contract.py` (fold T3-F2 — corpus pins break otherwise).
 
 **The defect.** `verdict.merge` recomputes `verdict` from `defects[]` and **discards the critic's own
 `verdict` field**; `dimensions` is written and — verified by grepping every consumer — read by nothing that
@@ -296,12 +403,56 @@ the wrong key, is silently read as a clean lens.
       collapses into "critic said FAIL with empty defects" and Step 3 already closes it. Pin that it does.
 - [ ] **Step 5 — mutation check, `make ci`, commit.**
 
+**CHALLENGE FOLDS (binding):**
+
+- **T3-F1 (CRITICAL) — the drifted-key shape is uncloseable as specified; the design's "synthesize if it
+  still fails" clause was dropped between spec and plan.** Traced over executed primitives: a persistent
+  `findings`-key critic → raw schema errors → one re-dispatch → same shape again (the S4 evidence table
+  shows LLMs persist) → persisted → `verdict.merge` reads absent `defects` → `[]` → merged is schema-clean
+  by construction → `dimension_dissent_defects` silent (all dimensions yes, verdict OK) → `schema_errors`
+  comes from the MERGED shape → **GREEN**. Step 1's own pin ("all four shapes end UNVERIFIED") cannot pass.
+  Fold: after one re-dispatch, a still-schema-failing raw critic is **NOT persisted** (the failure is
+  recorded in the ledger), so `floorsynth.critics_missing_defects` fires the existing CRITICAL
+  `critic-missing:<lens>` — reusing proven machinery instead of inventing a new synthesis. Never persist
+  invalid JSON: on a REFINE pass, persisting nothing leaves pass 1's artifact, which is S5 — owned by
+  Task 4's pass-stamp; Task 3 must not "fix" staleness by persisting invalid JSON. Step 1 gains a fixture
+  where the mocked critic returns the drifted shape twice.
+- **T3-F2 (HIGH) — two existing pin suites break as written.** Adding `dimension-dissent:*` to
+  `ORCHESTRATOR_DEFECT_IDS` fails `tests/test_skill_floor_contract.py:386-395` (corpus ⊇
+  `ORCHESTRATOR_DEFECT_IDS` — this file was missing from the Files line, now added) and
+  `tests/test_floorsynth.py:197-228` (the `ALL_IDS` literal + the `_every_synthesized_defect()` corpus).
+  Fold: extend both corpora with a dissent fixture and extend `ALL_IDS`. (`audited == 3` at
+  `test_floorsynth.py:219` survives — the dissent defect is orchestrator-class and stays excluded from the
+  coder-facing count.)
+- **T3-F3 (MEDIUM) — duplicate-key with `verdict:"OK"` slips both layers.** Verified: `{"dimensions": all
+  yes, "defects": [CRITICAL], "defects": [], "verdict": "OK"}` → `json.loads` last-key-wins →
+  schema-clean, dissent-silent, and the dropped CRITICAL never reaches the gate. Fold: reject duplicate
+  keys at parse time — `json.loads(raw, object_pairs_hook=<duplicate-detecting hook>)` → treat as
+  malformed JSON → the re-dispatch → T3-F1's not-persist/missing path. Cheap, deterministic, closes both
+  verdict variants; pin both.
+- **T3-F4 (MEDIUM) — the dissent contract, decided.** Severity **HIGH** (blocks and fires V7; CRITICAL is
+  this project's idiom for hard deterministic failures, and a synthesized proxy for unarticulated judgment
+  would overstate confidence — the same reasoning as R3's HIGH). "Corresponding" = **same critic + same
+  dimension + severity in BLOCKING** (a same-critic HIGH in the dissented dimension suppresses synthesis —
+  the merge already blocks; a MEDIUM does not suppress). Cross-lens dissent (a correctness critic reporting
+  `dimensions["SECURITY"] == "no"` — the schema forces every critic to fill all six) fires with category =
+  the DISSENTED dimension, fail-closed. Ids: `dimension-dissent:correctness` / `:code-quality` /
+  `:security` — three fixed ids mirroring `critic-missing:%s` — added to `ORCHESTRATOR_DEFECT_IDS` with the
+  pinned `"ORCHESTRATOR ACTION — not a coder task:"` fix prefix. REFINE choreography: Step 4+5 prose
+  mirroring `SKILL.md:657-667` — on dissent, re-dispatch that critic ONCE ("articulate the dissent as a
+  blocking defect, or change the dimension to yes") before the REFINE loop; synthesize only if it persists.
+- **T3-F5 (CRITICAL ordering, CF-0 restated here) — validate BEFORE stamp.** The raw critic is validated by
+  `enforce_critic_schema` BEFORE any `pass` field is added; the stamp is orchestrator metadata added after
+  validation passes and is never part of the validated object. Pin: a stamped artifact fed to
+  `enforce_critic_schema` MUST return the stray-key error.
+
 ---
 
 ### Task 4 — S5 + S10: artifact currency and stage order (structural change R2, part 1)
 
 **Files:** modify `scripts/floorsynth.py`, `skills/atlas/SKILL.md` (Step 3.4, Step 4+5, REFINE); modify
-`tests/test_floorsynth.py`.
+`tests/test_floorsynth.py`, `tests/test_skill_floor_contract.py` (fold T4-F3 — new orchestrator ids break
+the corpus pins otherwise).
 
 **S5 — stale critic artifacts.** Critic artifact names are pass-invariant and REFINE re-enters
 CODED→VERIFIED in the same run dir. `floorsynth.critics_missing_defects` (`:176`) tests **file existence,
@@ -335,6 +486,63 @@ exists and is deliberately unwired**: `fsm.legal_transition(CODED → OUTPUT)` i
 - [ ] **Step 6 — regression guard.** Prove a legitimate REFINE run (`VERIFIED → REFINE → CODED → VERIFIED →
       OUTPUT`) still passes. This is the false-RED risk for this task.
 - [ ] **Step 7 — mutation check, `make ci`, commit.**
+
+**CHALLENGE FOLDS (binding):**
+
+- **T4-F1 (HIGH) — the adjacency condition must not fire on documented honest sequences.** Verified matrix
+  over the real `ctxstore.advance` / `fsm.legal_transition`: clean, CLARIFY, 1-REFINE, 2-REFINE and every
+  resume kill-point re-entry are all fsm-legal — but (i) adjacent DUPLICATES are illegal (self-loops are
+  false for every stage, and `advance()` appends the log line BEFORE writing `state.json`, so a kill
+  between the two writes makes the honest resume re-advance that stage → adjacent duplicate; the
+  F3-timeout path at `SKILL.md:844-846` does the same via the re-dispatched narrower coder); (ii) the
+  pre-CODE cancel (`GROUNDED → OUTPUT`, `SKILL.md:346`) is not a legal edge; (iii) `stage == "ROLLBACK"`
+  records have no edges at all. Fold — normalize the record sequence BEFORE checking: (1) drop
+  `stage == "ROLLBACK"` records (they are not machine transitions); (2) collapse adjacent duplicates (an
+  idempotent re-record is benign; verified the S10 attack shape `[VERIFIED, REFINE, CODED, OUTPUT]` still
+  trips both conditions after normalization); (3) sanction the cancel exit — the cancel path records
+  `ctxstore.advance(..., "OUTPUT", cancelled=True)` (`advance` accepts `**telemetry`; no signature change)
+  and `stale_verdict_defects` skips a ledger whose final OUTPUT record carries `cancelled=True`. The full
+  honest matrix (clean / CLARIFY / 1-REFINE / 2-REFINE / resume re-entries / duplicate-after-crash /
+  cancel / rollback) lands as negative-control pins, and a mutant that fires on the cancel shape must be
+  killed by a test actually run.
+- **T4-F2 (HIGH) — "post-dates" means append-order INDEX, never a timestamp.** `_now()` is second-granular
+  (verified: 9 honest `advance()` entries in one second → 1 distinct `ts`), so a timestamp reading never
+  fires on a fast run. The condition is: the INDEX of the last CODED record exceeds the INDEX of the last
+  VERIFIED record in the (normalized) sequence. Pin a fixture whose entries all share one timestamp.
+- **T4-F3 (HIGH) — fence the new ids.** `critic-stale:correctness` / `:code-quality` / `:security`
+  (mirroring `critic-missing:%s`) and `stale-verdict` MUST be added to `ORCHESTRATOR_DEFECT_IDS` with the
+  pinned `"ORCHESTRATOR ACTION — not a coder task:"` fix prefix — REFINE hands every non-orchestrator
+  blocking `fix` to the Write/Edit-capable coder as a trusted instruction (`SKILL.md:698-706`), and "re-
+  dispatch the security critic and persist its JSON" is gate input the stamp exists to police. (Task 3
+  remembered this; Task 4 as drafted did not, twice.) The corpora in `tests/test_floorsynth.py` and
+  `tests/test_skill_floor_contract.py` are extended accordingly (Files line updated).
+- **T4-F4 (MEDIUM) — the stamp check lives ONLY in Step 4+5, never at OUTPUT.** A green run resumed after a
+  plugin upgrade (v1.5.1 artifacts carry no `pass` field) never re-runs Step 4+5 → stays green; but
+  evaluating the check at OUTPUT would turn that honest upgrade-resume RED (verified). If the check is
+  ever evaluated at OUTPUT, unstamped artifacts are accepted when `current pass == 0` (they can only be
+  from this run's first VERIFIED); "unstamped = stale" holds for pass ≥ 1. Wiring pin.
+- **T4-F5 (LOW) — rollback × stamp interaction is cosmetic-expected.** `VERIFIED → REFINE →
+  rollback_to(VERIFIED) → OUTPUT` leaves artifacts stamped `pass=0` while `get_refine_passes == 1` → the
+  stale-stamp defect fires; but rollback provably does not move the counter (1→1) and every honest trigger
+  is already UNVERIFIED by design. Enumerate it in the regression matrix so the implementer is not
+  surprised, and so a future "rollback then continue green" design does not silently inherit it.
+- **T4-F6 (LOW) — write the folded defect back.** The OUTPUT fold must write the `stale-verdict` defect
+  BACK into `merged_critic.json` — the OUTPUT STOP block lists residuals "from `merged_critic.json`"
+  (`SKILL.md:794-795`); an in-memory-only fold turns the run red with no listed residual.
+- **T4-F7 (LOW) — the stage-order check is scoped to the single-change atlas machine ONLY.** The weave ROOT
+  ledger's stages (`DECOMPOSED` / `BUDGETED` / `SCHEDULE` / `INTEGRATE` / `AGGREGATE`) are all fsm-illegal
+  by design (verified); inner runs (`${SESSION}/tasks/<id>`) have isolated nested run dirs with their own
+  ledgers. The wiring prose must say so explicitly so nobody "harmonizes" it into the weave.
+- **T4-F8 (LOW) — CHANGELOG honesty.** Pass stamps are a CURRENCY marker, not authenticity: the target's
+  build can read the ledger and stamp forged artifacts with the current pass, and can append legal-looking
+  ledger lines — both trivially constructible from the same writable `.atlas/`. Task 4 closes only the
+  honest-staleness halves of S5/S10 (exactly how S5 was filed); the attacked variants remain open until
+  v1.5.3 R1/R2 — say so plainly. Also recorded for the v1.5.3 plan: `ctxstore.read_artifact` (:322-326) is
+  a bare `read_text` that follows symlinks — read-side confinement was unmentioned in either document
+  (impact bounded today: parse failures fail closed via `critics_missing_defects`, and direct write
+  subsumes it).
+- **T4-F9 (CF-0 restated here) — the `pass` stamp is added AFTER `enforce_critic_schema` passes** (see
+  Task 3 T3-F5); end-to-end pin that a stamped pass-0 run still merges and gates green.
 
 ---
 
@@ -377,12 +585,60 @@ rather than the pipes; do not merge the two symptoms.
       where the run is already RED; prove that.
 - [ ] **Step 7 — mutation check, `make ci`, commit.**
 
+**CHALLENGE FOLDS (binding):**
+
+- **T5-F1 (HIGH) — the suiterun re-route needs three named contract guards, or it ships a NEW false-green
+  while fixing S18.** (a) `if not res["launched"] or res["timed_out"]: return {}` — today
+  `subprocess.run(timeout=…)` RAISES `TimeoutExpired` and the `except` discards all output, but
+  `_launch_and_wait` RETURNS `timed_out=True` with partial stdout; a naive re-route lets `runsignal.count`
+  read a partial green-looking output and return `::weave-whole-suite:: pass` — **a timed-out suite reading
+  green**. The mutation check must include: drop the `timed_out` guard → the partial-green fixture fails.
+  (b) mirror `runcheck.run`'s `_is_cap_start_failure` fail-open re-run — otherwise a transient
+  scope-creation failure yields `launched=False` → `{}` → `differential.regressions(baseline_pass, {})`
+  reads every honest baseline-green test as a regression → manufactured UNVERIFIED on weave runs. (c) name
+  the memory cap: 2048 MB, the same value `runcheck.run` receives from the SKILL; a mid-run OOM fails
+  CLOSED (never false green), same as runcheck. (d) argv via `proccap._build_wrapper(full, mem, backend)` —
+  the `sh -c` string and the `{junit}` substitution survive intact. (e) rewrite the three mocked tests at
+  the `scripts.suiterun.proccap._launch_and_wait` seam asserting **what it is called with** (argv, env,
+  timeout_s) — today `test_pytest_still_uses_junit_xml` breaks loudly (dead mock → KeyError) and
+  `test_go_falls_back_to_whole_suite_green` / `test_go_unconfirmed_is_empty` pass VACUOUSLY with the mock
+  dead (they mock `runsignal.count`, so nothing exercises the run path). The `{}`-degrade contract and the
+  two real-subprocess tests must keep passing; `scripts/dogfood_weave.py:171,183` calls
+  `run_suite(verify_cmd, wt)` with defaults — signature stays back-compatible.
+- **T5-F2 (HIGH) — never identify the teardown unit via the leader's own cgroup unvalidated.** Observed on
+  this host (systemd 255): across five identical launches of the exact proccap wrapper shape,
+  `/proc/<systemd-run pid>/cgroup` showed the transient scope four times — and the CALLER'S OWN cgroup
+  once. "Read the leader's cgroup and kill every pid in it" can SIGKILL the plugin's own session. Fold:
+  launch with an explicit unique `--unit=atlas-proccap-<pid>-<n>` (validated in a patched copy: teardown
+  reads the deterministic `/sys/fs/cgroup/system.slice/<unit>.scope/cgroup.procs`, **0 survivors**), or
+  validate the discovered path matches `/system.slice/*.scope` AND the expected unit name before killing
+  anything; never kill an unvalidated cgroup. Keep the `backend == cgroup` guard so non-systemd hosts
+  degrade to the bounded drain only. (Everything else about the mechanism is proven sound: the `setsid`
+  descendant STAYS in the transient scope — session changes, cgroup doesn't — and SIGKILLing its pids GCs
+  the scope.)
+- **T5-F3 (MEDIUM) — the wall-clock assertion is an ABSOLUTE two-backend budget, not "a small multiple".**
+  Measured with the validated fix shape: cgroup+teardown returns in 3.0 s (teardown kills the pipe-holder →
+  immediate EOF), ulimit/none is grace-bound at 11.0 s (grace=8) against `timeout_s=3`. Assert
+  `wall < timeout_s + grace + slack` (e.g. < 20 s — still kills today's 45 s / unbounded), or the test
+  false-fails on systemd-less CI.
+- **Verified-correct folds (keep Task 5 as written on these):** the fix shape — bounded
+  `communicate(timeout=grace)` + pipe-close/`proc.wait` fallback + named-unit teardown — is byte-identical
+  to the original on the clean path (capped and uncapped), preserves partial stdout, keeps
+  `returncode=124` / `timed_out=True`, and the 5–10 s grace truncates nothing legitimate (post-kill
+  in-pipe data is immediately readable; the grace only binds non-systemd hosts). suiterun's `shell=True`
+  boundary survives the re-route (`["sh", "-c", cmd]`, `target_env()` preserved, the `{}`-degrade contract
+  intact, the operator-supplied-`verify_cmd` trust boundary untouched). Step 4's docstring correction is
+  warranted — the "post-kill drain returns promptly" claim is false for any process that left the group
+  (measured).
+
 ---
 
 ### Task 6 — S14 + E3: stop shipping a constant as evidence, and fix the rubric contradiction
 
-**Files:** modify `scripts/runcheck.py` (`:291`), `skills/atlas/SKILL.md:586`,
-`agents/correctness-critic.md:61`, `references/rubric.md:193-194`.
+**Files:** modify `scripts/runcheck.py` (`:291` + the docstrings at `:34-36` / `:237-241`),
+`skills/atlas/SKILL.md:586`, `agents/correctness-critic.md` (`:24` AND `:61`),
+`references/rubric.md` (`:193-194` AND `:50` / `:123-124`), `PLAN.md` (`:145`, `:158`, `:177`, `:201`);
+modify the pinning tests.
 
 **S14.** `runcheck.run` hard-codes `"revert_red": False`. Grep confirms no orchestrator path ever computes
 it; the only other mentions are a docstring, rubric prose, and `run_negative_gate.py`'s printout. Yet
@@ -408,6 +664,29 @@ floor explicitly (`pathcheck`, `sast`, `empty-diff`) and cite `skills/atlas/SKIL
 - [ ] **Step 2** — apply (b); update the role file sentence in the same commit.
 - [ ] **Step 3** — amend `references/rubric.md:193-194`; pin the amendment so it cannot silently re-narrow.
 - [ ] **Step 4** — `make ci`, commit.
+
+**CHALLENGE FOLDS (binding):**
+
+- **T6-F1 (HIGH) — option (b) as scoped leaves the revert→RED fiction INSIDE the critic packet.** The
+  packet includes the critic's single rubric lens slice (`SKILL.md:583`), and `rubric.md:50` + `:123-124`
+  still advertise a "revert → RED differential" as part of the deterministic floor. A critic can notice the
+  advertised control is absent from its evidence and emit a CORRECTNESS defect; any-severity CORRECTNESS
+  fires V7 (origin-blind, verified) forcing a refine pass, and at HIGH the coder receives a `fix` it cannot
+  act on — manufactured cost, up to a manufactured RED, on honest runs. Removing the role-file instruction
+  does not remove the rubric's own priming. Fold — the extended Files line above: amend `rubric.md:50` and
+  `:123-124` to state the differential is **not currently computed** (deferred with S14(a)); fix BOTH
+  role-file mentions (`:24` lists `revert_red` under "you receive"; `:61` is the cross-check instruction —
+  e.g. cross-check `test_count` / `new_tests_collected` against the diff instead); apply the E3 V7
+  amendment to `PLAN.md:177` as well, and correct the same fiction at `PLAN.md:145` / `:158` / `:201`;
+  correct `runcheck.py`'s docstrings (`:34-36`, `:237-241` claim "the orchestrator computes it across a
+  second run" — false). **KEEP the `revert_red` key in the result dict** — `tests/test_runcheck.py:544,576`
+  pin it and `run_negative_gate.py:263` consumes it; only its shipment as evidence ends. The CHANGELOG
+  says which of (a)/(b) was shipped (b) and that (a) remains the deferred, only real control against an
+  always-green recipe (S19).
+- **T6-F2 (MEDIUM) — Step 1's pin in non-vacuous form.** A field↔producer constant map shrinks with the
+  mutation. Instead: derive the Step-3 packet field list from the SKILL text and assert it is a subset of
+  `runcheck.run`'s REAL result-dict keys (executed, not hard-coded), plus an explicit regression pin that
+  `revert_red` is absent from the `SKILL.md:586` correctness-critic slice.
 
 ---
 
