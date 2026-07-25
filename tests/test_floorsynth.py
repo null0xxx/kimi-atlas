@@ -186,6 +186,14 @@ def _every_synthesized_defect():
         "critic_code_quality.json": _critic(dim_no=("CODE-QUALITY",)),
         "critic_security.json": _critic(dim_no=("SECURITY",)),
     })
+    out += floorsynth.critics_stale_defects({
+        "critic_correctness.json": dict(_critic(), **{"pass": 0}),
+        "critic_code_quality.json": dict(_critic(), **{"pass": 0}),
+        "critic_security.json": dict(_critic(), **{"pass": 0}),
+    }, 1)
+    out += floorsynth.stale_verdict_defects(
+        [{"stage": s} for s in
+         ("INIT", "CODED", "VERIFIED", "REFINE", "CODED", "OUTPUT")])
     out += floorsynth.critics_missing_defects([])
     bad = {"dimensions": {}, "verdict": "OK",
            "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
@@ -204,6 +212,8 @@ class TestFixStringAudience(unittest.TestCase):
                "out-of-scope:lib/x.py",
                "dimension-dissent:correctness", "dimension-dissent:code-quality",
                "dimension-dissent:security",
+               "critic-stale:correctness", "critic-stale:code-quality",
+               "critic-stale:security", "stale-verdict",
                "critic-missing:correctness", "critic-missing:code-quality",
                "critic-missing:security", "critic-schema"}
 
@@ -481,6 +491,195 @@ class TestDimensionDissentDefects(unittest.TestCase):
         # missing-critic and schema floors own those shapes).
         self.assertEqual(
             floorsynth.dimension_dissent_defects({"critic_evil.json": _critic(dim_no=("SECURITY",))}), [])
+
+
+class TestCriticsStaleDefects(unittest.TestCase):
+    """S5: artifact currency. Critic artifact names are pass-invariant and
+    REFINE re-enters CODED→VERIFIED in the same run dir, so a pass-1 CLEAN
+    artifact reads as a fresh lens on pass 2 unless the stamp is checked. One
+    blocking CRITICAL per artifact whose `pass` stamp != the current pass.
+    Back-compat: an artifact with NO `pass` field is stale — EXCEPT at current
+    pass 0, where it can only be from this run's first VERIFIED (upgrade-
+    resume, fold T4-F4). The stamp is orchestrator metadata added AFTER
+    enforce_critic_schema passes (CF-0), never part of the validated object."""
+
+    def _stamped(self, p):
+        return dict(_critic(), **({"pass": p} if p is not ... else {}))
+
+    def test_fresh_at_pass_zero_is_silent(self):
+        raw = {n: self._stamped(0) for n, _d in floorsynth.CRITIC_ARTIFACTS}
+        self.assertEqual(floorsynth.critics_stale_defects(raw, 0), [])
+
+    def test_unstamped_at_pass_zero_is_accepted(self):
+        # Upgrade-resume (a v1.5.1 artifact carried into a pass-0 VERIFIED).
+        raw = {n: self._stamped(...) for n, _d in floorsynth.CRITIC_ARTIFACTS}
+        self.assertEqual(floorsynth.critics_stale_defects(raw, 0), [])
+
+    def test_unstamped_at_pass_one_is_stale(self):
+        # Back-compat: no `pass` field means stale, never "pass 0".
+        raw = {"critic_security.json": self._stamped(...)}
+        out = floorsynth.critics_stale_defects(raw, 1)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["id"], "critic-stale:security")
+
+    def test_older_stamp_is_stale(self):
+        raw = {"critic_correctness.json": self._stamped(0)}
+        out = floorsynth.critics_stale_defects(raw, 1)
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["id"], out[0]["category"], out[0]["severity"]),
+                         ("critic-stale:correctness", "CORRECTNESS", "CRITICAL"))
+        self.assertTrue(out[0]["fix"].startswith("ORCHESTRATOR ACTION"))
+
+    def test_current_stamp_is_fresh(self):
+        raw = {n: self._stamped(2) for n, _d in floorsynth.CRITIC_ARTIFACTS}
+        self.assertEqual(floorsynth.critics_stale_defects(raw, 2), [])
+
+    def test_future_stamp_is_stale(self):
+        raw = {"critic_security.json": self._stamped(3)}
+        self.assertEqual(len(floorsynth.critics_stale_defects(raw, 1)), 1)
+
+    def test_non_int_stamp_is_stale(self):
+        raw = {"critic_security.json": self._stamped("0")}
+        self.assertEqual(len(floorsynth.critics_stale_defects(raw, 0)), 1)
+
+    def test_mixed_map_reports_exactly_the_stale_ones(self):
+        raw = {
+            "critic_correctness.json": self._stamped(1),
+            "critic_code_quality.json": self._stamped(0),
+            "critic_security.json": self._stamped(1),
+        }
+        out = floorsynth.critics_stale_defects(raw, 1)
+        self.assertEqual([d["id"] for d in out], ["critic-stale:code-quality"])
+
+    def test_ids_are_orchestrator_facing(self):
+        raw = {"critic_security.json": self._stamped(0)}
+        for d in floorsynth.critics_stale_defects(raw, 1):
+            self.assertIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+    def test_tolerates_malformed_inputs(self):
+        self.assertEqual(floorsynth.critics_stale_defects(None, 1), [])
+        self.assertEqual(floorsynth.critics_stale_defects({}, 1), [])
+        self.assertEqual(
+            floorsynth.critics_stale_defects({"critic_security.json": "oops"}, 1), [])
+        self.assertEqual(
+            floorsynth.critics_stale_defects({"critic_evil.json": self._stamped(0)}, 1), [])
+
+
+class TestStaleVerdictDefects(unittest.TestCase):
+    """S10: no stage-order invariant at v1.5.1 — a ledger reading
+    [...,'VERIFIED','REFINE','CODED','OUTPUT'] (the tree mutated AFTER
+    verification) yielded missing_stages == [] and printed a stale ✅.
+    stale_verdict_defects folds a blocking DOES-IT-RUN/CRITICAL when the last
+    CODED record's APPEND-ORDER index exceeds the last VERIFIED's, or any
+    adjacent pair fails fsm.legal_transition — after normalization (drop
+    ROLLBACK records, collapse adjacent duplicates) and with the cancelled=True
+    sanction. NON-raising: it records a defect; it never turns advance into a
+    hard error (resume-after-compaction must keep working)."""
+
+    def _seq(self, *stages, **marks):
+        recs = []
+        for s in stages:
+            rec = {"stage": s, "ts": "2026-07-25T00:00:00Z"}  # one shared ts (fold T4-F2)
+            rec.update(marks.get(s, {}) if isinstance(marks.get(s), dict) else {})
+            recs.append(rec)
+        return recs
+
+    # ---- the honest matrix (negative controls; fold T4-F1) ----
+    def test_clean_run_is_silent(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_clarify_run_is_silent(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "CLARIFY", "TRIAGED",
+                         "GROUNDED", "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_one_refine_run_is_silent(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "REFINE", "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_two_refine_run_is_silent(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "REFINE", "CODED", "VERIFIED",
+                         "REFINE", "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_duplicate_after_crash_is_collapsed(self):
+        # advance() appends the log line BEFORE writing state.json, so a kill
+        # between the two writes makes the honest resume re-advance the stage.
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "GROUNDED", "CODED", "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_cancel_is_sanctioned(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED")
+        recs.append({"stage": "OUTPUT", "ts": "2026-07-25T00:00:00Z", "cancelled": True})
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_rollback_records_are_dropped(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "ROLLBACK", "ROLLBACK", "OUTPUT")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_early_ledger_is_silent(self):
+        self.assertEqual(floorsynth.stale_verdict_defects([]), [])
+        # Honest prefixes of a live run are legal adjacents and never fire.
+        self.assertEqual(floorsynth.stale_verdict_defects(self._seq("INIT")), [])
+        self.assertEqual(
+            floorsynth.stale_verdict_defects(self._seq("INIT", "INTENT_CAPTURED")), [])
+        self.assertEqual(
+            floorsynth.stale_verdict_defects(
+                self._seq("INIT", "INTENT_CAPTURED", "CLARIFY", "TRIAGED")), [])
+
+    def test_broken_prefix_fires_even_without_coded_or_verified(self):
+        # An illegal adjacency is broken at any length — the check must not
+        # wait for the full machine to be present.
+        self.assertEqual(
+            len(floorsynth.stale_verdict_defects(self._seq("INIT", "CODED"))), 1)
+
+    def test_ordering_alone_fires_with_all_legal_adjacents(self):
+        # Condition (a) is NOT subsumed by (b): a ledger whose pairs are all
+        # legal but whose last CODED post-dates its last VERIFIED still means
+        # the tree mutated after verification. (Pins (a) against deletion.)
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "REFINE", "CODED")
+        out = floorsynth.stale_verdict_defects(recs)
+        self.assertEqual(len(out), 1)
+
+    # ---- the attack shapes (must fire) ----
+    def test_the_s10_shape_fires(self):
+        recs = self._seq("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                         "CODED", "VERIFIED", "REFINE", "CODED", "OUTPUT")
+        out = floorsynth.stale_verdict_defects(recs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["id"], out[0]["category"], out[0]["severity"]),
+                         ("stale-verdict", "DOES-IT-RUN", "CRITICAL"))
+        self.assertTrue(out[0]["fix"].startswith("ORCHESTRATOR ACTION"))
+
+    def test_coded_after_verified_without_refine_fires(self):
+        recs = self._seq("INIT", "CODED", "VERIFIED", "CODED", "VERIFIED", "OUTPUT")
+        self.assertEqual(len(floorsynth.stale_verdict_defects(recs)), 1)
+
+    def test_illegal_adjacent_pair_fires(self):
+        recs = self._seq("INIT", "TRIAGED", "CODED", "GROUNDED", "VERIFIED", "OUTPUT")
+        self.assertEqual(len(floorsynth.stale_verdict_defects(recs)), 1)
+
+    def test_id_is_orchestrator_facing(self):
+        recs = self._seq("INIT", "CODED", "VERIFIED", "REFINE", "CODED", "OUTPUT")
+        for d in floorsynth.stale_verdict_defects(recs):
+            self.assertIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+    def test_blocks_final_status(self):
+        recs = self._seq("INIT", "CODED", "VERIFIED", "REFINE", "CODED", "OUTPUT")
+        merged = verdict.merge([], floorsynth.stale_verdict_defects(recs))
+        self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
+
+    def test_tolerates_garbage(self):
+        self.assertEqual(floorsynth.stale_verdict_defects(None), [])
+        self.assertEqual(floorsynth.stale_verdict_defects([{}]), [])
+        self.assertEqual(floorsynth.stale_verdict_defects([{"stage": None}, "x", 3]), [])
 
 
 class TestGateAgreementMatrix(unittest.TestCase):

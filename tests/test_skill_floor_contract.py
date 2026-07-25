@@ -174,7 +174,8 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         self.assertIsNotNone(merge_line)
         self.assertEqual(set(folded), {"script_defects_from", "synth_runcheck", "synth_docs",
                                        "empty_diff_defect", "critics_missing_defects",
-                                       "out_of_scope_defects", "dimension_dissent_defects"})
+                                       "out_of_scope_defects", "dimension_dissent_defects",
+                                       "critics_stale_defects"})
         for fn, line in sorted(folded.items()):
             with self.subTest(fn=fn):
                 self.assertLess(line, merge_line, "%s is folded AFTER the merge" % fn)
@@ -192,6 +193,7 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         "critics_missing_defects": ("loaded_critics",),
         "out_of_scope_defects": ("full_paths", "st['scope_paths']"),
         "dimension_dissent_defects": ("loaded_map",),
+        "critics_stale_defects": ("loaded_map", "current_pass"),
     }
 
     def test_full_paths_is_gated_on_a_git_tree_with_resolvable_baseline(self):
@@ -369,6 +371,79 @@ class TestRawCriticValidationAtProduction(unittest.TestCase):
         errs = quality.enforce_critic_schema(stamped)
         self.assertTrue(any("pass" in e for e in errs), errs)
 
+    def test_stamp_is_added_after_validation_and_before_persistence(self):
+        # CF-0/T4: the pass-stamp (get_refine_passes at write time) is added to
+        # the object ONLY after enforce_critic_schema passes and before
+        # write_artifact — the stamped object is never the validated one.
+        tree = ast.parse(self._step34_bodies()[0].replace("${KIMI_SESSION_ID}", "SID"))
+        schema_lines = [n.lineno for n in ast.walk(tree)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "enforce_critic_schema"]
+        write_lines = [n.lineno for n in ast.walk(tree)
+                       if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                       and n.func.attr == "write_artifact"]
+        stamp_lines = [n.lineno for n in ast.walk(tree)
+                       if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)
+                               and t.value.id == "obj"
+                               and isinstance(t.slice, ast.Constant)
+                               and t.slice.value == "pass"
+                               for t in n.targets)]
+        self.assertEqual(len(stamp_lines), 1, "exactly one obj['pass'] stamp assignment")
+        self.assertLess(max(schema_lines), stamp_lines[0],
+                        "the stamp must come AFTER schema validation (CF-0)")
+        self.assertLess(stamp_lines[0], min(write_lines),
+                        "the stamp must be in place BEFORE persistence")
+
+
+class TestOutputFoldsStageOrder(unittest.TestCase):
+    """S10/R2 part 1 (folds T4-F6, T4-F13): the OUTPUT block folds
+    floorsynth.stale_verdict_defects over the append-only ledger into the
+    merged critic BEFORE final_status is computed, and writes the folded
+    defect BACK into merged_critic.json so the STOP block's residual list
+    (which reads that artifact) can show it. Scoped to the single-change
+    atlas machine only — the weave root ledger uses outer stages by design."""
+
+    def _output_block(self):
+        bodies = [b for b in _heredoc_bodies(SKILL.read_text(encoding="utf-8"))
+                  if "verdict.final_status(" in b]
+        self.assertEqual(len(bodies), 1, "exactly one OUTPUT/final_status heredoc")
+        return bodies[0]
+
+    def test_stale_verdict_fold_precedes_final_status(self):
+        tree = ast.parse(self._output_block().replace("${KIMI_SESSION_ID}", "SID"))
+        fold_lines = [n.lineno for n in ast.walk(tree)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                      and n.func.attr == "stale_verdict_defects"]
+        status_lines = [n.lineno for n in ast.walk(tree)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "final_status"]
+        self.assertEqual(len(fold_lines), 1)
+        self.assertTrue(status_lines)
+        self.assertLess(fold_lines[0], min(status_lines),
+                        "the stale-verdict fold must precede final_status")
+
+    def test_folded_defect_is_written_back(self):
+        body = self._output_block()
+        tree = ast.parse(body.replace("${KIMI_SESSION_ID}", "SID"))
+        writes = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "write_artifact"
+                  and len(n.args) >= 4 and isinstance(n.args[2], ast.Constant)
+                  and n.args[2].value == "merged_critic.json"]
+        status_lines = [n.lineno for n in ast.walk(tree)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "final_status"]
+        self.assertTrue(writes, "the folded defect must be written back to merged_critic.json")
+        self.assertLess(max(w.lineno for w in writes), min(status_lines),
+                        "the write-back must precede final_status")
+
+    def test_log_records_come_from_the_ledger(self):
+        # The fold's input must be the append-only ledger, never a constant —
+        # stale_verdict_defects([]) can never fire.
+        body = self._output_block()
+        self.assertIn("_iter_log_records", body)
+
 
 class TestEveryHeredocParses(unittest.TestCase):
     def test_all_heredocs_are_valid_python(self):
@@ -492,6 +567,14 @@ class TestContradictionsResolved(unittest.TestCase):
                            "critic_code_quality.json": _dissenting("CODE-QUALITY"),
                            "critic_security.json": _dissenting("SECURITY"),
                        })
+                       + floorsynth.critics_stale_defects({
+                           "critic_correctness.json": dict(_dissenting("CORRECTNESS"), **{"pass": 0}),
+                           "critic_code_quality.json": dict(_dissenting("CODE-QUALITY"), **{"pass": 0}),
+                           "critic_security.json": dict(_dissenting("SECURITY"), **{"pass": 0}),
+                       }, 1)
+                       + floorsynth.stale_verdict_defects(
+                           [{"stage": s} for s in
+                            ("INIT", "CODED", "VERIFIED", "REFINE", "CODED", "OUTPUT")])
                        + [d for d in schema_probe["defects"] if d["id"] == "critic-schema"])
         self.assertEqual(
             {d["id"] for d in synthesised} & floorsynth.ORCHESTRATOR_DEFECT_IDS,

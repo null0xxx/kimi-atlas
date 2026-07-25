@@ -343,8 +343,12 @@ inline from the frozen intent + `success_criteria` + the grounding digest: which
 Then branch on the run mode:
 - **Interactive (a human is present):** present the plan preview and call **one**
   `AskUserQuestion` — Approve / Adjust scope / Cancel. On *Adjust*, revise the plan (still pre-CODE)
-  and re-present once. On *Cancel*, go straight to **OUTPUT** with status `⚠️ UNVERIFIED` and no
-  code change. This `AskUserQuestion` is a **sanctioned pause** (Completion Invariant gate 2). The
+  and re-present once. On *Cancel*, record the sanctioned jump —
+  `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", cancelled=True)` —
+  and go straight to **OUTPUT** with status `⚠️ UNVERIFIED` and no code change (no final-status
+  recompute: the `cancelled=True` marker sanctions the machine jump past CODED/VERIFIED, and the
+  stage-order fold skips a ledger that carries it). This `AskUserQuestion` is a **sanctioned
+  pause** (Completion Invariant gate 2). The
   coder edits the real tree directly, so **`review_root = "."`**.
 - **Headless (`-p`, no human):** you **cannot** ask, so you **must isolate**. Never apply to the
   user's working tree or default branch. Confine the coder:
@@ -636,6 +640,11 @@ PY
    if errors:
        print("CRITIC_SCHEMA_ERRORS: " + json.dumps(errors))
        raise SystemExit(2)
+   # S5: stamp with the current refine pass AFTER validation (orchestrator
+   # metadata, never part of the validated object -- CF-0). Step 4+5 requires
+   # the stamp to match the then-current pass, so a clean artifact from an
+   # earlier pass can never read as a fresh lens.
+   obj["pass"] = ctxstore.get_refine_passes(".atlas", run)
    ctxstore.write_artifact(".atlas", run, NAME, obj)
    print("PERSISTED " + NAME)
    PY
@@ -685,6 +694,11 @@ script_defects += floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("veri
 script_defects += floorsynth.synth_docs(ev.get("docs_clean", True))
 script_defects += floorsynth.empty_diff_defect(diff)
 script_defects += floorsynth.critics_missing_defects(loaded_critics)
+# S5: artifact currency. A critic artifact stamped for an earlier refine pass
+# is NOT a fresh lens (existence was never freshness); one blocking CRITICAL
+# per stale artifact. Unstamped == stale, except at pass 0 (upgrade-resume).
+current_pass = ctxstore.get_refine_passes(".atlas", run)
+script_defects += floorsynth.critics_stale_defects(loaded_map, current_pass)
 # S4: a critic's judgment reaches the gate ONLY through defects[]. One blocking
 # HIGH per critic that reports dimensions[d]=="no" or verdict=="FAIL" WITHOUT a
 # corresponding blocking defect -- a dissent in prose can never merge as "yes".
@@ -838,8 +852,19 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   ```
   PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
   import json
-  from scripts import ctxstore, verdict
+  from scripts import ctxstore, floorsynth, verdict
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
+  # S10: the tree must not have mutated AFTER verification. Fold the stage-order
+  # check over the append-only ledger -- non-raising, single-change machine only
+  # (never the weave root ledger) -- and write the folded defect BACK so the STOP
+  # block's residual list (which reads merged_critic.json) can show it.
+  log_records = list(ctxstore._iter_log_records(".atlas", "${KIMI_SESSION_ID}"))
+  stale = floorsynth.stale_verdict_defects(log_records)
+  if stale:
+      merged["defects"] = list(merged.get("defects", [])) + stale
+      merged["verdict"] = "FAIL"
+      merged.setdefault("dimensions", {})["DOES-IT-RUN"] = "no"
+      ctxstore.write_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json", merged)
   # budget_exhausted is True ONLY in the degraded case where VERIFIED could not be
   # re-run after the last refine (e.g. coder timeout), so no fresh critic exists to
   # trust. In the normal path it is False and the blocking-ness of the final merged

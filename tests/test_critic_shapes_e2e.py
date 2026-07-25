@@ -57,6 +57,8 @@ _STEP45_BLOCK = _one(
     lambda b: "floorsynth.merge_and_validate(" in b, "Step-4+5 merge/gate")
 _REFINE_BLOCK = _one(
     lambda b: "verdict.should_refine(" in b, "REFINE? decision")
+_OUTPUT_BLOCK = _one(
+    lambda b: "verdict.final_status(" in b, "OUTPUT final-status")
 
 _ARTIFACTS = ("critic_correctness.json", "critic_code_quality.json",
               "critic_security.json")
@@ -133,6 +135,26 @@ class _RunDirMixin:
         self.assertEqual(proc.returncode, 0, proc.stderr)
         last = proc.stdout.strip().splitlines()[-1]
         return json.loads(last)
+
+    def _advance(self, root, env, stage):
+        init = ("from scripts import ctxstore\n"
+                "ctxstore.advance('.atlas', 'RUN', '%s')\n" % stage)
+        proc = subprocess.run([sys.executable, "-c", init], cwd=root, env=env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def _output(self, root, env):
+        body = _OUTPUT_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        proc = subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        last = proc.stdout.strip().splitlines()[-1]
+        return json.loads(last)
+
+    def _persist_clean(self, root, env):
+        for name in _ARTIFACTS:
+            proc = self._persist(root, env, name, json.dumps(_CLEAN))
+            self.assertEqual(proc.returncode, 0, proc.stdout)
 
     def _run_shape(self, raw):
         root, env = self._make_run()
@@ -256,6 +278,106 @@ class TestRefineSkipsOrchestratorDefects(_RunDirMixin, unittest.TestCase):
              "location": "l", "fix": "f"},
         ], refine_advances=2)
         self.assertEqual(out, "REFINE=False PASSES=2")
+
+
+class TestCriticArtifactCurrencyE2E(_RunDirMixin, unittest.TestCase):
+    """S5 (Task 4 Step 1): the spec's two-pass scenario against a real ctxstore
+    run dir — pass-1 CLEAN artifacts must NOT read as fresh lenses on pass 2."""
+
+    def test_stale_clean_artifacts_block_on_pass_two(self):
+        root, env = self._make_run()
+        self._persist_clean(root, env)          # stamped pass=0 by the real block
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "OK")   # pass 0: fresh
+        self._advance(root, env, "REFINE")                   # passes -> 1
+        out = self._gate(root, env)                          # critics never re-saw this tree
+        self.assertEqual(out["provisional_status"], "UNVERIFIED")
+        ids = {d["id"] for d in out["blocking"]}
+        self.assertEqual(ids & {"critic-stale:correctness",
+                                "critic-stale:code-quality",
+                                "critic-stale:security"},
+                         {"critic-stale:correctness", "critic-stale:code-quality",
+                          "critic-stale:security"})
+
+    def test_stale_red_artifact_still_blocks(self):
+        # The asymmetry pin: a stale RED artifact keeps the run red — never
+        # "fixed" into passing by the currency check.
+        root, env = self._make_run()
+        raws = [json.dumps(_CRITICAL), json.dumps(_CLEAN), json.dumps(_CLEAN)]
+        for name, raw in zip(_ARTIFACTS, raws):
+            self.assertEqual(self._persist(root, env, name, raw).returncode, 0)
+        self._advance(root, env, "REFINE")
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "UNVERIFIED")
+
+    def test_fresh_stamps_after_refine_are_accepted(self):
+        # The fix must not over-fire: re-dispatched critics are stamped with
+        # the new pass and the run goes green again.
+        root, env = self._make_run()
+        self._persist_clean(root, env)
+        self._advance(root, env, "REFINE")
+        self._persist_clean(root, env)          # stamped pass=1 now
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "OK")
+
+    def test_unstamped_artifacts_at_pass_zero_are_accepted(self):
+        # Upgrade-resume (fold T4-F4): a v1.5.1-era artifact carries no stamp;
+        # at pass 0 it can only be from this run's first VERIFIED — accepted.
+        root, env = self._make_run()
+        init = "from scripts import ctxstore\n"
+        for name, dim in zip(_ARTIFACTS, ("CORRECTNESS", "CODE-QUALITY", "SECURITY")):
+            init += ("ctxstore.write_artifact('.atlas', 'RUN', '%s', %s)\n"
+                     % (name, json.dumps(_CLEAN)))
+        proc = subprocess.run([sys.executable, "-c", init], cwd=root, env=env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "OK")
+
+
+class TestStageOrderE2E(_RunDirMixin, unittest.TestCase):
+    """S10: a tree mutated AFTER verification turns OUTPUT red — folded into
+    merged_critic.json BEFORE final_status, and written back so the residual
+    list can show it. A clean ledger stays green (the regression guard)."""
+
+    def _green_merged(self, root, env):
+        self._persist_clean(root, env)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "OK")
+        for stage in ("INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED", "VERIFIED"):
+            self._advance(root, env, stage)
+
+    def test_coded_after_verified_turns_output_red(self):
+        root, env = self._make_run()
+        self._green_merged(root, env)
+        self._advance(root, env, "CODED")   # the tree mutated AFTER verification
+        out = self._output(root, env)
+        self.assertEqual(out["status"], "UNVERIFIED")
+        merged = json.loads((root / ".atlas" / "RUN" / "merged_critic.json").read_text())
+        self.assertIn("stale-verdict", [d["id"] for d in merged["defects"]])
+        self.assertEqual(merged["verdict"], "FAIL")
+
+    def test_clean_ledger_stays_green_at_output(self):
+        root, env = self._make_run()
+        self._green_merged(root, env)
+        out = self._output(root, env)
+        self.assertEqual(out["status"], "OK")
+
+    def test_honest_refine_ledger_stays_green_at_output(self):
+        # The S10 regression guard (plan Step 6): VERIFIED → REFINE → CODED →
+        # VERIFIED → OUTPUT is the legitimate loop and must NOT fire.
+        root, env = self._make_run()
+        self._persist_clean(root, env)
+        self._gate(root, env)
+        for stage in ("INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED", "VERIFIED"):
+            self._advance(root, env, stage)
+        self._advance(root, env, "REFINE")
+        self._persist_clean(root, env)      # pass-1 critics for the second VERIFIED
+        self._gate(root, env)
+        for stage in ("CODED", "VERIFIED"):
+            self._advance(root, env, stage)
+        out = self._output(root, env)
+        self.assertEqual(out["status"], "OK")
 
 
 class TestS4Controls(_RunDirMixin, unittest.TestCase):

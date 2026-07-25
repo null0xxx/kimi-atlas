@@ -134,9 +134,10 @@ CRITIC_ARTIFACTS: tuple[tuple[str, str], ...] = (
 # (SKILL.md:328) — so a fix telling the coder to "persist the critic JSON" would
 # invite the LLM under review to author gate input. These ids are never coder tasks.
 ORCHESTRATOR_DEFECT_IDS: frozenset[str] = frozenset(
-    {"evidence-incomplete", "critic-schema"}
+    {"evidence-incomplete", "critic-schema", "stale-verdict"}
     | {"critic-missing:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
     | {"dimension-dissent:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
+    | {"critic-stale:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
 )
 
 
@@ -342,6 +343,106 @@ def dimension_dissent_defects(raw_critics) -> list[dict]:
                    % (dimension, ", ".join(dissented)),
         })
     return out
+
+
+def critics_stale_defects(loaded_map, current_pass: int) -> list[dict]:
+    """One blocking CRITICAL per critic artifact whose currency stamp is wrong.
+
+    S5: critic artifact names are pass-invariant and REFINE re-enters
+    CODED→VERIFIED in the same run dir, so existence was never freshness —
+    a pass-1 CLEAN artifact read as a fresh lens on code that critic never
+    saw (verified end-to-end at v1.5.1). Each artifact is stamped at write
+    time with ``pass = ctxstore.get_refine_passes(...)`` (orchestrator
+    metadata added AFTER ``enforce_critic_schema`` passes — CF-0 — never part
+    of the validated object), and the stamp must equal the current pass.
+
+    Back-compat: an artifact with NO ``pass`` field is stale — EXCEPT at
+    ``current_pass == 0``, where it can only be from this run's first VERIFIED
+    (a v1.5.1 artifact carried through an upgrade-resume, fold T4-F4). The
+    check lives ONLY in the Step 4+5 fold, never at OUTPUT. Asymmetric by
+    design: a stale RED artifact keeps the run red through its own defects;
+    this floor exists for the stale CLEAN one. Orchestrator-facing: the fix
+    re-dispatches the critic, never the coder.
+    """
+    out: list[dict] = []
+    for name, dimension in CRITIC_ARTIFACTS:
+        critic = (loaded_map or {}).get(name)
+        if not isinstance(critic, dict):
+            continue
+        stamp = critic.get("pass", ...)
+        fresh = (stamp == current_pass) if stamp is not ... else (current_pass == 0)
+        if fresh:
+            continue
+        out.append({
+            "id": "critic-stale:%s" % dimension.lower(),
+            "category": dimension,
+            "severity": "CRITICAL",
+            "location": ".atlas/<run_id>/%s" % name,
+            "fix": "ORCHESTRATOR ACTION — not a coder task: re-dispatch the %s critic "
+                   "and persist its JSON for the current refine pass (%s); a lens "
+                   "stamped for an earlier pass never reviewed this tree"
+                   % (dimension, current_pass),
+        })
+    return out
+
+
+def stale_verdict_defects(log_records) -> list[dict]:
+    """One blocking DOES-IT-RUN/CRITICAL when the ledger's stage ORDER is broken.
+
+    S10: ``ctxstore.advance`` is a permissive recorder and
+    ``verdict.missing_stages`` is set-membership — order-blind — so a ledger
+    reading ``[..., VERIFIED, REFINE, CODED, OUTPUT]`` (the tree mutated AFTER
+    verification) printed a stale ✅. Two conditions, either sufficient:
+    (a) the last CODED record's APPEND-ORDER index exceeds the last
+    VERIFIED record's; (b) any adjacent pair fails ``fsm.legal_transition``.
+    Append-order index, NEVER a timestamp — the ledger clock is
+    second-granular, so a fast honest run shares one ``ts`` across entries
+    (fold T4-F2).
+
+    The sequence is normalized FIRST (fold T4-F1), because honest sequences
+    contain shapes that are not machine transitions: ``stage == "ROLLBACK"``
+    records are dropped (they are ledger markers, not transitions), adjacent
+    duplicates are collapsed (``advance`` appends the log line before writing
+    state.json, so a crash-resume re-records one stage — idempotent, benign),
+    and a ledger whose final OUTPUT record carries ``cancelled=True`` is
+    skipped outright (the sanctioned pre-CODE cancel). The S10 attack shape
+    has no duplicates and still trips both conditions after normalization.
+
+    NON-RAISING, deliberately: it records a defect; it does not turn
+    ``advance`` into a hard error — resume-after-compaction legitimately
+    re-enters stages and must keep working. Scoped to the single-change atlas
+    machine: the weave root ledger uses outer stages (DECOMPOSED…) that are
+    not fsm edges at all.
+    """
+    from scripts import fsm
+
+    records = [r for r in (log_records or []) if isinstance(r, dict)]
+    if records:
+        last = records[-1]
+        if last.get("stage") == "OUTPUT" and last.get("cancelled"):
+            return []
+    stages = [r.get("stage") for r in records]
+    stages = [s for s in stages if isinstance(s, str) and s != "ROLLBACK"]
+    deduped = [s for i, s in enumerate(stages) if i == 0 or s != stages[i - 1]]
+
+    last_coded = max((i for i, s in enumerate(deduped) if s == "CODED"), default=-1)
+    last_verified = max((i for i, s in enumerate(deduped) if s == "VERIFIED"), default=-1)
+    ordering_broken = last_coded >= 0 and last_verified >= 0 and last_coded > last_verified
+    adjacency_broken = any(
+        not fsm.legal_transition(a, b) for a, b in zip(deduped, deduped[1:])
+    )
+    if not (ordering_broken or adjacency_broken):
+        return []
+    return [{
+        "id": "stale-verdict",
+        "category": "DOES-IT-RUN",
+        "severity": "CRITICAL",
+        "location": ".atlas/<run_id>/log.jsonl",
+        "fix": "ORCHESTRATOR ACTION — not a coder task: the ledger's stage order is "
+               "broken (a CODED after the last VERIFIED, or an illegal transition), "
+               "so the tree may have mutated after verification; re-run CODED → "
+               "VERIFIED and recompute the verdict before printing any status",
+    }]
 
 
 def critics_missing_defects(loaded_artifacts) -> list[dict]:
