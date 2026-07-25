@@ -404,6 +404,16 @@ class TestBoundedDrainAndScopeTeardown(unittest.TestCase):
             ("out\n", "err\n", 3, False),
         )
 
+    def test_honest_long_build_completes(self):
+        # THE false-RED pin (review, X3b survivor): an honest build longer than
+        # the drain grace but within timeout_s must COMPLETE — the grace may
+        # only ever bound the post-kill drain, never the build itself. Any
+        # min(timeout_s, grace)-style mutant manufactures a RED here.
+        res = proccap._launch_and_wait(["sh", "-c", "sleep 10; echo done"], ".", 30)
+        self.assertFalse(res["timed_out"])
+        self.assertEqual(res["returncode"], 0)
+        self.assertEqual(res["stdout"], "done\n")
+
 
 class TestScopeUnitInjection(unittest.TestCase):
     """T5-F2: the teardown only ever kills a unit WE named at launch — never
@@ -431,6 +441,20 @@ class TestScopeUnitInjection(unittest.TestCase):
     def test_teardown_tolerates_missing_and_none(self):
         proccap._teardown_transient_scope(None)                      # no-op
         proccap._teardown_transient_scope("atlas-proccap-0-999999")  # absent path: silent
+
+    def test_teardown_refuses_a_non_conforming_unit_name(self):
+        # Defense in depth (review Minor-3): a name we did not construct must
+        # never resolve outside system.slice — refused BEFORE any file is read.
+        import builtins
+        from unittest import mock
+        opened = []
+        real_open = builtins.open
+        with mock.patch("builtins.open",
+                        side_effect=lambda *a, **k: opened.append(a) or real_open(*a, **k)):
+            proccap._teardown_transient_scope("../x")
+            proccap._teardown_transient_scope("atlas-proccap-../../x")
+            proccap._teardown_transient_scope("user-0.slice")
+        self.assertEqual(opened, [], "a non-conforming unit name reached the filesystem")
 
 
 if __name__ == "__main__":

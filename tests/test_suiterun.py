@@ -129,7 +129,8 @@ class TestRunnerAware(unittest.TestCase):
             res = suiterun.run_suite("pytest", "/tmp", timeout_s=77)
         self.assertIn("--junit-xml=", " ".join(record["argv"]))
         self.assertEqual(record["timeout_s"], 77)
-        self.assertNotIn("PYTHONSAFEPATH", record["env"] or {})
+        self.assertIsInstance(record["env"], dict)   # never env=None (Minor-5)
+        self.assertNotIn("PYTHONSAFEPATH", record["env"])
         self.assertEqual(res, {"T::a": "pass"})
 
     def test_the_memory_cap_is_named_and_applied(self):

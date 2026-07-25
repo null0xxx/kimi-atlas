@@ -313,6 +313,8 @@ def _teardown_transient_scope(unit: str | None) -> None:
     """
     if not unit:
         return
+    if not re.fullmatch(r"atlas-proccap-\d+-\d+", unit):
+        return  # never tear down anything but a unit WE named (defense in depth)
     procs_path = f"/sys/fs/cgroup/system.slice/{unit}.scope/cgroup.procs"
     try:
         with open(procs_path, encoding="ascii") as fh:
@@ -334,8 +336,9 @@ def _drain_bounded(proc: subprocess.Popen, grace_s: float) -> tuple[str, str]:
     under ``sleep infinity``. On cgroup hosts the scope teardown above has
     already killed the pipe-holders, so this returns promptly with the drained
     output. Elsewhere the second timeout closes both pipes and waits out the
-    leader; output still in flight is lost, which is acceptable — the run is
-    already RED (``timed_out``) and the tails are diagnostic only.
+    leader; output still in flight AND whatever was already drained are both
+    lost there (measured), which is acceptable — the run is already RED
+    (``timed_out``) and the tails are diagnostic only.
     """
     try:
         return proc.communicate(timeout=grace_s)
