@@ -1,5 +1,13 @@
 # tests/test_skill_floor_contract.py
-"""The SKILL's Step 4+5 block must DELEGATE to floorsynth, not re-inline it."""
+"""SKILL-text contracts: the Step 4+5 floor block, and the resolved contradictions.
+
+Two families live here. ``TestStep45*``/``TestEveryHeredocParses`` pin that the
+Step 4+5 block DELEGATES to floorsynth rather than re-inlining the marshalling.
+``TestContradictionsResolved`` pins the E1/E2/M7 prose resolutions: the advisory
+skill list is coder-only, the REFINE re-dispatch re-enters CODED in full, the
+80 KB registry read path is gone, and ORCHESTRATOR defect ids are fenced out of
+the coder re-dispatch.
+"""
 from __future__ import annotations
 
 import ast
@@ -193,6 +201,55 @@ class TestEveryHeredocParses(unittest.TestCase):
             with self.subTest(block=i):
                 ast.parse(b.replace("${KIMI_SESSION_ID}", "SID")
                            .replace("${KIMI_SKILL_DIR}", "SDIR"))
+
+
+class TestContradictionsResolved(unittest.TestCase):
+    def setUp(self):
+        self.text = SKILL.read_text(encoding="utf-8")
+
+    def test_e1_advisory_skills_do_not_go_to_critics(self):
+        """E1: :292-295 said 'coder and every critic packet'; :557-558 said the critic
+        packet is ONLY four items. Resolved toward isolation (F6 anti-anchoring)."""
+        self.assertNotIn("and every critic packet", self.text)
+        self.assertIn("CODED (elite-coder packet) only", self.text)
+
+    def test_e2_refine_re_enters_coded_in_full(self):
+        """E2: safewrap.coder_redispatch_packet returns NO skill body, NO graph and NO
+        role body, so it was never 'equivalent' to re-entering CODED. Scoped to the E2
+        phrase — 'equivalently' also occurs, correctly, at :791 in the OUTPUT
+        reconciliation prose ('used_tools == \"PARTIAL\" (equivalently partial_stages...)'),
+        which this task must NOT touch."""
+        self.assertNotIn("(equivalently, assemble the", self.text)
+        self.assertNotIn("as a smaller substitute", self.text)
+        self.assertIn("re-enters CODED in full", self.text)
+        self.assertIn("not a smaller substitute for the whole packet", self.text)
+
+    def test_registry_read_path_is_gone(self):
+        """An 80,597 B Read would be 1.4x the whole SKILL body, permanently resident."""
+        self.assertNotIn("look\n    them up by name in `references/skill-registry.json`", self.text)
+        self.assertNotIn("them up by name in `references/skill-registry.json`", self.text)
+
+    def test_e1_names_only_fields_skills_json_actually_carries(self):
+        """The advisory block may promise only fields `.atlas/<run_id>/skills.json`
+        really carries. `select` PROJECTS each registry entry, dropping `description`,
+        so the fixture entry deliberately HAS one. The plan's fixture was
+        `{"skills": []}`; that returns `[]` and makes the loop below vacuous, so a
+        non-empty result is asserted first."""
+        from scripts import skillselect
+        registry = {"skills": [{"name": "leap-year", "category": "dates",
+                                "path": "skills/leap-year/",
+                                "description": "fix leap year bugs",
+                                "triggers": ["leap year"]}]}
+        got = skillselect.select("fix a leap year bug in python", registry, {})
+        self.assertTrue(got, "fixture must rank something, or the loop below is vacuous")
+        for entry in got:
+            self.assertNotIn("description", entry)
+        self.assertNotIn("`description` already carried", self.text)
+
+    def test_orchestrator_defects_are_not_coder_instructions(self):
+        self.assertIn("floorsynth.ORCHESTRATOR_DEFECT_IDS", self.text)
+        self.assertIn("If `critics_loaded` is not `3/3`", self.text)
+        self.assertIn("do not end your turn", self.text)
 
 
 if __name__ == "__main__":
