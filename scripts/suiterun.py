@@ -12,6 +12,16 @@ Both subprocess paths run the TARGET's own command, so both launch under
 ``PYTHONSAFEPATH`` import-isolation switch, which would otherwise strip the cwd
 from the target runner's ``sys.path`` and manufacture a whole-suite RED.
 
+Both paths also launch through ``proccap._launch_and_wait`` (S9/S18): the
+process group, the group kill, the memory cap and the bounded post-kill drain
+are inherited from the one cap backend. Two contracts that re-route must NOT
+change: the operator-supplied ``shell=True`` trust boundary (the command still
+runs as the same ``sh -c`` string) and the fail-safe shape — a suite that
+times out or never launches degrades to ``{}`` and is NEVER green (a partial
+green-looking output from a killed run counts for nothing), and the cap is
+fail-open (a cap-start failure transparently re-runs uncapped, mirroring
+``runcheck.run``).
+
 Fail-safe by construction: every parse/subprocess/timeout failure degrades to an
 EMPTY dict. An empty combined-suite keeps the caller's ``baseline_pass``
 conservative (a baseline-green test absent from ``combined`` reads as a
@@ -20,11 +30,15 @@ regression), so a broken runner can never manufacture a false green.
 from __future__ import annotations
 
 import os
-import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
 from scripts import langfloor, proccap, runsignal
+
+# The memory cap both launch paths run under (MB) — the same value
+# ``runcheck.run`` receives from the SKILL. A mid-run OOM fails CLOSED (the
+# suite degrades to {} and reads as a regression, never a false green).
+_MEM_LIMIT_MB = 2048
 
 # Reserved test-id representing "the whole suite" when a runner cannot emit per-test
 # JUnit. It uses characters no real test-id contains, so it never collides. The same
@@ -105,6 +119,31 @@ def run_suite(cmd: str, cwd: str, timeout_s: int = 1800) -> dict:
     return _run_whole_suite(cmd, cwd, timeout_s, tags)
 
 
+def _launch_capped(cmd: str, cwd: str, timeout_s: int) -> dict | None:
+    """Launch ``cmd`` (a shell string) through proccap's capped backend.
+
+    Returns the ``_launch_and_wait`` result dict, or ``None`` when the suite
+    never meaningfully ran — not launched at all, or timed out. The timeout
+    guard is load-bearing (S18): ``subprocess.run(timeout=…)`` used to RAISE
+    and discard all output, but ``_launch_and_wait`` RETURNS ``timed_out=True``
+    with partial stdout, and a partial green-looking output must never reach
+    ``runsignal.count`` — a timed-out suite is never green. The cap is
+    fail-open exactly as in ``runcheck.run``: a cap-start failure re-runs
+    uncapped rather than manufacturing a RED on an honest tree.
+    """
+    backend = proccap._detect_mem_backend()
+    res = proccap._launch_and_wait(
+        proccap._build_wrapper(cmd, _MEM_LIMIT_MB, backend), cwd, timeout_s,
+        env=proccap.target_env())
+    if proccap._is_cap_start_failure(backend, res):
+        res = proccap._launch_and_wait(
+            proccap._build_wrapper(cmd, _MEM_LIMIT_MB, proccap._BACKEND_NONE),
+            cwd, timeout_s, env=proccap.target_env())
+    if not res["launched"] or res["timed_out"]:
+        return None
+    return res
+
+
 def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
     """The per-test JUnit path (the prior run_suite body, unchanged)."""
     fd, junit_path = tempfile.mkstemp(suffix=".xml", prefix="suiterun-")
@@ -115,16 +154,8 @@ def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
         else:
             full = f"{cmd} --junit-xml={junit_path}"
 
-        try:
-            subprocess.run(
-                full,
-                shell=True,
-                cwd=cwd,
-                env=proccap.target_env(),
-                timeout=timeout_s,
-                capture_output=True,
-            )
-        except (subprocess.SubprocessError, OSError):
+        res = _launch_capped(full, cwd, timeout_s)
+        if res is None:
             return {}
 
         try:
@@ -142,16 +173,10 @@ def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
 
 def _run_whole_suite(cmd: str, cwd: str, timeout_s: int, tags: tuple) -> dict:
     """Whole-suite green/red via runsignal (fail-safe): sentinel dict or ``{}``."""
-    try:
-        proc = subprocess.run(cmd, shell=True, cwd=cwd, env=proccap.target_env(),
-                              timeout=timeout_s, capture_output=True)
-    except (subprocess.SubprocessError, OSError):
+    res = _launch_capped(cmd, cwd, timeout_s)
+    if res is None:
         return {}
-    out = b""
-    for stream in (proc.stdout, proc.stderr):
-        if stream:
-            out += stream if isinstance(stream, bytes) else stream.encode()
-    text = out.decode("utf-8", errors="replace")
+    text = res["stdout"] + "\n" + res["stderr"]
     try:
         _passed, collected = runsignal.count(text, tags)
     except Exception:  # noqa: BLE001 — recognizer failure → unconfirmed.

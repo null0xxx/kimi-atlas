@@ -7,6 +7,7 @@ Task-1 acceptance bar (universal-floor P1):
   * the pure cap-wrapper mechanics (``_build_wrapper``/``_wrap_command``) are
     byte-equivalent to the versions that used to live in ``runcheck``.
 """
+import os
 import unittest
 
 from scripts import proccap
@@ -321,6 +322,115 @@ class TestTargetEnv(unittest.TestCase):
         """Pinned by literal, not derived -- a test that iterates the tuple it
         pins shrinks with the mutation and cannot fail."""
         self.assertEqual(proccap._PLUGIN_ONLY_ENV, ("PYTHONSAFEPATH",))
+
+
+class TestBoundedDrainAndScopeTeardown(unittest.TestCase):
+    """S9: ``timeout_s`` must actually bound the run. At v1.5.1 the post-kill
+    drain was a bare ``communicate()`` — a descendant that called ``setsid``
+    left the process group, kept the inherited pipe open, and blocked the
+    drain (measured: 45.1 s against a 3 s bound; ``sleep infinity`` made it
+    unbounded). This fires on HONEST repos — any build that daemonises. The
+    wall-clock assertion is an ABSOLUTE two-backend budget (fold T5-F3):
+    cgroup + teardown returns promptly after the kill; ulimit/none is
+    grace-bound — both must stay far below the old 45 s."""
+
+    _TIMEOUT_S = 3
+    # Absolute budget covering both backends: timeout + grace + slack. Still
+    # kills the 45 s / unbounded defect by a wide margin.
+    _WALL_BUDGET_S = 20
+
+    def _fixture_cmd(self, pidfile):
+        # Backgrounds a setsid descendant that holds the inherited stdout pipe
+        # open, then hangs the leader so the timeout path triggers.
+        return (
+            "setsid sh -c 'echo $$ > %s; exec sleep 30' >&1 & "
+            "echo early-output; sleep 30" % pidfile
+        )
+
+    def _drive(self, argv, cwd):
+        import time as _time
+        start = _time.monotonic()
+        res = proccap._launch_and_wait(argv, cwd, self._TIMEOUT_S)
+        return res, _time.monotonic() - start
+
+    def test_setsid_descendant_cannot_block_the_drain(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            pidfile = os.path.join(tmp, "setsid.pid")
+            cmd = self._fixture_cmd(pidfile)
+            res, wall = self._drive(["sh", "-c", cmd], tmp)
+            self.assertLess(wall, self._WALL_BUDGET_S,
+                            "the drain must be bounded (was 45 s / unbounded)")
+            self.assertTrue(res["timed_out"])
+            self.assertEqual(res["returncode"], 124)
+
+    def test_scope_teardown_kills_the_descendant_and_preserves_output(self):
+        # cgroup backend only: the named transient scope's teardown SIGKILLs
+        # the setsid descendant (session changes, cgroup doesn't), the pipe
+        # EOFs, and the drain returns the early output promptly.
+        if proccap._detect_mem_backend() != proccap._BACKEND_CGROUP:
+            self.skipTest("cgroup backend unavailable on this host")
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            pidfile = os.path.join(tmp, "setsid.pid")
+            cmd = self._fixture_cmd(pidfile)
+            argv = proccap._build_wrapper(cmd, 2048, proccap._BACKEND_CGROUP)
+            res, wall = self._drive(argv, tmp)
+            self.assertLess(wall, self._WALL_BUDGET_S)
+            self.assertTrue(res["timed_out"])
+            self.assertIn("early-output", res["stdout"])
+            with open(pidfile, encoding="ascii") as fh:
+                descendant = int(fh.read().strip())
+            # The teardown SIGKILL is asynchronous with respect to reaping —
+            # poll for the descendant's death instead of racing a single check.
+            import time as _time
+            deadline = _time.monotonic() + 5
+            alive = True
+            while _time.monotonic() < deadline:
+                try:
+                    os.kill(descendant, 0)
+                except (ProcessLookupError, PermissionError, OSError):
+                    alive = False
+                    break
+                _time.sleep(0.05)
+            self.assertFalse(alive, "the setsid descendant did NOT survive")
+
+    def test_clean_run_is_byte_identical(self):
+        # The regression guard (plan Step 6): the changed path is reached only
+        # on timeout. A normal command must be identical before and after.
+        res = proccap._launch_and_wait(["sh", "-c", "echo out; echo err >&2; exit 3"], ".", 30)
+        self.assertEqual(
+            (res["stdout"], res["stderr"], res["returncode"], res["timed_out"]),
+            ("out\n", "err\n", 3, False),
+        )
+
+
+class TestScopeUnitInjection(unittest.TestCase):
+    """T5-F2: the teardown only ever kills a unit WE named at launch — never
+    an unvalidated/discovered cgroup (the leader's own /proc cgroup was
+    observed to point at the CALLER's cgroup on systemd 255)."""
+
+    def test_injects_a_unique_named_unit_into_systemd_run_argv(self):
+        argv = proccap._build_wrapper("make test", 2048, proccap._BACKEND_CGROUP)
+        injected, unit = proccap._inject_scope_unit(argv)
+        self.assertIsNotNone(unit)
+        self.assertTrue(unit.startswith("atlas-proccap-"))
+        self.assertEqual(injected[0], "systemd-run")
+        self.assertIn("--unit=" + unit, injected)
+        # The original argv tail is preserved verbatim after the insertion.
+        self.assertEqual(injected[2:], argv[1:])
+        injected2, unit2 = proccap._inject_scope_unit(argv)
+        self.assertNotEqual(unit, unit2)  # unique per launch
+
+    def test_non_systemd_argv_is_untouched(self):
+        argv = ["sh", "-c", "make test"]
+        injected, unit = proccap._inject_scope_unit(argv)
+        self.assertEqual(injected, argv)
+        self.assertIsNone(unit)
+
+    def test_teardown_tolerates_missing_and_none(self):
+        proccap._teardown_transient_scope(None)                      # no-op
+        proccap._teardown_transient_scope("atlas-proccap-0-999999")  # absent path: silent
 
 
 if __name__ == "__main__":

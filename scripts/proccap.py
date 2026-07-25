@@ -31,6 +31,7 @@ a child running TARGET code gets — and is pure whenever ``base`` is supplied.
 """
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import signal
@@ -271,6 +272,87 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pass
 
 
+# Unit-name sequence for named transient scopes (uniqueness within this process;
+# the pid component keeps it unique across concurrent plugin processes).
+_UNIT_SEQ = itertools.count()
+
+# Grace for the bounded post-kill drain (seconds). 5–10, NOT 0: after the group
+# kill, in-pipe data from a legitimately slow-flushing runner is immediately
+# readable, so nothing honest is truncated — the grace only binds a pipe held
+# open by a runaway (e.g. setsid) descendant. It is also the worst-case the
+# wall-clock budget adds on hosts without a cgroup teardown (fold T5-F3).
+_POST_KILL_DRAIN_GRACE_S = 8
+
+
+def _inject_scope_unit(argv: list[str]) -> tuple[list[str], str | None]:
+    """Name the transient scope of a ``systemd-run`` argv; no-op otherwise.
+
+    Returns ``(argv, unit_name)``. The name is unique per launch
+    (``atlas-proccap-<our-pid>-<seq>``) and is the ONLY scope the timeout path
+    will ever tear down (T5-F2): discovering the unit via the leader's own
+    ``/proc/<pid>/cgroup`` was observed to point at the CALLER's cgroup on
+    systemd 255, and killing that would SIGKILL the plugin's own session.
+    """
+    if argv and os.path.basename(str(argv[0])) == "systemd-run":
+        unit = f"atlas-proccap-{os.getpid()}-{next(_UNIT_SEQ)}"
+        return [argv[0], f"--unit={unit}", *argv[1:]], unit
+    return argv, None
+
+
+def _teardown_transient_scope(unit: str | None) -> None:
+    """SIGKILL every pid still in the named transient scope (best-effort).
+
+    A descendant that called ``setsid`` leaves the process GROUP but stays in
+    the scope (session changes, cgroup membership doesn't), so the group kill
+    alone lets it survive — holding the inherited pipe open and outliving the
+    run, transient scope included. Reading the scope's own ``cgroup.procs``
+    and killing what remains EOFs the pipe and GCs the scope. Only ever called
+    with a unit WE named at launch (see :func:`_inject_scope_unit`) — never an
+    unvalidated cgroup. Hosts without systemd simply lack the path and degrade
+    to the bounded drain alone.
+    """
+    if not unit:
+        return
+    procs_path = f"/sys/fs/cgroup/system.slice/{unit}.scope/cgroup.procs"
+    try:
+        with open(procs_path, encoding="ascii") as fh:
+            pids = [int(x) for x in fh.read().split()]
+    except (OSError, ValueError):
+        return
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+def _drain_bounded(proc: subprocess.Popen, grace_s: float) -> tuple[str, str]:
+    """Drain the child's pipes after the group kill, BOUNDED (S9).
+
+    A bare ``communicate()`` here blocked whenever a setsid descendant held the
+    inherited pipe open — measured 45.1 s against a 3 s bound, and unbounded
+    under ``sleep infinity``. On cgroup hosts the scope teardown above has
+    already killed the pipe-holders, so this returns promptly with the drained
+    output. Elsewhere the second timeout closes both pipes and waits out the
+    leader; output still in flight is lost, which is acceptable — the run is
+    already RED (``timed_out``) and the tails are diagnostic only.
+    """
+    try:
+        return proc.communicate(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        pass
+    for stream in (proc.stdout, proc.stderr):
+        try:
+            stream.close()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        pass
+    return "", ""
+
+
 # The plugin's own import-isolation switch (see skills/atlas/SKILL.md's script-call
 # convention). It MUST NOT reach a child that runs the TARGET's code: PYTHONSAFEPATH
 # removes the cwd from sys.path, which is precisely what an ordinary project's test
@@ -304,16 +386,21 @@ def _launch_and_wait(
     ``False`` iff the process could not even start (``Popen`` raised) — the signal
     the caller uses to fall the memory cap open. The child leads its own session
     (``start_new_session=True``) so a timeout SIGKILLs the whole group, reaping
-    grandchildren (test workers, compilers) that a single-child kill would orphan;
-    the group's pipe write-ends are then closed, so the post-kill drain returns
-    promptly instead of hanging on orphans.
+    grandchildren (test workers, compilers) that a single-child kill would orphan.
+    ``timeout_s`` is a REAL bound: a ``setsid`` descendant escapes the process
+    group but not the named transient scope, whose remaining pids are then
+    SIGKILLed (:func:`_teardown_transient_scope`, cgroup backend), and the
+    post-kill drain is bounded by a grace (:func:`_drain_bounded`) either way —
+    a descendant holding the inherited pipe open can no longer block the run
+    (the 45 s-against-3 s defect, S9).
 
     ``env`` controls the child's environment. When ``None`` the child inherits the
-    parent env; ``runcheck.run`` passes :func:`target_env`; ``suiterun`` applies
-    the same helper to its own ``subprocess.run`` calls -- so the plugin's
-    isolation switch never reaches target code. A dict gives the child *exactly*
-    that environment and nothing else, the hermetic path ``nativefloor`` uses.
+    parent env; ``runcheck.run`` and ``suiterun`` pass :func:`target_env` — so
+    the plugin's isolation switch never reaches target code. A dict gives the
+    child *exactly* that environment and nothing else, the hermetic path
+    ``nativefloor`` uses.
     """
+    argv, unit = _inject_scope_unit(list(argv))
     try:
         proc = subprocess.Popen(
             argv,
@@ -339,7 +426,8 @@ def _launch_and_wait(
         returncode = proc.returncode
     except subprocess.TimeoutExpired:
         _kill_process_group(proc)
-        out, err = proc.communicate()
+        _teardown_transient_scope(unit)
+        out, err = _drain_bounded(proc, _POST_KILL_DRAIN_GRACE_S)
         returncode, timed_out = 124, True
     return {
         "stdout": _coerce(out),

@@ -214,20 +214,18 @@ class TestEverySeamContainsTheSwitch(unittest.TestCase):
 
         seen: dict = {}
 
-        def fake_run(full, **kw):
-            seen["env"] = kw.get("env")
-            junit = full.split("--junit-xml=")[1]
+        def fake_launch(argv, cwd, timeout_s, env=None):
+            seen["env"] = env
+            junit = " ".join(argv).split("--junit-xml=")[1].split()[0]
             pathlib.Path(junit).write_text(
                 '<testsuite><testcase classname="T" name="a"/></testsuite>',
                 encoding="utf-8",
             )
+            return {"stdout": "", "stderr": "", "returncode": 0,
+                    "timed_out": False, "launched": True}
 
-            class R:
-                pass
-
-            return R()
-
-        with mock.patch("subprocess.run", side_effect=fake_run), \
+        with mock.patch("scripts.suiterun.proccap._launch_and_wait",
+                        side_effect=fake_launch), \
                 mock.patch("scripts.langfloor.resolve_runner_tag",
                            return_value=("pytest",)), \
                 mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
@@ -243,16 +241,13 @@ class TestEverySeamContainsTheSwitch(unittest.TestCase):
 
         seen: dict = {}
 
-        def fake_run(cmd, **kw):
-            seen["env"] = kw.get("env")
+        def fake_launch(argv, cwd, timeout_s, env=None):
+            seen["env"] = env
+            return {"stdout": "ok  \tpkg\t0.1s\nPASS\n", "stderr": "",
+                    "returncode": 0, "timed_out": False, "launched": True}
 
-            class R:
-                stdout = b"ok  \tpkg\t0.1s\nPASS\n"
-                stderr = b""
-
-            return R()
-
-        with mock.patch("subprocess.run", side_effect=fake_run), \
+        with mock.patch("scripts.suiterun.proccap._launch_and_wait",
+                        side_effect=fake_launch), \
                 mock.patch("scripts.langfloor.resolve_runner_tag",
                            return_value=("go test",)), \
                 mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
