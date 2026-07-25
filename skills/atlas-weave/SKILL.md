@@ -29,7 +29,8 @@ Runs natively on **Kimi Code v0.23.5** (authored against it; **revalidated live 
 plus the outer-loop specifics:
 
 1. **Real tool wire-names only** — `Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion,
-   TodoList`. Script calls run through **`Bash`** (`python3 -c "import scripts.<mod> …"`); the user
+   TodoList`. Script calls run through **`Bash`**
+   (`PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "import scripts.<mod> …"`); the user
    is asked through **`AskUserQuestion`**; subagents through **`Agent`**.
 2. **Role-file dispatch (read → strip → prepend).** For every subagent: `Read`
    `${KIMI_SKILL_DIR}/../../agents/<role>.md`, strip its YAML frontmatter, prepend the body to the

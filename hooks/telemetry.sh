@@ -12,7 +12,20 @@
 #     `set`-trip, so this hook can NEVER break Bash / tool use for another
 #     session.  It is observe-only and never blocks.
 #   * No-op when the session cwd has no active `.atlas/<run_id>/` run dir.
-#   * Lightweight: two short python3 reads of stdin + one append. No network.
+#   * Lightweight: one short interpreter read of stdin + one append. No network.
+#   * ISOLATED (v1.5.1, HARDENING): that read carries `PYTHONSAFEPATH=1`, because
+#     CPython otherwise ranks the interpreter's OWN working directory above the
+#     stdlib. Under the SHIPPED runtime that directory is the PLUGIN root, not the
+#     session's — see `references/kimi-runtime.md` §7 ("cwd=pluginRoot" for
+#     manifest-registered hooks, re-probed on Kimi CLI v0.28.1) — and the installed
+#     plugin root holds no top-level Python file, so nothing shadows the stdlib
+#     there. This is defence in depth, NOT a reachable ACE for a manifest-wired
+#     hook. It is not decorative either: a hook wired through the user's Kimi
+#     config.toml `[[hooks]]` inherits the SESSION's cwd instead, and there a repo
+#     shipping a bare `json` shadow module does execute on the first tool use —
+#     that is the configuration `tests/test_syspath_isolation.py` reproduces.
+#     `PYTHONDONTWRITEBYTECODE=1` rides along: the same import left `__pycache__/`
+#     in a tree this hook only observes.
 #   * Does NOT shell out to `kimi -p`, so it cannot recurse. It still honors the
 #     KIMI_ATLAS_NO_HOOK recursion-guard (set by any future atlas `kimi -p`
 #     child) so nested runs stay silent.
@@ -35,7 +48,7 @@ INPUT="$(cat 2>/dev/null || printf '%s' '{}')"
 # in a single python3 pass. python3 owns all JSON handling so quoting/newlines in
 # the payload can never corrupt the line-based shell reads below. The timestamp
 # is whatever the runtime put on stdin (several possible key names) — never date.
-OUT="$(printf '%s' "$INPUT" | python3 -c '
+OUT="$(printf '%s' "$INPUT" | PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)

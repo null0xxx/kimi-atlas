@@ -37,6 +37,17 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 
 ## Quick start
 
+**Requirements: Kimi Code CLI, and CPython 3.11 or newer as `python3`.** The 3.11 floor is hard, and it is
+new in v1.5.1. Every script atlas runs is launched with `PYTHONSAFEPATH=1`, which is what keeps an
+untrusted target repository from replacing atlas's own modules — including `scripts/verdict.py`, the frozen
+gate that decides pass/fail. That variable, and the `sys.flags.safe_path` the run checks it by, were added
+in **CPython 3.11**; on anything older the variable is silently ignored and the isolation the gate's
+integrity depends on cannot be obtained at all. So atlas fails closed rather than running unprotected: on
+Python 3.10 or older **every run** stops at its first step with
+`ATLAS-PRECONDITION-FAILED: import isolation is not active …` and does nothing else. Ubuntu 22.04 and
+several other LTS distributions still ship `python3` = 3.10 — check with `python3 -V` and install 3.11+ (or
+point `python3` at it) before installing or upgrading. Development and CI run on Python 3.12, stdlib-only.
+
 **The one-liner (Kimi Code CLI)** — install straight from GitHub, no clone needed:
 
 ```
@@ -46,7 +57,7 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
 
 ```
-/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.0
+/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.1
 /plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
 ```
 
@@ -289,6 +300,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 - [`docs/superpowers/plans/2026-07-24-atlas-runtime-token-optimization.md`](docs/superpowers/plans/2026-07-24-atlas-runtime-token-optimization.md) — the first-pass analysis of where an atlas RUN spends runtime tokens on Kimi Code (its risk-gate hypothesis is superseded by the measured design below)
 - [`docs/superpowers/specs/2026-07-24-runtime-token-optimization-design.md`](docs/superpowers/specs/2026-07-24-runtime-token-optimization-design.md) — the measured, 6-lens-challenged design: real per-call token accounting shows the ORCHESTRATOR is 68–85% of a run (not the critics), a confirmed false-green defect is closed first, and ten levers cut a median run ~35% raw / ~19% cost-weighted
 - [`docs/superpowers/plans/2026-07-24-runtime-token-optimization-p0-plan.md`](docs/superpowers/plans/2026-07-24-runtime-token-optimization-p0-plan.md) — the Phase 0–2 TDD build plan: `floorsynth` (closes the empty-diff / missing-critic false-green holes), the two SKILL-contradiction resolutions, and the three pure cores (`rubric.lens_section`, `contextgraph.render_for_injection`, `ctxstore.valid_run_id` + confined write hand)
+- [`docs/superpowers/plans/2026-07-25-syspath-hijack-v151-plan.md`](docs/superpowers/plans/2026-07-25-syspath-hijack-v151-plan.md) — the v1.5.1 fix plan: `PYTHONSAFEPATH=1` on every plugin-owned invocation (closing a target repo's ability to replace atlas's own modules, including the FROZEN pure gate, via `sys.path`) plus the `proccap.target_env` seam that keeps that switch out of the target's own build
 - [`references/skill-registry.md`](references/skill-registry.md) — registry schema, selection algorithm, override semantics, rebuild
 - [`references/live-validation.md`](references/live-validation.md) — the live-on-Kimi-3 validation reports
 - [`references/kimi-runtime.md`](references/kimi-runtime.md) · [`references/orchestration.md`](references/orchestration.md) — runtime facts and orchestration notes

@@ -4,6 +4,125 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] — 2026-07-25
+
+**A CRITICAL `sys.path` hijack, live in shipped v1.5.0, closed.** During an atlas run the working
+directory is the TARGET repository — untrusted by design, that being the entire premise of the SAFE-2
+framing. CPython places that directory at `sys.path[0]` for `-c` and for heredoc (`-`) invocations,
+**ahead of every `PYTHONPATH` entry**. The plugin's whole script convention is
+`PYTHONPATH=<plugin root>`, so a target repository could replace **any** module atlas imports —
+including `scripts/verdict.py`, the FROZEN pure gate that is invariant 2, THE ONE GUARANTEE.
+
+**The precise trigger condition, and why this survived testing.** The target's `scripts/` must contain
+an `__init__.py`. Without it the directory is only a *namespace portion*: the path scan continues past
+it, the plugin's regular package is found, and the plugin still wins — which is exactly what every
+casual "what if the target has a `scripts/` directory?" check would have observed. With the
+`__init__.py` present, the target's package wins outright on the first hit. A stdlib shadow — a bare
+`json` module at the target root — needs no package at all.
+
+**Reproduced end to end.** A target tree carrying `scripts/__init__.py` + a `scripts/verdict.py` whose
+`gate()` returns `"OK"` was driven through the real Step-4/5 block: `verdict.gate` returned `"OK"` on a
+RED build and atlas printed `✅ VERIFIED`. No LLM was involved in the wrong answer — the deterministic
+gate itself had been swapped, which is the one failure mode the architecture exists to make impossible.
+
+**The CRITICAL rests on the run itself, not on the hooks.** The severity of this release is carried
+entirely by the **16 executed** invocation sites in `skills/atlas/SKILL.md` (plus the scout's sha
+one-liner, the installer heredocs and the probes), which genuinely run with the untrusted TARGET
+repository as the working directory — the reproduction above. The file carries 17 `python3` lines and all
+17 take the prefix; the seventeenth is the *convention template* in the script-call block that the other
+sixteen are copied from, so fixing it is what stops the next one being written unsafe. The hooks are a
+weaker case, and the first draft of these notes overstated them; this is the corrected account.
+
+**The hooks: hardening, not a second reachable hole.** `hooks/telemetry.sh` is registered in
+`.kimi-plugin/plugin.json` on PostToolUse, SubagentStart and SubagentStop, so it loads for **every Kimi
+session** once the plugin is installed, and it parses the event JSON with a plain interpreter that ranks
+its own working directory above the stdlib. Under the shipped runtime that directory is the **plugin
+root**, not the session's: `references/kimi-runtime.md` §7 records `cwd=pluginRoot` for
+manifest-registered hooks, and a live re-probe on Kimi CLI v0.28.1 (throwaway `KIMI_CODE_HOME`, manifest
+`PostToolUse` hook, session cwd elsewhere) reported `HOOK_PWD == KIMI_PLUGIN_ROOT`. The installed plugin
+root holds no top-level Python file, so nothing shadows the stdlib there — measured, the **unfixed**
+v1.5.0 guard already DENYs (`exit 2`) at the real runtime cwd. So the switch on the two hooks is
+**defence in depth, not the closing of a reachable ACE**.
+
+**It is not decorative, either.** `sys.path[0]` is still the interpreter's own cwd, and a hook wired
+through the user's Kimi config.toml `[[hooks]]` inherits the **session's** cwd rather than the plugin
+root — that is the configuration the reproduction runs, and there the defect is live.
+`hooks/guard-destructive.sh` (opt-in, not manifest-wired, and **fail-open** by deliberate design) is the
+sharp end: a hijacked `import json` that exits the interpreter leaves an empty `tool_name`, which the
+fail-open path reads as "not Bash" and ALLOWS. Reproduced from a hostile working directory:
+`rm -rf /` → `GUARD EXIT=0`; with the switch, `GUARD EXIT=2`. The same import also wrote `__pycache__/`
+into a tree the hook only observes, so both reads now carry `PYTHONDONTWRITEBYTECODE=1` as well.
+`tests/test_syspath_isolation.py` pins both directions behaviourally.
+
+**The fix is `PYTHONSAFEPATH=1` on every plugin-owned invocation** — the 17 sites in
+`skills/atlas/SKILL.md`, both hooks, the scout's sha one-liner in `agents/context-scout.md`, both
+`scripts/install.sh` heredocs, and the two probes — plus the six documents that TEACH the convention
+(`references/orchestration.md`, `AGENTS.md`, `PLAN.md`, `skills/atlas-weave/SKILL.md`,
+`skills/atlas-resume/SKILL.md`, the manifest's `skillInstructions`). Sweeping the docs is not
+tidiness: the hijack existed because the convention itself was unsafe and had been copied six times,
+so pinning the SKILL alone would have let the next author reintroduce the bare form straight from the
+documentation. `skills/atlas-resume/SKILL.md` had **no** invocation text at all while naming real
+script calls, and it runs at `sessionStart` — *before* the atlas SKILL and its floor guard — so it now
+carries the convention explicitly.
+
+**Containment first: `proccap.target_env`, and why the naive fix would have been worse than the
+bug.** `PYTHONSAFEPATH` is inherited. Setting it and stopping there would carry it into the TARGET's own
+build, where `python3 -m unittest discover` and uninstalled-package `pytest` runs legitimately depend on
+the working directory being importable — turning **lens 5 DOES-IT-RUN false-RED on essentially every
+Python project, on every run**, a defect that fires universally rather than only against a hostile
+target. `target_env` is now the single definition of "environment for a child that runs target code" and
+strips the switch again at all four such seams (`runcheck`'s primary launch and its fail-open re-run,
+both `suiterun` paths). `PYTHONPATH` is deliberately **not** stripped: it has leaked since v1.3.0, it is
+a different (pre-existing, non-blocking) issue, and removing it here would be an unpinned behaviour
+change smuggled into a security fix.
+
+**A runtime floor guard, because the SKILL is a prompt.** The orchestrating model retypes these commands
+every run — the same transcription risk that motivated `floorsynth` in v1.5.0 — and a textual pin covers
+the FILE, not the typing. The INIT block therefore aborts with `ATLAS-PRECONDITION-FAILED` unless
+`getattr(sys.flags, "safe_path", False)` holds, read on the very interpreter it guards. That expression
+is the isolation **itself**, not the `sys.version_info` proxy: measured, the version test passed while
+the isolation was off in three separate ways (prefix dropped at runtime, prefix present plus `-E`, and
+sub-3.11), each of which then imported the hostile module while reporting itself healthy. The guard sits
+above the block's first shadowable import — a guard that runs after the hijack guards nothing — and its
+abort is named in the COMPLETION INVARIANT so the halt is sanctioned rather than resolved by continuing.
+Every executed heredoc body is now pure ASCII, too: the OUTPUT block printed an em dash, and under a
+non-UTF-8 stdout encoding that `sys.stdout.write` raises and kills the block *mid-OUTPUT*, after the
+status is computed but before it is recorded.
+
+> ⚠️ **BREAKING — requires Python 3.11+ for the orchestrator's interpreter** (the `python3` atlas invokes;
+> the target project's own toolchain is unaffected). `PYTHONSAFEPATH` and `sys.flags.safe_path` were added
+> in CPython **3.11**: below it the variable is silently ignored and the attribute does not exist, so the
+> isolation the FROZEN gate's integrity depends on simply cannot be obtained. The `getattr(..., False)`
+> default is therefore load-bearing and deliberately reads that absence as "not isolated" — meaning that on
+> a sub-3.11 interpreter the guard fires on **every run**: atlas prints
+> `ATLAS-PRECONDITION-FAILED: import isolation is not active (interpreter 3.10; PYTHONSAFEPATH missing,
+> ignored below 3.11, or discarded by -E) ...` and halts at INIT. That is the correct trade under THE ONE
+> GUARANTEE — refusing to run beats running with a gate an untrusted target can replace — but it is a
+> behaviour change from v1.5.0, which ran (unprotected) anywhere. Ubuntu 22.04 and other LTS distributions
+> still ship `python3` = 3.10; install 3.11 or newer, or point `python3` at it, before upgrading.
+
+**Both regression pins are behavioural, and each carries a control that fails without the fix.**
+`tests/test_syspath_isolation.py` reproduces the hijack on a hostile tree (control: the target's
+`verdict.py` IS imported without the switch), proves the plugin wins with it, proves the containment by
+running a real cwd-importing target suite through `runcheck`, pins the env dict at each of the three
+seams a run cannot reach cheaply, and runs both hooks in a hostile directory — with controls that strip
+the fix from the shipped file and assert the target's shadow module really does execute. The textual pins
+scan every document and every invocation site with adjacency, so a switch that drifts away from the
+interpreter token it guards is a failure, not a pass.
+
+**The floor guard's SEMANTICS are pinned too, not just its presence.** The first two guard pins asserted
+only that the expression and `SystemExit(2)` were in an executed block and that the guard preceded the
+first shadowable import; neither asserted an OUTCOME, and three mutations of the guard were measured
+passing the whole suite — dropping the `not` (a healthy install then aborts on *every* run), replacing
+`raise SystemExit(2)` with `pass` (the token is printed but the target's own `json` shadow module executes
+anyway, at rc 0), and appending `and False` (fully silent, healthy install byte-identical, hazard path
+unguarded).
+The last two are the exact false-green class this project exists to catch. `tests/test_syspath_isolation.py`
+now extracts the shipped INIT block and runs it in a child interpreter twice, in a hostile tree: as
+written it must exit 0, print no token, leave the target's module unexecuted and still return the
+interrupted run; with the switch dropped it must exit **2**, open stdout with the token, and leave the
+target's `json` shadow unexecuted. Two child launches kill all three mutants. Test suite **1284 → 1327**.
+
 ## [1.5.0] — 2026-07-25
 
 **Three false-green holes, found by measurement and closed.** A runtime-cost investigation instrumented

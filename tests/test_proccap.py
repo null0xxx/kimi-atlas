@@ -272,5 +272,56 @@ class TestLaunchEnv(unittest.TestCase):
             del os.environ["PROCCAP_MARKER"]
 
 
+class TestTargetEnv(unittest.TestCase):
+    """``target_env`` — the one definition of a child environment for TARGET code."""
+
+    def test_defaults_to_os_environ_minus_the_switch(self):
+        old = os.environ.get("PYTHONSAFEPATH")
+        os.environ["PYTHONSAFEPATH"] = "1"
+        try:
+            self.assertNotIn("PYTHONSAFEPATH", proccap.target_env())
+        finally:
+            if old is None:
+                os.environ.pop("PYTHONSAFEPATH", None)
+            else:
+                os.environ["PYTHONSAFEPATH"] = old
+
+    def test_default_call_does_not_mutate_os_environ(self):
+        """The default (impure) path copies too — it must not strip the parent's own
+        switch, which would silently disarm the plugin's isolation for the rest of
+        the process."""
+        old = os.environ.get("PYTHONSAFEPATH")
+        os.environ["PYTHONSAFEPATH"] = "1"
+        try:
+            proccap.target_env()
+            self.assertEqual(os.environ.get("PYTHONSAFEPATH"), "1")
+        finally:
+            if old is None:
+                os.environ.pop("PYTHONSAFEPATH", None)
+            else:
+                os.environ["PYTHONSAFEPATH"] = old
+
+    def test_absent_switch_is_not_an_error(self):
+        self.assertEqual(proccap.target_env({"PATH": "/bin"}), {"PATH": "/bin"})
+
+    def test_empty_base_yields_empty_env(self):
+        self.assertEqual(proccap.target_env({}), {})
+
+    def test_every_declared_plugin_only_key_is_stripped(self):
+        """``base`` is a LITERAL, never a comprehension over the tuple under test:
+        a base derived from ``_PLUGIN_ONLY_ENV`` shrinks with the mutation that
+        empties it and can no longer fail. The subset assertion is the second half
+        of the pin — declaring a NEW plugin-only key without extending this literal
+        fails here rather than shipping an unexercised strip."""
+        base = {"PYTHONSAFEPATH": "1", "KEEP": "yes"}
+        self.assertTrue(set(proccap._PLUGIN_ONLY_ENV).issubset(base))
+        self.assertEqual(proccap.target_env(base), {"KEEP": "yes"})
+
+    def test_plugin_only_env_is_pinned_literally(self):
+        """Pinned by literal, not derived -- a test that iterates the tuple it
+        pins shrinks with the mutation and cannot fail."""
+        self.assertEqual(proccap._PLUGIN_ONLY_ENV, ("PYTHONSAFEPATH",))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -77,7 +77,7 @@ if find "$HOME_DIR/sessions" -name wire.jsonl -type f 2>/dev/null \
 fi
 # distinct session ids observed in the index / metadata records
 NIDS="$(find "$HOME_DIR/sessions" -name wire.jsonl -type f 2>/dev/null | while read -r w; do
-    python3 - "$w" <<'PY' 2>/dev/null || true
+    PYTHONSAFEPATH=1 python3 - "$w" <<'PY' 2>/dev/null || true
 import sys, json
 try:
     with open(sys.argv[1]) as f:

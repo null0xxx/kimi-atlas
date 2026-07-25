@@ -32,7 +32,7 @@ INSTALLED="$PLUGINS_DIR/installed.json"
 # --- uninstall path -------------------------------------------------------
 if [ "${1:-}" = "--uninstall" ]; then
     [ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak"
-    python3 - "$INSTALLED" <<'PY'
+    PYTHONSAFEPATH=1 python3 - "$INSTALLED" <<'PY'
 import json, os, sys, tempfile
 path = sys.argv[1]
 if not os.path.exists(path):
@@ -63,7 +63,7 @@ git -C "$PLUGIN_SRC" archive --format=tar HEAD | tar -x -C "$DEST"
 # 4. Register (or replace) the kimi-atlas entry in installed.json — backed up,
 #    preserving all other plugins, written atomically.
 [ -f "$INSTALLED" ] && cp "$INSTALLED" "$INSTALLED.bak"
-python3 - "$INSTALLED" "$DEST" <<'PY'
+PYTHONSAFEPATH=1 python3 - "$INSTALLED" "$DEST" <<'PY'
 import json, os, sys, tempfile
 path, dest = sys.argv[1], sys.argv[2]
 data = {"version": 1, "plugins": []}

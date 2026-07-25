@@ -58,7 +58,11 @@ Register in `/root/.kimi-code/plugins/installed.json` — `{version:1, plugins:[
 Manifest `hooks[]` (or `config.toml [[hooks]]`): a flat array of `{event, matcher?(regex over the tool name), command, timeout?(1–600s, default 30)}`, `.strict()`. **16 events:** `PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PermissionResult, UserPromptSubmit, Stop, StopFailure, Interrupt, SessionStart, SessionEnd, SubagentStart, SubagentStop, PreCompact, PostCompact, Notification`.
 
 - **Only `PreToolUse` / `Stop` / `UserPromptSubmit` can BLOCK** (exit 2 + stderr reason, or exit 0 + `{hookSpecificOutput:{permissionDecision:'deny', permissionDecisionReason}}`). All others are **observe-only** — but observe-only hooks can still **write files** (the resume-pointer mechanism).
-- Command runs `shell:true`, `cwd=pluginRoot`, env adds `KIMI_PLUGIN_ROOT`+`KIMI_CODE_HOME`, event JSON on stdin.
+- Command runs `shell:true`, env adds `KIMI_PLUGIN_ROOT`+`KIMI_CODE_HOME`, event JSON on stdin.
+- **`cwd` depends on WHICH registration path was used — the two are not the same** (source-verified on the shipped Kimi CLI v0.28.1):
+  - **Manifest `hooks[]` → `cwd=pluginRoot`.** `PluginManager.enabledHooks()` emits `cwd: record.root` for every `record.manifest.hooks` entry, so the hook always runs at the installed plugin root.
+  - **`config.toml [[hooks]]` → `cwd=` the SESSION's working directory.** Such an entry carries no `cwd` of its own, and the runner falls through to the session: `cwd: hook.cwd ?? (this.options.cwd === "" ? void 0 : this.options.cwd)`.
+  - Consequence, and the reason this distinction is written down rather than averaged into one line: a config.toml-wired hook parses its event JSON with an interpreter whose `sys.path[0]` is the **user's** directory, so a file dropped there shadows the stdlib. That is why `hooks/telemetry.sh` and `hooks/guard-destructive.sh` carry `PYTHONSAFEPATH=1` (v1.5.1 — see `CHANGELOG.md`); under the manifest path the same switch is hardening, since the plugin root holds no top-level Python file.
 - `sessionStart:{skill}` renders a skill body at session start **and re-injects after compaction** (UNCONFIRMED format/behavior — probe F4).
 - A hook shelling to `kimi -p` must set a recursion-guard env var.
 - Hooks load **globally** for every session that has the plugin enabled ⇒ blast-radius rules (PLAN.md §9/OPS-2). The exit-2 blocking contract is **UNCONFIRMED** (probe R6).

@@ -7,7 +7,7 @@
 ## Conventions
 
 - **Persistence base:** `.atlas/` in the target working directory (PLAN OD-3; fall back to `${KIMI_CODE_HOME}/atlas-runs/wd_<sha>/` when the target is not a git repo). **run_id:** `${KIMI_SESSION_ID}` (DS-2).
-- **Script calls:** `Bash` with `PYTHONPATH="${KIMI_SKILL_DIR}/../.."` so `from scripts import <mod>` resolves and the scripts find `references/schemas.json` relative to themselves.
+- **Script calls:** `Bash` with `PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.."` so `from scripts import <mod>` resolves against the plugin and **not** against the untrusted target's working directory, and the scripts find `references/schemas.json` relative to themselves.
 - **Resume:** on start the orchestrator resumes the newest `.atlas/*/state.json` whose `current_state` is non-terminal (not `OUTPUT`/`DONE`), continuing from the stage after its last ledger entry rather than restarting.
 
 ## Root-only responsibilities

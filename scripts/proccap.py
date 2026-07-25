@@ -26,6 +26,8 @@ survive as orphans and keep consuming the exact RSS the cap exists to bound.
 
 Every parsing/argv helper is a pure function so the logic is unit-testable
 without launching a build; :func:`_launch_and_wait` is the only side effect.
+:func:`target_env` is the one env seam — the single definition of the environment
+a child running TARGET code gets — and is pure whenever ``base`` is supplied.
 """
 from __future__ import annotations
 
@@ -269,6 +271,30 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pass
 
 
+# The plugin's own import-isolation switch (see skills/atlas/SKILL.md's script-call
+# convention). It MUST NOT reach a child that runs the TARGET's code: PYTHONSAFEPATH
+# removes the cwd from sys.path, which is precisely what an ordinary project's test
+# runner depends on (``python3 -m unittest discover``, ``pytest`` on an uninstalled
+# package). Inheriting it would turn lens 5 DOES-IT-RUN false-RED on nearly every
+# Python target -- a defect firing on every run, not only a hostile one.
+# PYTHONPATH is deliberately NOT stripped: it has leaked since v1.3.0, the target's
+# own cwd still outranks it, and changing it is unrelated risk.
+_PLUGIN_ONLY_ENV: tuple[str, ...] = ("PYTHONSAFEPATH",)
+
+
+def target_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Return the environment a child running TARGET code should get.
+
+    ``base`` defaults to the current process environment (the only impurity).
+    The caller's mapping is never mutated; a fresh dict is always returned, so
+    the result is safe to hand straight to ``Popen(env=...)``.
+    """
+    env = dict(os.environ if base is None else base)
+    for key in _PLUGIN_ONLY_ENV:
+        env.pop(key, None)
+    return env
+
+
 def _launch_and_wait(
     argv: list[str], cwd: str, timeout_s: int, env: dict[str, str] | None = None
 ) -> dict:
@@ -282,12 +308,11 @@ def _launch_and_wait(
     the group's pipe write-ends are then closed, so the post-kill drain returns
     promptly instead of hanging on orphans.
 
-    ``env`` controls the child's environment. When ``None`` (every existing caller,
-    e.g. ``runcheck.run``) it is passed straight through to ``Popen(env=None)``,
-    which inherits the parent env exactly as before — byte-equivalent to omitting
-    it. A dict gives the child *exactly* that environment and nothing else, the
-    hermetic path a future ``nativefloor`` uses to run a workload under an env it
-    fully controls.
+    ``env`` controls the child's environment. When ``None`` the child inherits the
+    parent env; ``runcheck.run`` passes :func:`target_env`; ``suiterun`` applies
+    the same helper to its own ``subprocess.run`` calls -- so the plugin's
+    isolation switch never reaches target code. A dict gives the child *exactly*
+    that environment and nothing else, the hermetic path ``nativefloor`` uses.
     """
     try:
         proc = subprocess.Popen(

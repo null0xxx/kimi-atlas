@@ -63,6 +63,7 @@ from scripts.proccap import (
     _is_cap_start_failure,
     _launch_and_wait,
     _wrap_command,
+    target_env,
 )
 
 # A Makefile ``test:`` target header (start-of-line ``test`` then ``:``), matched
@@ -250,15 +251,24 @@ def run(cmd: str, cwd: str, timeout_s: int, mem_limit_mb: int) -> dict:
     timeout the *entire* group is SIGKILLed (:func:`_kill_process_group`) before
     the pipes are drained, so ``timeout_s`` is a hard wall-clock bound and no
     grandchild survives to leak RAM past the OPS-3 cap.
+
+    ``cmd`` is the TARGET's own verify command, so the child env comes from
+    :func:`proccap.target_env` — the parent environment minus the plugin's
+    ``PYTHONSAFEPATH`` import-isolation switch. Inheriting that switch would strip
+    the cwd from the target runner's ``sys.path`` and turn this lens false-RED on
+    nearly every Python project, the same "never manufacture a failure" rule the
+    fail-open memory cap above obeys.
     """
     capped = mem_limit_mb and mem_limit_mb > 0
     backend = _detect_mem_backend() if capped else _BACKEND_NONE
-    res = _launch_and_wait(_build_wrapper(cmd, mem_limit_mb, backend), cwd, timeout_s)
+    res = _launch_and_wait(_build_wrapper(cmd, mem_limit_mb, backend), cwd, timeout_s,
+                           env=target_env())
 
     # FAIL-OPEN: never let the cap mechanism itself turn a fine build RED.
     if _is_cap_start_failure(backend, res):
         res = _launch_and_wait(
-            _build_wrapper(cmd, mem_limit_mb, _BACKEND_NONE), cwd, timeout_s
+            _build_wrapper(cmd, mem_limit_mb, _BACKEND_NONE), cwd, timeout_s,
+            env=target_env(),
         )
 
     stdout, stderr = res["stdout"], res["stderr"]

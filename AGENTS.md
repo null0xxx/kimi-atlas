@@ -11,7 +11,7 @@ what exists, how to verify it, and what is still open. For depth, follow the lin
 
 **kimi-atlas** — a many-agent, quality-calibrated orchestrator plugin for Kimi Code with **115
 vendored official skill packages** built in. Public repo: <https://github.com/null0xxx/kimi-atlas>
-(v1.5.0, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
+(v1.5.1, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
 `~/.kimi-code/plugins/managed/kimi-atlas`); from source: `./scripts/install.sh`
 (installs to `~/.kimi-code/plugins/kimi-atlas`).
 
@@ -92,7 +92,17 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 - Subagent dispatch: role file under `agents/<role>.md` → strip frontmatter → prepend body →
   `Agent(subagent_type=...)` (context-scout→explore, elite-coder→coder, critics→plan).
   Read-only subagents RETURN JSON; the root persists via `ctxstore`.
-- Scripts run via `PYTHONPATH=<plugin-root> python3 -c "from scripts import <mod>"`.
+- Scripts run via `PYTHONSAFEPATH=1 PYTHONPATH=<plugin-root> python3 -c "from scripts import <mod>"`.
+  `PYTHONSAFEPATH` is mandatory: it drops the untrusted target's cwd from `sys.path`.
+  Without `PYTHONSAFEPATH` that cwd outranks `PYTHONPATH`, letting the target replace any module
+  atlas imports — including the FROZEN gate. It is stripped again by `proccap.target_env` before
+  the target's own build runs, so it never reaches `verify_cmd`.
+- **Hard runtime floor: CPython 3.11+ for the orchestrator's `python3`** (new in v1.5.1; the target
+  project's own toolchain is unaffected). `PYTHONSAFEPATH` / `sys.flags.safe_path` arrived in 3.11, so
+  below it the isolation above is unobtainable — `getattr(sys.flags, "safe_path", False)` reads that
+  absence as "not isolated" and the INIT floor guard aborts **every** run with
+  `ATLAS-PRECONDITION-FAILED`. Fail-closed is the intended trade; state the floor in any user-facing
+  text you touch (`README.md` Quick start carries it).
 - Refine loop: any CRITICAL/HIGH defect, or any CORRECTNESS/SECURITY defect at any severity,
   forces a pass; hard cap `MAX_PASSES=2`.
 - Agentic backbone wiring: at CODED the SAFE-2-wrapped `contextgraph.graph_lookup(".atlas",
@@ -103,7 +113,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
   surface the residual for human revert/keep/discard at OUTPUT. Events → `hooks.jsonl` (via
   `hooks/telemetry.sh` + `scripts/ctxevents.py`), never `log.jsonl`.
 
-## Open items (as of v1.5.0)
+## Open items (as of v1.5.1)
 
 - **D1–D7 fix run** — ordered + risk-assessed in
   [`docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md`](docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md):
@@ -119,7 +129,7 @@ make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 
 ## Status
 
-unit-test suite green (`make test`) · `make ci` clean · 32 tracked docs, no inventory drift · **v1.5.0 released — three false-green holes closed**: `scripts/floorsynth.py` now owns the Step-4/5 gate marshalling the orchestrating model used to retype every run, so floor completeness is a `make ci` invariant (twelve-condition matrix: `gate` AND `final_status` must agree on every deterministic failure). An empty captured diff, an unloadable `critic_*.json`, and a dropped `docs_clean` key each used to yield `✅ VERIFIED`; all three now block. FROZEN `verdict.merge`/`gate` untouched; P3 advisory firewall intact; 1536-case old-vs-new differential clean. Also: both SKILL contradictions resolved (advisory skills → coder only, F6 isolation; REFINE re-enters CODED in full), orchestrator-only defects fenced out of the coder re-dispatch, the 80 KB `skill-registry.json` read path deleted, and three **unwired** pure cores landed for the phases that follow (`rubric.lens_section`, `contextgraph.render_for_injection`, `ctxstore.valid_run_id`/`write_artifact_confined`). Prior: v1.4.0 (P3 advisory linter — `lintlens` HYBRID exec, advisory-firewalled, hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
+unit-test suite green (`make test`) · `make ci` clean · 33 tracked docs, no inventory drift · **v1.5.1 released — the `sys.path` hijack closed (CRITICAL, live in v1.5.0)**: during a run the cwd is the untrusted TARGET, and CPython puts the cwd at `sys.path[0]` **ahead of** `PYTHONPATH` — so a target shipping `scripts/__init__.py` + `scripts/verdict.py` REPLACED the FROZEN pure gate (reproduced end to end: `gate() == "OK"` on a RED build, atlas printing `✅ VERIFIED`). The `__init__.py` is the precise trigger: without it `scripts/` is only a namespace portion and the plugin still wins, which is why this survived testing. Fixed with `PYTHONSAFEPATH=1` on every plugin-owned invocation — the 17 SKILL sites, both hooks, the scout's sha, the installer and the probes — plus a fail-closed INIT floor guard on `sys.flags.safe_path` (the isolation itself, never a version proxy). The CRITICAL is carried by the 16 *executed* SKILL sites, which really do run in the target's cwd (the seventeenth `python3` line is the convention template the other sixteen are copied from, and it takes the prefix too); the two hooks got the same switch as **HARDENING, not a second reachable hole**. `hooks/telemetry.sh` (wired by default on three events) and the opt-in `hooks/guard-destructive.sh` still rank their interpreter's own cwd above the stdlib, but under the shipped runtime that cwd is the PLUGIN root (`references/kimi-runtime.md` §7: `cwd=pluginRoot` for manifest-registered hooks, re-probed on Kimi CLI v0.28.1), which holds no top-level Python file — measured, the unfixed guard already DENYs there. A hook wired through the user's Kimi config.toml `[[hooks]]` does inherit the SESSION cwd, and that is the configuration the reproduction uses: from a hostile working directory the fail-OPEN `guard-destructive.sh` ALLOWed `rm -rf /` (`exit 0`; now DENY, `exit 2`). Contained by `proccap.target_env`, which strips the switch again at every seam that launches TARGET code — a naive fix would have false-RED'd lens 5 on essentially every Python project, on every run, which is worse than the bug. Prior: v1.5.0 — **three false-green holes closed**: `scripts/floorsynth.py` now owns the Step-4/5 gate marshalling the orchestrating model used to retype every run, so floor completeness is a `make ci` invariant (twelve-condition matrix: `gate` AND `final_status` must agree on every deterministic failure). An empty captured diff, an unloadable `critic_*.json`, and a dropped `docs_clean` key each used to yield `✅ VERIFIED`; all three now block. FROZEN `verdict.merge`/`gate` untouched; P3 advisory firewall intact; 1536-case old-vs-new differential clean. Also: both SKILL contradictions resolved (advisory skills → coder only, F6 isolation; REFINE re-enters CODED in full), orchestrator-only defects fenced out of the coder re-dispatch, the 80 KB `skill-registry.json` read path deleted, and three **unwired** pure cores landed for the phases that follow (`rubric.lens_section`, `contextgraph.render_for_injection`, `ctxstore.valid_run_id`/`write_artifact_confined`). Before that: v1.4.0 (P3 advisory linter — `lintlens` HYBRID exec, advisory-firewalled, hermetic cgroup+netns launcher; C5 runner-aware weave differential + C6 language-aware `test_glob`)
 (tag + GitHub Release) · registry v2 (115 skills) · TOP-1 injection production-proven · **agentic
 backbone shipped & merged (`da90f6c`, pushed to origin): ContextGraph live at CODED, explicit
 `fsm`/two-phase rollback, `astlens` lens; 6-lens-hardened `27→0`; graphify audit F1–F11 all fixed;

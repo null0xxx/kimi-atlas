@@ -7,6 +7,11 @@ lowercase token ``"pass"`` — the contract `differential.regressions` relies on
 "hand": it shells a command that writes JUnit, reads the file, and delegates to
 `parse_junit`.
 
+Both subprocess paths run the TARGET's own command, so both launch under
+``proccap.target_env()`` — the parent environment minus the plugin's
+``PYTHONSAFEPATH`` import-isolation switch, which would otherwise strip the cwd
+from the target runner's ``sys.path`` and manufacture a whole-suite RED.
+
 Fail-safe by construction: every parse/subprocess/timeout failure degrades to an
 EMPTY dict. An empty combined-suite keeps the caller's ``baseline_pass``
 conservative (a baseline-green test absent from ``combined`` reads as a
@@ -19,7 +24,7 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
-from scripts import langfloor, runsignal
+from scripts import langfloor, proccap, runsignal
 
 # Reserved test-id representing "the whole suite" when a runner cannot emit per-test
 # JUnit. It uses characters no real test-id contains, so it never collides. The same
@@ -115,6 +120,7 @@ def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
                 full,
                 shell=True,
                 cwd=cwd,
+                env=proccap.target_env(),
                 timeout=timeout_s,
                 capture_output=True,
             )
@@ -137,8 +143,8 @@ def _run_junit(cmd: str, cwd: str, timeout_s: int) -> dict:
 def _run_whole_suite(cmd: str, cwd: str, timeout_s: int, tags: tuple) -> dict:
     """Whole-suite green/red via runsignal (fail-safe): sentinel dict or ``{}``."""
     try:
-        proc = subprocess.run(cmd, shell=True, cwd=cwd, timeout=timeout_s,
-                              capture_output=True)
+        proc = subprocess.run(cmd, shell=True, cwd=cwd, env=proccap.target_env(),
+                              timeout=timeout_s, capture_output=True)
     except (subprocess.SubprocessError, OSError):
         return {}
     out = b""
