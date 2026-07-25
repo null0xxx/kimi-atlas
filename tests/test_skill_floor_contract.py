@@ -11,6 +11,7 @@ the coder re-dispatch.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import textwrap
 import unittest
@@ -203,6 +204,22 @@ class TestEveryHeredocParses(unittest.TestCase):
                            .replace("${KIMI_SKILL_DIR}", "SDIR"))
 
 
+def _orchestrator_fix_prefix():
+    """The marker ``floorsynth`` really stamps on every ORCHESTRATOR-owned ``fix``.
+
+    DERIVED, never re-typed: the common prefix of the three ``critic-missing:*``
+    fixes, cut at the colon that closes the marker. Re-word the marker in
+    ``scripts/floorsynth.py`` and the pins below break — which is the point: the
+    SKILL's readable discriminator and the string the module emits are ONE fact,
+    so they can never drift apart unnoticed.
+    """
+    from scripts import floorsynth
+    fixes = [d["fix"] for d in floorsynth.critics_missing_defects([])]
+    assert len(fixes) == 3, fixes
+    head, sep, _rest = os.path.commonprefix(fixes).partition(":")
+    return head + sep
+
+
 class TestContradictionsResolved(unittest.TestCase):
     def setUp(self):
         self.text = SKILL.read_text(encoding="utf-8")
@@ -247,9 +264,49 @@ class TestContradictionsResolved(unittest.TestCase):
         self.assertNotIn("`description` already carried", self.text)
 
     def test_orchestrator_defects_are_not_coder_instructions(self):
+        """The fence must keep naming its authoritative source AND stay executable:
+        `ORCHESTRATOR_DEFECT_IDS` is a Python frozenset that no heredoc in the SKILL
+        prints, so the id rule alone left a literal-minded executor no instructed path
+        to membership — and guessing wrong hands the coder "re-dispatch the SECURITY
+        critic and persist its JSON" as a TRUSTED instruction, in interactive mode where
+        `.atlas/` sits inside its own writable root. The readable discriminator must
+        quote the prefix floorsynth ACTUALLY emits (derived, never re-typed here), and
+        Step 4+5 must still print `blocking` as full defect dicts so the model is holding
+        those `fix` strings when it decides."""
         self.assertIn("floorsynth.ORCHESTRATOR_DEFECT_IDS", self.text)
         self.assertIn("If `critics_loaded` is not `3/3`", self.text)
         self.assertIn("do not end your turn", self.text)
+        prefix = _orchestrator_fix_prefix()
+        self.assertTrue(prefix.endswith(":"), prefix)
+        self.assertIn("whose `fix` begins `%s`" % prefix, self.text)
+        self.assertIn('"blocking": blocking', self.text)
+
+    def test_the_readable_rule_selects_exactly_the_orchestrator_ids(self):
+        """The SKILL's prose rule and `ORCHESTRATOR_DEFECT_IDS` must not be able to
+        disagree: across every defect floorsynth can synthesise, carrying the marker and
+        being in the frozenset are the SAME predicate. Were they to diverge, the fence
+        would either withhold a coder-owned fix or forward an orchestrator-owned one."""
+        from scripts import floorsynth
+        prefix = _orchestrator_fix_prefix()
+        schema_probe, errs = floorsynth.merge_and_validate([], [{
+            "id": "probe", "category": "NOT-A-DIMENSION", "severity": "CRITICAL",
+            "location": "l", "fix": "coder-owned wording"}])
+        self.assertTrue(errs, "probe must trip enforce_critic_schema, or critic-schema "
+                              "is never synthesised and this test is blind to it")
+        synthesised = (floorsynth.script_defects_from({})
+                       + floorsynth.critics_missing_defects([])
+                       + floorsynth.synth_runcheck({})
+                       + floorsynth.synth_docs(False)
+                       + floorsynth.empty_diff_defect("")
+                       + [d for d in schema_probe["defects"] if d["id"] == "critic-schema"])
+        self.assertEqual(
+            {d["id"] for d in synthesised} & floorsynth.ORCHESTRATOR_DEFECT_IDS,
+            set(floorsynth.ORCHESTRATOR_DEFECT_IDS),
+            "every ORCHESTRATOR id must be exercised, or the rule is pinned on a subset")
+        for d in synthesised:
+            with self.subTest(defect=d["id"]):
+                self.assertEqual(d["fix"].startswith(prefix),
+                                 d["id"] in floorsynth.ORCHESTRATOR_DEFECT_IDS)
 
 
 if __name__ == "__main__":

@@ -680,8 +680,10 @@ consistent with `gate()`.
   `floorsynth.ORCHESTRATOR_DEFECT_IDS`** as trusted instructions, plus the *actual failure
   evidence* — `runcheck`'s `stderr_tail`/`stdout_tail` — enclosed in the SAME SAFE-2 untrusted
   wrapper as the Ph2 read path via `safewrap.refine_feedback_block(rc)`. The excluded ids name
-  ORCHESTRATOR work (re-dispatch the named critic, re-run the deterministic lenses); **never hand
-  them to the coder**, which can write inside `.atlas/` in interactive mode. The re-dispatch
+  ORCHESTRATOR work (re-dispatch the named critic, re-run the deterministic lenses) — they are
+  exactly the defects whose `fix` begins `ORCHESTRATOR ACTION — not a coder task:`, already visible
+  in the `blocking` dicts printed above; **never hand them to the coder**, which can write inside
+  `.atlas/` in interactive mode. The re-dispatch
   **re-enters CODED in full** — the coder gets the role body, the ACTIVE skill and a freshly
   recomputed run-state graph again, exactly as on the first pass;
   `safewrap.coder_redispatch_packet(frozen_packet, fix_items, rc)` is the canonical assembler for

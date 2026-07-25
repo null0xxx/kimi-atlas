@@ -115,7 +115,7 @@ Two things to know:
 Beyond platform triggering, atlas itself picks skills for your task — the *right skill at the right time*:
 
 1. At the **GROUNDED** stage of every atlas run, `scripts/skillselect.py` ranks the committed registry ([`references/skill-registry.json`](references/skill-registry.json)) against your frozen intent — weighted, explainable matching (`name` > `triggers` > `description`, word-boundary category prior, deterministic tie-breaks; every result carries `matched_tokens` and a `why`).
-2. The selection is persisted to the run ledger and injected into the coder/critic packets: the **TOP-1 skill's full `SKILL.md` body** becomes the coder's *active skill* (its on-disk payload paths included), the remaining top-3 stay advisory names + paths + why.
+2. The selection is persisted to the run ledger and injected into the **coder packet only**: the **TOP-1 skill's full `SKILL.md` body** becomes the coder's *active skill* (its on-disk payload paths included), the remaining top-3 stay advisory names + paths + why. The critics never see it — their packets carry the diff, the frozen intent, one rubric lens and the evidence slice, and nothing else; that isolation is what buys anti-anchoring.
 3. **You steer it manually** by editing [`references/skill-overrides.json`](references/skill-overrides.json): `pin` (force-include, in order), `exclude`, `boost` (score multiplier — `0` zeroes a skill out), `categories` (whitelist). The file is optional; selection is advisory (V6) and can never gate a run.
 
 Try the selector yourself:
