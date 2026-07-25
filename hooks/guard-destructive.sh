@@ -17,10 +17,20 @@
 # CONTRACT: read the event JSON on stdin; if tool_name == "Bash" AND the command
 # string matches the EXPLICIT destructive denylist below, DENY. Otherwise ALLOW.
 #
-# FAIL-OPEN: any parse error, missing python3, or unexpected shape → ALLOW
-# (exit 0). A guard bug must never brick Bash for another session — a false
+# FAIL-OPEN: any parse error, a missing interpreter, or an unexpected shape →
+# ALLOW (exit 0). A guard bug must never brick Bash for another session — a false
 # allow is recoverable; a false global block is not. (There is deliberately NO
 # `trap 'exit 0' EXIT` here, because that would override the deny `exit 2`.)
+#
+# INTERPRETER ISOLATION (v1.5.1, CRITICAL): both JSON reads below carry
+# `PYTHONSAFEPATH=1`. This hook parses stdin in the SESSION's own directory, and
+# CPython otherwise puts that directory on `sys.path` ahead of the stdlib — so a
+# repository containing a bare `json` shadow module executed arbitrary code in
+# the root session on the first tool use, and (because that import can exit the
+# interpreter) left an empty tool_name behind, which fail-open then read as
+# "not Bash" and ALLOWED. Reproduced on `rm -rf /`: exit 0. With the switch:
+# DENY, exit 2. `PYTHONDONTWRITEBYTECODE=1` rides along because the same import
+# wrote `__pycache__/` into a tree this hook is only supposed to observe.
 #
 # DUAL DENY EMISSION — the two documented Kimi blocking mechanisms are mutually
 # exclusive on exit code (exit 2  vs  exit 0 + JSON), so we emit BOTH signals and
@@ -40,7 +50,7 @@
 INPUT="$(cat 2>/dev/null || printf '%s' '{}')"
 
 # tool_name; fail-open to allow if it cannot be read or is not Bash.
-TOOL="$(printf '%s' "$INPUT" | python3 -c '
+TOOL="$(printf '%s' "$INPUT" | PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -53,7 +63,7 @@ except Exception:
 
 # The raw command string (may span multiple lines — command substitution keeps
 # internal newlines). Empty/unreadable → allow.
-CMD="$(printf '%s' "$INPUT" | python3 -c '
+CMD="$(printf '%s' "$INPUT" | PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)

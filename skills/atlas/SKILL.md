@@ -293,7 +293,7 @@ refine-pass counter).
       ranked = skillselect.select(st.get("intent", ""), skillselect.load_registry(),
                                   skillselect.load_overrides(), top_n=3)
   except Exception:
-      ranked = []                      # advisory (V6) — selection never blocks the run
+      ranked = []                      # advisory (V6) -- selection never blocks the run
   ctxstore.write_artifact(".atlas", run, "skills.json", ranked)
   print("SKILLS=" + json.dumps([r["name"] for r in ranked]))
   PY
@@ -499,57 +499,57 @@ diff = ctxstore.read_artifact(".atlas", run, "diff.patch")
 changed_files = ctxstore.read_artifact(".atlas", run, "changed_files.json")
 test_files = ctxstore.read_artifact(".atlas", run, "test_files.json")
 try:
-    ctx = ctxstore.read_artifact(".atlas", run, "context.json")   # scout grounding digest (may be absent → degraded)
+    ctx = ctxstore.read_artifact(".atlas", run, "context.json")   # scout grounding digest (may be absent -> degraded)
 except Exception:
     ctx = {}
 
-# Lens 5 DOES-IT-RUN — fully deterministic, root Bash, mem-capped + hard timeout. cwd = review_root
+# Lens 5 DOES-IT-RUN -- fully deterministic, root Bash, mem-capped + hard timeout. cwd = review_root
 # so it exercises the coder's ACTUAL tree, not the untouched main checkout.
 cmd = runcheck.discover_verify_cmd(st.get("verify_cmd", ""), review_root)
 rc = runcheck.run(cmd, review_root, timeout_s=1500, mem_limit_mb=2048)
 ctxstore.write_artifact(".atlas", run, "runcheck.json", rc)
 
-# Lens 4 TEST-ADEQUACY / debug-token floor — config-driven, language-agnostic, MEDIUM-capped (V6).
+# Lens 4 TEST-ADEQUACY / debug-token floor -- config-driven, language-agnostic, MEDIUM-capped (V6).
 config = {"debug_tokens": st.get("debug_tokens", []), "test_glob": st.get("test_glob", "")}
 lint_defects = quality.lint_deliverable(changed_files, test_files, config)
 
-# Lens 5b DOES-IT-RUN / CODE-QUALITY — deterministic ast SYNTAX/PARSE floor (NOT a type-check):
+# Lens 5b DOES-IT-RUN / CODE-QUALITY -- deterministic ast SYNTAX/PARSE floor (NOT a type-check):
 # ast.parse + compile() (py_compile) + a conservative unused-import/undefined-name pass over the
 # changed .py source. A syntax/parse or undefined-name hit is a HIGH DOES-IT-RUN defect (blocking).
 astlens_defects = astlens.lint(changed_files)
 
-# Lens 5c DOES-IT-RUN — the universal SYNTAX floor for NON-Python source (astlens's non-.py peer):
+# Lens 5c DOES-IT-RUN -- the universal SYNTAX floor for NON-Python source (astlens's non-.py peer):
 # syntaxlens.check dispatches each changed .rb/.php/.go/.sh/.bash file through a hermetic, argv-only,
 # parse-ONLY native checker (ruby -cw / php -l / gofmt -e / bash -n via nativefloor) and parses STRICT
 # config (package.json / composer.json / *.lock / pyproject.toml / Cargo.toml) in-process. A confirmed
 # syntax error is a HIGH DOES-IT-RUN defect (blocking). FAIL-OPEN: a tool that is absent/errors/times
 # out is a no-op (never a defect); non-strict .json/.toml (tsconfig.json / opaque *.lock / data) are
-# advisory-only (never blocked). JS (.js/.mjs/.cjs) and .jsx/.ts/.tsx are NOT dispatched — node --check
+# advisory-only (never blocked). JS (.js/.mjs/.cjs) and .jsx/.ts/.tsx are NOT dispatched -- node --check
 # cannot distinguish valid JSX/Flow from invalid JS, so it would false-block valid React/Flow .js; JS is
 # verified via the run-signal floor instead. cwd=review_root is currently UNUSED by syntaxlens.check
 # (node's nearest-package.json ESM/CJS resolution was removed with JS) but is kept for call-site stability.
 syntaxlens_defects = syntaxlens.check(changed_files, review_root)
 
-# Advisory linter (P3, spec §Component 2) — NON-BLOCKING. Stored under its OWN key;
+# Advisory linter (P3, spec Component 2) -- NON-BLOCKING. Stored under its OWN key;
 # NEVER added to script_defects/gate_results, so the pure gate cannot see or block on
 # it. safe-AUTO {ruff,shellcheck,gofmt} + GATED operator lint_cmd; never-raise.
 lintlens_advisory = lintlens.check(changed_files, review_root, st.get("lint_cmd"))
 
-# Lens 6 REQUIREMENTS-COVERAGE — FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
+# Lens 6 REQUIREMENTS-COVERAGE -- FROZEN success_criteria vs the diff + scope-creep; MEDIUM-capped (V6).
 reqcoverage_defects = reqcoverage.coverage(st.get("success_criteria", []), diff, st.get("scope_paths"))
 
-# Grounding backstop for lenses 1/6 — a cited path that does not exist is a CRITICAL CORRECTNESS defect.
+# Grounding backstop for lenses 1/6 -- a cited path that does not exist is a CRITICAL CORRECTNESS defect.
 pathcheck_defects = pathcheck.cross_check(diff, ctx, review_root)
 
-# Lens 3 SECURITY — DETERMINISTIC FLOOR (semgrep SAST). FAIL-OPEN: if semgrep is
+# Lens 3 SECURITY -- DETERMINISTIC FLOOR (semgrep SAST). FAIL-OPEN: if semgrep is
 # absent/errors/times out/the --config auto rule-fetch fails, scan() returns [] and
 # the SECURITY lens silently degrades to judgment-only (exactly today's behavior).
-# A semgrep ERROR maps to a HIGH SECURITY defect (blocking); WARNING→MEDIUM, INFO→LOW.
+# A semgrep ERROR maps to a HIGH SECURITY defect (blocking); WARNING->MEDIUM, INFO->LOW.
 # Restricted to the change's scope_paths so only the diff is scanned. This AUGMENTS
-# the SECURITY critic (Step 3) — it never replaces it; both run.
+# the SECURITY critic (Step 3) -- it never replaces it; both run.
 sast_defects = sast.scan(st.get("scope_paths") or [], review_root)
 
-# PASS-bar item 5: naming/inventory clean for any DOCS touched (.md only — check_file errors on non-.md).
+# PASS-bar item 5: naming/inventory clean for any DOCS touched (.md only -- check_file errors on non-.md).
 docs_clean = True
 for rel in list(changed_files) + list(test_files):
     if rel.endswith(".md"):
@@ -639,13 +639,13 @@ merged, schema_errors = floorsynth.merge_and_validate(critics, script_defects)
 
 # gate() reads these EXACT keys (verdict.gate): runcheck, schema_errors, lint_defects,
 # reqcoverage_defects, pathcheck_defects, docs_clean. This is the full PASS bar.
-# lintlens_advisory is deliberately ABSENT — the pure gate stays blind to it.
+# lintlens_advisory is deliberately ABSENT -- the pure gate stays blind to it.
 gate_results = {"runcheck": ev.get("runcheck") or {}, "schema_errors": schema_errors,
                 "lint_defects": ev.get("lint_defects", []),
                 "reqcoverage_defects": ev.get("reqcoverage_defects", []),
                 "pathcheck_defects": ev.get("pathcheck_defects", []),
                 "docs_clean": ev.get("docs_clean", True)}
-status = verdict.gate(merged, gate_results)                 # PURE — "OK" | "UNVERIFIED"
+status = verdict.gate(merged, gate_results)                 # PURE -- "OK" | "UNVERIFIED"
 ctxstore.write_artifact(".atlas", run, "merged_critic.json", merged)
 ctxstore.write_artifact(".atlas", run, "gate_results.json", gate_results)
 blocking = [d for d in merged["defects"] if d.get("severity") in ("CRITICAL", "HIGH")]
@@ -687,7 +687,7 @@ consistent with `gate()`.
   merged = ctxstore.read_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json")
   should = verdict.should_refine(merged, passes)            # CRITICAL/HIGH + passes < MAX_PASSES(2)
   # V7: any CORRECTNESS/SECURITY defect at ANY severity forces >=1 refine pass. Guard passes < 1
-  # so it drives exactly one pass (should_refine's cap still bounds the blocking case at 2) — halts.
+  # so it drives exactly one pass (should_refine's cap still bounds the blocking case at 2) -- halts.
   v7 = passes < 1 and any(d.get("category") in ("CORRECTNESS", "SECURITY")
                           for d in merged.get("defects", []))
   print("REFINE=" + str(should or v7) + " PASSES=" + str(passes))
@@ -764,9 +764,9 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   # residual CRITICAL/HIGH already forces UNVERIFIED via final_status's _has_blocking.
   budget_exhausted = False   # set True only on the degraded 'could-not-verify' path
   status = verdict.final_status(merged, budget_exhausted)
-  # P3 advisory surface — SAFE-2-wrapped, NON-BLOCKING. Load det_evidence ourselves
+  # P3 advisory surface -- SAFE-2-wrapped, NON-BLOCKING. Load det_evidence ourselves
   # (this heredoc otherwise reads only merged_critic.json); a missing artifact omits
-  # the note. lint messages are attacker-controllable → wrap_untrusted (SAFE-2).
+  # the note. lint messages are attacker-controllable -> wrap_untrusted (SAFE-2).
   import sys
   from scripts import safewrap
   try:
@@ -779,7 +779,7 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
           a["lane"], a["tool"], a["path"] or "", (":%d" % a["line"]) if a["line"] else "",
           a["message"]) for a in adv)
       sys.stdout.write(safewrap.wrap_untrusted("lintlens-advisory",
-          "Advisory lint (NOT a gate — informational only):\n" + lines) + "\n")
+          "Advisory lint (NOT a gate -- informational only):\n" + lines) + "\n")
   ctxstore.advance(".atlas", "${KIMI_SESSION_ID}", "OUTPUT", verdict=status)
   st = ctxstore.get_state(".atlas", "${KIMI_SESSION_ID}")
   print(json.dumps({"status": status, "missing": verdict.missing_stages(st)}))

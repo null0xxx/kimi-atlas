@@ -4,6 +4,82 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] — 2026-07-25
+
+**A CRITICAL `sys.path` hijack, live in shipped v1.5.0, closed.** During an atlas run the working
+directory is the TARGET repository — untrusted by design, that being the entire premise of the SAFE-2
+framing. CPython places that directory at `sys.path[0]` for `-c` and for heredoc (`-`) invocations,
+**ahead of every `PYTHONPATH` entry**. The plugin's whole script convention is
+`PYTHONPATH=<plugin root>`, so a target repository could replace **any** module atlas imports —
+including `scripts/verdict.py`, the FROZEN pure gate that is invariant 2, THE ONE GUARANTEE.
+
+**The precise trigger condition, and why this survived testing.** The target's `scripts/` must contain
+an `__init__.py`. Without it the directory is only a *namespace portion*: the path scan continues past
+it, the plugin's regular package is found, and the plugin still wins — which is exactly what every
+casual "what if the target has a `scripts/` directory?" check would have observed. With the
+`__init__.py` present, the target's package wins outright on the first hit. A stdlib shadow — a bare
+`json` module at the target root — needs no package at all.
+
+**Reproduced end to end.** A target tree carrying `scripts/__init__.py` + a `scripts/verdict.py` whose
+`gate()` returns `"OK"` was driven through the real Step-4/5 block: `verdict.gate` returned `"OK"` on a
+RED build and atlas printed `✅ VERIFIED`. No LLM was involved in the wrong answer — the deterministic
+gate itself had been swapped, which is the one failure mode the architecture exists to make impossible.
+
+**The hooks were worse, and they are not part of a run at all.** `hooks/telemetry.sh` is registered in
+`.kimi-plugin/plugin.json` on PostToolUse, SubagentStart and SubagentStop, so it loads for **every Kimi
+session** once the plugin is installed and parses the event JSON in the session's own directory. A
+repository containing a bare `json` shadow module therefore obtained **arbitrary code execution in the root
+session on the first tool use** — before any sandboxed build, any gate, or any human review.
+`hooks/guard-destructive.sh` has the identical shape and, by deliberate design, **fails open**: a
+hijacked `import json` that exits the interpreter leaves an empty `tool_name`, which the fail-open path
+reads as "not Bash" and ALLOWS. Reproduced: `rm -rf /` → `GUARD EXIT=0`. Under the fix the same input
+DENYs with `GUARD EXIT=2`. The same import also wrote `__pycache__/` into a tree the hook only observes,
+so both reads now carry `PYTHONDONTWRITEBYTECODE=1` as well.
+
+**The fix is `PYTHONSAFEPATH=1` on every plugin-owned invocation** — the 17 sites in
+`skills/atlas/SKILL.md`, both hooks, the scout's sha one-liner in `agents/context-scout.md`, both
+`scripts/install.sh` heredocs, and the two probes — plus the six documents that TEACH the convention
+(`references/orchestration.md`, `AGENTS.md`, `PLAN.md`, `skills/atlas-weave/SKILL.md`,
+`skills/atlas-resume/SKILL.md`, the manifest's `skillInstructions`). Sweeping the docs is not
+tidiness: the hijack existed because the convention itself was unsafe and had been copied six times,
+so pinning the SKILL alone would have let the next author reintroduce the bare form straight from the
+documentation. `skills/atlas-resume/SKILL.md` had **no** invocation text at all while naming real
+script calls, and it runs at `sessionStart` — *before* the atlas SKILL and its floor guard — so it now
+carries the convention explicitly.
+
+**Containment first: `proccap.target_env`, and why the naive fix would have been worse than the
+bug.** `PYTHONSAFEPATH` is inherited. Setting it and stopping there would carry it into the TARGET's own
+build, where `python3 -m unittest discover` and uninstalled-package `pytest` runs legitimately depend on
+the working directory being importable — turning **lens 5 DOES-IT-RUN false-RED on essentially every
+Python project, on every run**, a defect that fires universally rather than only against a hostile
+target. `target_env` is now the single definition of "environment for a child that runs target code" and
+strips the switch again at all four such seams (`runcheck`'s primary launch and its fail-open re-run,
+both `suiterun` paths). `PYTHONPATH` is deliberately **not** stripped: it has leaked since v1.3.0, it is
+a different (pre-existing, non-blocking) issue, and removing it here would be an unpinned behaviour
+change smuggled into a security fix.
+
+**A runtime floor guard, because the SKILL is a prompt.** The orchestrating model retypes these commands
+every run — the same transcription risk that motivated `floorsynth` in v1.5.0 — and a textual pin covers
+the FILE, not the typing. The INIT block therefore aborts with `ATLAS-PRECONDITION-FAILED` unless
+`getattr(sys.flags, "safe_path", False)` holds, read on the very interpreter it guards. That expression
+is the isolation **itself**, not the `sys.version_info` proxy: measured, the version test passed while
+the isolation was off in three separate ways (prefix dropped at runtime, prefix present plus `-E`, and
+sub-3.11), each of which then imported the hostile module while reporting itself healthy. The guard sits
+above the block's first shadowable import — a guard that runs after the hijack guards nothing — and its
+abort is named in the COMPLETION INVARIANT so the halt is sanctioned rather than resolved by continuing.
+Every executed heredoc body is now pure ASCII, too: the OUTPUT block printed an em dash, and under a
+non-UTF-8 stdout encoding that `sys.stdout.write` raises and kills the block *mid-OUTPUT*, after the
+status is computed but before it is recorded.
+
+**Both regression pins are behavioural, and each carries a control that fails without the fix.**
+`tests/test_syspath_isolation.py` reproduces the hijack on a hostile tree (control: the target's
+`verdict.py` IS imported without the switch), proves the plugin wins with it, proves the containment by
+running a real cwd-importing target suite through `runcheck`, pins the env dict at each of the three
+seams a run cannot reach cheaply, and runs both hooks in a hostile directory — with controls that strip
+the fix from the shipped file and assert the target's shadow module really does execute. The textual pins
+scan every document and every invocation site with adjacency, so a switch that drifts away from the
+interpreter token it guards is a failure, not a pass. Test suite **1284 → 1323**.
+
 ## [1.5.0] — 2026-07-25
 
 **Three false-green holes, found by measurement and closed.** A runtime-cost investigation instrumented

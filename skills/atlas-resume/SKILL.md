@@ -24,6 +24,13 @@ load-bearing (correctness must survive it either way), just no longer the common
    `atlas` ledger (`state.json`, no DAG). Discover the runs on disk (each `.atlas/*/` with its
    `state.json` `current_state` + mtime + whether a `plan.dag.json` exists), then:
 
+**Script-call convention** — every script call in this file (both paths below) runs as
+`PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "from scripts import <mod>; …"`.
+`PYTHONSAFEPATH=1` is mandatory: the working directory here is the user's own project.
+Without `PYTHONSAFEPATH` that directory outranks `PYTHONPATH`, letting the project replace `scripts/ctxstore.py` or
+`scripts/resume.py` with its own. This skill runs at session start — **before** the `atlas` SKILL
+and its interpreter floor guard — so nothing else will catch a bare invocation here.
+
 ### Graph run (atlas-weave) — re-derive the frontier by pure projection
 
 3g. **Select the graph ROOT run.** Call `resume.select_graph_run(runs, session_id)` with the on-disk

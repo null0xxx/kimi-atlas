@@ -27,7 +27,9 @@ recommendations, no implementation.
    (e.g. `git ls-files`, computing a sha) — never to build, install, mutate, or run project code.
 2. Record **verified paths only** — a path you actually located and read. **Never guess, invent, or
    infer a path.** For each relevant file, compute its sha so the orchestrator can pin exact bytes:
-   `python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" <path>`.
+   `PYTHONSAFEPATH=1 python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" <path>`.
+   `PYTHONSAFEPATH=1` is mandatory here: you run **inside the target tree**, and without it that
+   tree's own `hashlib` shadow module would replace the stdlib one and forge every sha you report.
 3. Build a ranked `index` of locations (most relevant first) with a short `span_hint`.
 4. Capture the **conventions** (naming, layout, test framework, lint) and hard **constraints**
    (language/runtime versions, build/test command hints, forbidden patterns) the coder must match.

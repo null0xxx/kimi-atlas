@@ -62,7 +62,7 @@ if [ -f "$HOME_DIR/config.toml" ]; then
         -p "reply with the single word ok" --output-format text ) > "$TMP/hi.txt" 2>&1 || true
     WFILE="$(find "$HOME_DIR/sessions" -name wire.jsonl -type f 2>/dev/null | head -1 || true)"
     if [ -n "$WFILE" ] && [ -f "$WFILE" ]; then
-        WIRE_LC="$(python3 - "$WFILE" <<'PY' 2>/dev/null || true
+        WIRE_LC="$(PYTHONSAFEPATH=1 python3 - "$WFILE" <<'PY' 2>/dev/null || true
 import sys, json
 vals = {}
 try:

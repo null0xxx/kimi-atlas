@@ -11,7 +11,7 @@ variable is inherited, it must be stripped again at the seam where the plugin
 launches the TARGET's own code -- otherwise ``python3 -m unittest discover`` and
 uninstalled-package ``pytest`` runs go RED for a reason unrelated to the change.
 
-Four independent pins live here:
+Six independent pins live here:
 
 * :class:`TestFixDoesNotLeakIntoTargetBuilds` -- BEHAVIOURAL, the containment.
 * :class:`TestEverySeamContainsTheSwitch` -- BEHAVIOURAL, per-seam. It pins the
@@ -21,6 +21,12 @@ Four independent pins live here:
 * :class:`TestHostileTargetCannotShadowPluginModules` -- BEHAVIOURAL, the fix.
   Its control case asserts the hijack STILL happens without the variable, so the
   suite cannot pass vacuously.
+* :class:`TestHooksSurviveAHostileCwd` -- BEHAVIOURAL, and the widest blast
+  radius of the lot. The hooks are not part of an atlas run at all: they load
+  for EVERY Kimi session once the plugin is installed, and they parse the event
+  JSON in the session's own directory. Its control cases run the hooks with the
+  fix textually removed and assert the target's shadow module really does execute
+  -- reproduced, that made ``guard-destructive.sh`` ALLOW ``rm -rf /``.
 * :class:`TestSkillPinsSafePath` (Task 2) / :class:`TestConventionIsSweptEverywhere`
   (Task 3) -- TEXTUAL, so a future edit cannot silently drop the variable.
 """
@@ -498,6 +504,47 @@ class TestSkillPinsSafePath(unittest.TestCase):
             offenders = sorted({c for c in body if ord(c) > 127})
             self.assertEqual(offenders, [], f"non-ASCII on the abort path: {offenders}")
 
+    def test_every_executed_block_is_pure_ascii(self):
+        """The same defect class as the sibling above, generalised to every block a
+        run EXECUTES -- because the guard was never the only one at risk.
+
+        Measured on the shipped OUTPUT block: it printed
+        ``"Advisory lint (NOT a gate <U+2014> informational only)"`` through
+        ``sys.stdout.write``, and under ``PYTHONIOENCODING=ascii`` that write raises
+        ``UnicodeEncodeError`` and kills the heredoc *mid-OUTPUT* -- after
+        ``verdict.final_status`` has been computed but BEFORE the ``advance`` to
+        OUTPUT and the ``print`` of the status JSON, so the run loses its terminal
+        ledger entry and its status line for a reason that has nothing to do with
+        the change under review.
+
+        The pin is on the whole body rather than on string literals only, for two
+        reasons that a literals-only scan does not cover. The bodies are a PROMPT:
+        the orchestrating model retypes them every run, and a character it cannot
+        reproduce is a transcription hazard wherever it sits. And "is this literal
+        printed?" is not decidable from the text -- ``safewrap.wrap_untrusted`` and
+        the ``%``-formatting above it move literals into a write several lines
+        away. Whole-body ASCII is the only line that needs no case analysis, and it
+        costs nothing: every non-ASCII character in these blocks was decorative.
+        """
+        for body in _heredoc_bodies(self.text):
+            offenders = sorted({c for c in body if ord(c) > 127})
+            self.assertEqual(
+                offenders, [],
+                "non-ASCII in an EXECUTED block: %r in %r"
+                % (offenders, [ln for ln in body.splitlines()
+                               if any(ord(c) > 127 for c in ln)]),
+            )
+
+    def test_the_ascii_scan_sees_the_blocks_that_actually_run(self):
+        """Anti-vacuity for the sibling: an empty ``_heredoc_bodies`` would pass it
+        for free. Pins that the scan really reaches the executed blocks, keyed on
+        the two anchors a run cannot lose -- the INIT resume check and the OUTPUT
+        status write."""
+        bodies = _heredoc_bodies(self.text)
+        self.assertGreaterEqual(len(bodies), 10, "the heredoc scan lost blocks")
+        self.assertTrue(any(".atlas/*/state.json" in b for b in bodies))
+        self.assertTrue(any("verdict.final_status(" in b for b in bodies))
+
     def test_the_floor_guard_precedes_every_hijackable_import(self):
         """POSITION is load-bearing and was unpinned. Two mutations kept the whole
         suite green: moving the guard BELOW ``import glob, json, os`` (measured on a
@@ -551,6 +598,291 @@ class TestSkillPinsSafePath(unittest.TestCase):
         # -- the text that actually forbids the stop -- unaware of it.
         block = self.text[self.text.index("COMPLETION INVARIANT"):len(head)]
         self.assertIn("ATLAS-PRECONDITION-FAILED", block)
+
+
+def _adjacent_switch_re(var: str) -> re.Pattern[str]:
+    """Match the text IMMEDIATELY BEFORE an interpreter token, requiring ``var=1``.
+
+    The whole point is the ``$``: the pattern is applied to ``line[:token.start()]``
+    and must consume it to the end, so the only thing allowed between ``var=1`` and
+    the interpreter is a run of further ``VAR=value`` assignments -- the one shell
+    construct that still applies the variable to that command. A switch anywhere
+    else on the line (a trailing comment, an earlier stage of the pipeline, a
+    second unguarded invocation after a ``;``) cannot satisfy it. The leading class
+    admits the backtick because the agent role files carry their invocations inside
+    markdown code spans.
+    """
+    assign = r"[A-Za-z_][A-Za-z0-9_]*=[^\s]*\s+"
+    return re.compile(r"(?:^|[\s;&|(`])(?:%s)*%s=1\s+(?:%s)*$"
+                      % (assign, re.escape(var), assign))
+
+
+_ADJACENT_SAFEPATH = _adjacent_switch_re("PYTHONSAFEPATH")
+_ADJACENT_NOBYTECODE = _adjacent_switch_re("PYTHONDONTWRITEBYTECODE")
+
+
+def _scan_invocations(text: str, guard: re.Pattern[str] = _ADJACENT_SAFEPATH):
+    """``(guarded, unguarded)`` interpreter tokens, skipping comment/heading lines."""
+    guarded: list[tuple[int, str]] = []
+    unguarded: list[tuple[int, str]] = []
+    for i, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue                      # prose comments are not invocations
+        for m in re.finditer(r"\bpython3\b", line):
+            bucket = guarded if guard.search(line[:m.start()]) else unguarded
+            bucket.append((i, line.strip()[:100]))
+    return guarded, unguarded
+
+
+class TestConventionIsSweptEverywhere(unittest.TestCase):
+    """Every document that TEACHES the convention, and every plugin-owned
+    invocation that runs in an untrusted cwd, must carry the safe form.
+
+    The hijack existed because the convention itself was unsafe and had been
+    copied into six documents. Pinning the atlas SKILL alone would let the next
+    author reintroduce the bare form straight from the docs.
+    """
+
+    # Files that teach the PYTHONPATH convention in prose.
+    DOC_SOURCES = (
+        "references/orchestration.md",
+        "AGENTS.md",
+        "PLAN.md",
+        "skills/atlas-weave/SKILL.md",
+        "skills/atlas-resume/SKILL.md",
+        ".kimi-plugin/plugin.json",
+    )
+
+    # Files that INVOKE the interpreter in a cwd the plugin does not control,
+    # mapped to the number of invocations each carries today. The counts are what
+    # make the scan non-vacuous: "the file mentions the switch" is satisfied by a
+    # comment, and "no unguarded invocation survives" is satisfied by deleting
+    # every invocation. Only a per-file count of ADJACENTLY guarded tokens pins
+    # that the guarded line is the invoking line.
+    INVOKING_FILES = {
+        "agents/context-scout.md": 1,
+        "scripts/install.sh": 2,
+        "hooks/guard-destructive.sh": 2,
+        "hooks/telemetry.sh": 1,
+        "probe/probe_loopcontrol.sh": 1,
+        "probe/probe_runid_stability.sh": 1,
+    }
+
+    # The two hooks load for EVERY Kimi session, in the user's own directory, so
+    # they carry the bytecode switch as well: reproduced, the unfixed hook wrote
+    # __pycache__/ into the tree it was merely observing.
+    HOOKS = ("hooks/guard-destructive.sh", "hooks/telemetry.sh")
+
+    def _text(self, rel: str) -> str:
+        return (_ROOT / rel).read_text(encoding="utf-8")
+
+    def test_no_doc_teaches_the_bare_form(self):
+        offenders = []
+        for rel in self.DOC_SOURCES:
+            text = self._text(rel)
+            for i, line in enumerate(text.splitlines(), 1):
+                if "PYTHONPATH" in line and "PYTHONSAFEPATH" not in line:
+                    offenders.append(f"{rel}:{i}")
+        self.assertEqual(offenders, [], f"bare-form convention text: {offenders}")
+
+    def test_each_doc_actually_mentions_it(self):
+        """Guards against the sibling passing because a file lost the topic entirely."""
+        for rel in self.DOC_SOURCES:
+            self.assertIn("PYTHONSAFEPATH", self._text(rel), rel)
+
+    def test_every_taught_assignment_carries_the_switch_adjacently(self):
+        """Strictly stronger than :meth:`test_no_doc_teaches_the_bare_form`, which
+        asks only whether the two tokens share a LINE. These documents are copied
+        from by hand, so what matters is the exact command a reader lifts: a
+        paragraph reading ``PYTHONPATH=<root> python3 ... (PYTHONSAFEPATH is
+        discussed below)`` satisfies the sibling and teaches the vulnerable form.
+        Keyed on the ASSIGNMENT form ``PYTHONPATH=`` so that discussing the variable
+        by name in prose stays legal -- which the AGENTS.md rationale sentence and
+        the atlas-resume block both do."""
+        seen = 0
+        for rel in self.DOC_SOURCES:
+            for i, line in enumerate(self._text(rel).splitlines(), 1):
+                for m in re.finditer(r"\bPYTHONPATH=", line):
+                    seen += 1
+                    self.assertRegex(line[:m.start()], r"PYTHONSAFEPATH=1\s+$",
+                                     f"{rel}:{i} teaches a detachable PYTHONPATH")
+        self.assertGreaterEqual(seen, 5, "the taught commands vanished from the docs")
+
+    def test_no_unguarded_interpreter_invocation_survives(self):
+        """Keyed on the bare ``python3`` token, not on PYTHONPATH: the scout's sha
+        one-liner and the hooks carry no PYTHONPATH at all, so a PYTHONPATH-keyed
+        scan would be blind to exactly the invocations that need this most."""
+        offenders = []
+        for rel in self.INVOKING_FILES:
+            text = self._text(rel)
+            for i, line in enumerate(text.splitlines(), 1):
+                if re.search(r"\bpython3\b", line) and "PYTHONSAFEPATH" not in line:
+                    if line.lstrip().startswith("#"):
+                        continue          # prose comments are not invocations
+                    offenders.append(f"{rel}:{i}: {line.strip()[:80]}")
+        self.assertEqual(offenders, [], f"unguarded invocation(s): {offenders}")
+
+    def test_the_invoking_scan_is_not_vacuous(self):
+        """Every listed file must really contain at least one guarded invocation."""
+        for rel in self.INVOKING_FILES:
+            self.assertIn("PYTHONSAFEPATH", self._text(rel), rel)
+
+    def test_every_invocation_is_guarded_adjacently_and_none_was_deleted(self):
+        """Strictly stronger than BOTH siblings above, and it is the only pin here
+        that ties the switch to the invocation rather than to the file.
+
+        ``test_no_unguarded_interpreter_invocation_survives`` accepts the switch
+        anywhere on the line, so ``: PYTHONSAFEPATH=1; ... | python3 -c`` passes it
+        while shipping the hijackable form. ``test_the_invoking_scan_is_not_vacuous``
+        accepts it anywhere in the FILE, including a comment, and is satisfied
+        outright by deleting every invocation. Requiring an adjacent assignment run
+        per token closes the first; the per-file count closes the second.
+        """
+        for rel, expected in self.INVOKING_FILES.items():
+            guarded, unguarded = _scan_invocations(self._text(rel))
+            with self.subTest(file=rel):
+                self.assertEqual(unguarded, [], f"{rel}: unguarded invocation(s)")
+                self.assertEqual(len(guarded), expected,
+                                 f"{rel}: expected {expected} guarded invocation(s), "
+                                 f"found {len(guarded)}: {guarded}")
+
+    def test_the_hooks_also_suppress_bytecode_writes(self):
+        """The hooks are the only plugin code that runs in a directory the user did
+        not hand to atlas at all. Reproduced on the unfixed hook: importing the
+        target's shadow module left a ``__pycache__`` directory behind in that tree. The
+        switch is pinned adjacently for the same reason as its sibling."""
+        for rel in self.HOOKS:
+            guarded, unguarded = _scan_invocations(self._text(rel),
+                                                   _ADJACENT_NOBYTECODE)
+            with self.subTest(file=rel):
+                self.assertEqual(unguarded, [], f"{rel}: invocation may write bytecode")
+                self.assertEqual(len(guarded), self.INVOKING_FILES[rel])
+
+
+class TestHooksSurviveAHostileCwd(unittest.TestCase):
+    """BEHAVIOURAL proof for the highest-severity site in this fix.
+
+    The hooks are registered in ``.kimi-plugin/plugin.json`` on PostToolUse,
+    SubagentStart and SubagentStop, so they load for EVERY Kimi session once the
+    plugin is installed -- no atlas run required, no sandbox, no human gate. Each
+    parses the event JSON with a plain interpreter, which puts the session's own
+    directory on ``sys.path`` ahead of the stdlib. A repository containing a bare
+    shadow module therefore executes arbitrary code in the ROOT session on the FIRST
+    tool use, and ``guard-destructive.sh`` -- which fails OPEN by design -- then
+    read an empty ``tool_name`` and ALLOWED ``rm -rf /``.
+
+    Both controls run the SHIPPED hook with the fix textually removed, which is
+    byte-for-byte the v1.5.0 file, so neither direction can pass vacuously.
+    """
+
+    GUARD = _ROOT / "hooks" / "guard-destructive.sh"
+    TELEMETRY = _ROOT / "hooks" / "telemetry.sh"
+
+    #: The exact prefix Step 4 adds. Removing it reconstructs the v1.5.0 hook.
+    FIX = "PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 "
+
+    #: Executes on import, marks the tree, then exits the interpreter silently --
+    #: the quietest possible payload, so what the hook does next is the finding.
+    HOSTILE_JSON = 'open("HIJACKED", "w").close()\nraise SystemExit(0)\n'
+
+    RM_RF_ROOT = '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}'
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = pathlib.Path(self._tmp.name).resolve()
+        (self.target / "json.py").write_text(self.HOSTILE_JSON, encoding="utf-8")
+        self._aux = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(self._aux.cleanup)
+
+    def _env(self) -> dict:
+        """The parent env MINUS both switches.
+
+        Inheriting them would let the TEST RUNNER supply the isolation the hook is
+        supposed to carry itself -- the exact vacuity that would make every
+        assertion below meaningless. ``tests/`` is routinely run under
+        ``PYTHONDONTWRITEBYTECODE=1``.
+        """
+        env = dict(os.environ)
+        env.pop("PYTHONSAFEPATH", None)
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        return env
+
+    def _defused(self, script: pathlib.Path) -> pathlib.Path:
+        """The shipped hook with Step 4's prefix stripped, written OUTSIDE the
+        hostile tree so it cannot perturb the directory listing under assertion."""
+        text = script.read_text(encoding="utf-8")
+        self.assertIn(self.FIX, text, f"{script.name} no longer carries the fix")
+        copy = pathlib.Path(self._aux.name) / (script.name + ".v150")
+        copy.write_text(text.replace(self.FIX, ""), encoding="utf-8")
+        return copy
+
+    def _run(self, script: pathlib.Path, payload: str):
+        return subprocess.run(
+            ["sh", str(script)], input=payload, cwd=str(self.target),
+            env=self._env(), capture_output=True, text=True, timeout=120,
+        )
+
+    def _listing(self) -> list[str]:
+        return sorted(p.name for p in self.target.iterdir())
+
+    def test_control_the_unfixed_guard_executes_target_code_and_fails_open(self):
+        """CONTROL. Reproduces the shipped defect end to end."""
+        proc = self._run(self._defused(self.GUARD), self.RM_RF_ROOT)
+        self.assertIn("HIJACKED", self._listing(),
+                      "the target's json.py did not execute -- the proof is vacuous")
+        self.assertEqual(proc.returncode, 0,
+                         "control: the unfixed guard should have failed OPEN")
+        self.assertNotIn("DENY", proc.stderr)
+        self.assertNotIn("deny", proc.stdout)
+
+    def test_the_fixed_guard_denies_rm_rf_root_from_a_hostile_cwd(self):
+        proc = self._run(self.GUARD, self.RM_RF_ROOT)
+        self.assertEqual(proc.returncode, 2, proc.stderr or proc.stdout)
+        self.assertIn("DENY", proc.stderr)
+        self.assertIn('"permissionDecision":"deny"', proc.stdout)
+        # One assertion covers both halves of the prefix: no HIJACKED (the code
+        # never ran) and no __pycache__ (nothing from the tree was even compiled).
+        self.assertEqual(self._listing(), ["json.py"],
+                         "the hook wrote into the directory it only observes")
+
+    def test_the_fixed_guard_still_allows_an_ordinary_command(self):
+        """The fix must never manufacture a block: a benign command in the same
+        hostile tree still has to sail through."""
+        proc = self._run(self.GUARD,
+                         '{"tool_name":"Bash","tool_input":{"command":"rm -rf ./build"}}')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+    def test_control_the_unfixed_telemetry_hook_executes_target_code(self):
+        """CONTROL. telemetry.sh always exits 0, so the execution IS the finding --
+        and it is wired by default on three events, unlike the opt-in guard."""
+        payload = ('{"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"%s"}'
+                   % self.target)
+        self._run(self._defused(self.TELEMETRY), payload)
+        self.assertIn("HIJACKED", self._listing(),
+                      "the target's json.py did not execute -- the proof is vacuous")
+
+    def test_the_fixed_telemetry_hook_ignores_a_hostile_json(self):
+        payload = ('{"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"%s"}'
+                   % self.target)
+        proc = self._run(self.TELEMETRY, payload)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(self._listing(), ["json.py"])
+
+    def test_the_fixed_telemetry_hook_still_records_a_live_run(self):
+        """Containment check: the isolation must not cost the hook its only job."""
+        run_dir = self.target / ".atlas" / "sess-1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "state.json").write_text('{"current_state": "CODED"}',
+                                            encoding="utf-8")
+        payload = ('{"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"%s",'
+                   '"tool_response":{"stdout":"hello"}}' % self.target)
+        proc = self._run(self.TELEMETRY, payload)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        line = (run_dir / "hooks.jsonl").read_text(encoding="utf-8").strip()
+        self.assertIn('"kind": "tool_call"', line)
+        self.assertIn('"tool_name": "Bash"', line)
 
 
 if __name__ == "__main__":
