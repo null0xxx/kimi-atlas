@@ -232,7 +232,7 @@ class TestSemgrepPathResolution(unittest.TestCase):
 class TestSastMetricsOff(unittest.TestCase):
     """scan() builds an argv that disables semgrep's default telemetry egress (F3)."""
 
-    def test_scan_argv_disables_metrics(self):
+    def _capture_argv(self):
         captured = {}
 
         class _Proc:
@@ -245,11 +245,58 @@ class TestSastMetricsOff(unittest.TestCase):
         with mock.patch.object(sast, "semgrep_path", return_value="/usr/bin/semgrep"), \
                 mock.patch.object(subprocess, "run", _fake_run):
             sast.scan(["a.py"], cwd=".")
-        argv = captured["argv"]
+        return captured["argv"]
+
+    def test_scan_argv_disables_metrics(self):
+        argv = self._capture_argv()
         self.assertIn("--metrics", argv)
         self.assertEqual(argv[argv.index("--metrics") + 1], "off")
         # --metrics off must precede the `--` argv terminator (semgrep options end there).
         self.assertLess(argv.index("--metrics"), argv.index("--"))
+
+    def test_scan_argv_uses_pinned_registry_ruleset(self):
+        # S7: `--config auto` and `--metrics off` are mutually exclusive (semgrep
+        # exits 2, scan() fail-opens to []), so the floor never fired. The ruleset
+        # is the pinned registry set p/default, which tolerates --metrics off.
+        argv = self._capture_argv()
+        self.assertEqual(argv[argv.index("--config") + 1], "p/default")
+        self.assertLess(argv.index("--config"), argv.index("--"))
+
+
+class TestScanRealSemgrep(unittest.TestCase):
+    """Integration: the REAL semgrep binary over a shell=True fixture (S7).
+
+    Every other test in this module mocks the subprocess boundary, which is
+    structurally incapable of observing that two argv flags conflict — that is
+    exactly how S7 shipped. This class skips unless ``sast.semgrep_path()``
+    resolves, and drives the real scanner. At HEAD the failure is an EMPTY
+    LIST, not an exception — proving the fail-open path, not a crash.
+    """
+
+    def setUp(self):
+        if sast.semgrep_path() is None:
+            self.skipTest("semgrep not installed")
+
+    def test_real_scan_finds_shell_true(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "vuln.py"), "w", encoding="utf-8") as fh:
+                fh.write(
+                    "import subprocess\n\n\n"
+                    "def run(cmd):\n"
+                    "    return subprocess.run(cmd, shell=True)\n"
+                )
+            defects = sast.scan(["vuln.py"], tmp)
+        blocking = [
+            d for d in defects
+            if d["severity"] in ("CRITICAL", "HIGH") and d["category"] == "SECURITY"
+        ]
+        self.assertTrue(
+            blocking,
+            "expected at least one blocking SECURITY defect from the real semgrep "
+            f"run (subprocess-shell-true ERROR→HIGH), got {defects!r}",
+        )
 
 
 if __name__ == "__main__":

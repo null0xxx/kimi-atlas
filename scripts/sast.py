@@ -9,19 +9,25 @@ hardening). It does not replace the critic — the judgment eye still runs; SAST
 only augments it.
 
 **FAIL-OPEN is mandatory.** The floor is entirely optional. If semgrep is not
-installed, errors, times out, the network rule-fetch (``--config auto``) fails, or
-returns anything that is not parseable JSON, :func:`scan` returns **no findings**
-and the SECURITY lens degrades to exactly today's judgment-only behavior. semgrep
-must NEVER break the harness or manufacture a false failure — a missing or broken
+installed, errors, times out, the network rule-fetch (``--config p/default``
+pulls from the Registry on every scan) fails, or returns anything that is not
+parseable JSON, :func:`scan` returns **no findings** and the SECURITY lens
+degrades to exactly today's judgment-only behavior. semgrep must NEVER break the harness or manufacture a false failure — a missing or broken
 scanner can only *lose* coverage, never invent a blocking defect.
 
-**Egress.** ``--config auto`` still fetches rules from semgrep.dev on first use, so
-a SECURITY-lens scan of a private diff does reach the network for rule content —
-that dependency is intentional and disclosed. Usage telemetry, however, is disabled
-explicitly via ``--metrics off`` (semgrep's default is to beacon pseudonymous scan
-metadata whenever ``--config`` pulls from the Registry), so scanning a confidential
-diff never sends metrics to a third party. Operators needing a fully offline floor
-should vendor a local ruleset in place of ``--config auto``.
+**Egress.** ``--config p/default`` is a pinned Registry ruleset, and semgrep keeps
+**no on-disk ruleset cache** (verified on semgrep 1.169.0: a second run is no
+faster), so a SECURITY-lens scan of a private diff reaches the network for rule
+content on **every** scan, not just the first — that dependency is intentional
+and disclosed. Offline, the fetch fails and :func:`scan` silently degrades to
+judgment-only (fail-open, exactly as a missing binary). Usage telemetry, however,
+is disabled explicitly via ``--metrics off`` (semgrep's default is to beacon
+pseudonymous scan metadata whenever ``--config`` pulls from the Registry), so
+scanning a confidential diff never sends metrics to a third party. The two flags
+are compatible — unlike ``--config auto``, which semgrep refuses outright when
+metrics are off (the S7 regression: the floor silently never fired). Operators
+needing a fully offline floor should vendor a local ruleset in place of
+``--config p/default``.
 
 Layering:
 
@@ -92,8 +98,8 @@ def parse_semgrep_json(raw: str, scope_root: str) -> list[dict]:
     """Map ``semgrep --json`` output to canonical SECURITY defects (PURE).
 
     Args:
-        raw: the raw stdout of ``semgrep --config auto --json --quiet``. May be
-            empty, truncated, or non-JSON — all tolerated.
+        raw: the raw stdout of ``semgrep --config p/default --json --quiet``. May
+            be empty, truncated, or non-JSON — all tolerated.
         scope_root: the directory semgrep ran in; used only to relativise any
             absolute result path into a repo-relative ``location``.
 
@@ -173,9 +179,9 @@ def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
 
     The one side-effecting entry point. Restricts the scan to ``scope_paths`` so
     only the change under review is analysed (not the whole repo). Runs
-    ``semgrep --config auto --json --quiet -- <scope_paths>`` with ``cwd`` as the
-    working directory and a hard wall-clock ``timeout_s``, then parses stdout via
-    :func:`parse_semgrep_json`.
+    ``semgrep --config p/default --metrics off --json --quiet -- <scope_paths>``
+    with ``cwd`` as the working directory and a hard wall-clock ``timeout_s``,
+    then parses stdout via :func:`parse_semgrep_json`.
 
     **FAIL-OPEN.** Returns ``[]`` — degrading the SECURITY lens to judgment-only —
     on every failure path: semgrep absent (:func:`semgrep_path` is ``None``), no
@@ -190,7 +196,7 @@ def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
     if not paths:
         return []
 
-    argv = [executable, "--config", "auto", "--metrics", "off", "--json", "--quiet", "--", *paths]
+    argv = [executable, "--config", "p/default", "--metrics", "off", "--json", "--quiet", "--", *paths]
     try:
         proc = subprocess.run(
             argv,

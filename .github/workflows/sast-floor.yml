@@ -1,0 +1,38 @@
+name: sast-floor
+
+# The named toolchain lane for the SECURITY deterministic floor (S7). The local
+# build shell and the default `check.yml` runner have no semgrep, so the real-
+# scanner integration test (`tests.test_sast.TestScanRealSemgrep`) only
+# `skipUnless` there — a silently-missing binary would let the argv-conflict
+# regression of S7 ship invisibly again. This lane installs semgrep, HARD-
+# ASSERTS it resolved (so a missing binary fails the job instead of vacuously
+# skipping), and runs the full sast suite against the REAL binary. `p/default`
+# is a Registry ruleset, so the lane needs network on every scan (disclosed in
+# `scripts/sast.py`'s egress paragraph).
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  sast-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Assert semgrep resolved (fail, never skip)
+        run: |
+          python3 -c "from scripts import sast,sys; sys.exit(0 if sast.semgrep_path() else 1)"
+
+      - name: Run the sast suite against the real scanner
+        run: |
+          python3 -m unittest tests.test_sast -v
