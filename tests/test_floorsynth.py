@@ -180,6 +180,7 @@ def _every_synthesized_defect():
         {"ok": False, "test_count": 0, "new_tests_collected": False}, "make test")
     out += floorsynth.synth_docs(False)
     out += floorsynth.empty_diff_defect("")
+    out += floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
     out += floorsynth.critics_missing_defects([])
     bad = {"dimensions": {}, "verdict": "OK",
            "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
@@ -195,6 +196,7 @@ class TestFixStringAudience(unittest.TestCase):
     audiences admit different content, so the split has to be enforced, not assumed."""
 
     ALL_IDS = {"evidence-incomplete", "runcheck", "docs-naming", "empty-diff",
+               "out-of-scope:lib/x.py",
                "critic-missing:correctness", "critic-missing:code-quality",
                "critic-missing:security", "critic-schema"}
 
@@ -216,7 +218,7 @@ class TestFixStringAudience(unittest.TestCase):
                 continue
             audited += 1
             self.assertNotIn("review_root", d["fix"], d["id"])
-        self.assertEqual(audited, 3)   # empty-diff, runcheck, docs-naming
+        self.assertEqual(audited, 4)   # empty-diff, out-of-scope:*, runcheck, docs-naming
 
     def test_every_orchestrator_fix_is_labelled_as_such(self):
         seen = set()
@@ -252,6 +254,103 @@ class TestCriticsMissing(unittest.TestCase):
         self.assertTrue(ids <= floorsynth.ORCHESTRATOR_DEFECT_IDS, ids)
         for d in floorsynth.critics_missing_defects([]):
             self.assertTrue(d["fix"].startswith("ORCHESTRATOR ACTION"))
+
+
+class TestOutOfScopeDefects(unittest.TestCase):
+    """S3(a)/R3: one blocking HIGH CORRECTNESS defect per file changed OUTSIDE
+    scope_paths — the reviewed tree must equal the executed tree. HIGH rather
+    than CRITICAL because the legitimate case exists (a cross-cutting edit);
+    HIGH already blocks AND fires V7. The fix is coder-actionable (NOT an
+    orchestrator id): revert the out-of-scope change, or the human widens scope
+    at the OUTPUT gate. Wired ONLY on a git tree with a resolvable baseline
+    (difftool.git_tree_has_baseline) — elsewhere the fold contributes []."""
+
+    def test_out_of_scope_file_fires_once_per_path(self):
+        out = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
+        self.assertEqual(len(out), 1)
+        d = out[0]
+        self.assertEqual((d["id"], d["category"], d["severity"]),
+                         ("out-of-scope:lib/x.py", "CORRECTNESS", "HIGH"))
+        self.assertEqual(d["location"], "lib/x.py")
+
+    def test_in_scope_paths_stay_silent(self):
+        self.assertEqual(
+            floorsynth.out_of_scope_defects(["src/a.py", "src/sub/b.py"], ["src"]), [])
+
+    def test_whole_tree_scopes_never_fire(self):
+        for scope in (["."], [""], ["./"]):
+            with self.subTest(scope=scope):
+                self.assertEqual(
+                    floorsynth.out_of_scope_defects(["lib/x.py", "a.py"], scope), [])
+
+    def test_scope_spelling_equivalence(self):
+        for scope in (["src"], ["src/"], ["./src"]):
+            with self.subTest(scope=scope):
+                self.assertEqual(floorsynth.out_of_scope_defects(["src/a.py"], scope), [])
+                self.assertEqual(len(floorsynth.out_of_scope_defects(["lib/a.py"], scope)), 1)
+
+    def test_prefix_boundary_is_not_a_match(self):
+        self.assertEqual(len(floorsynth.out_of_scope_defects(["src2/x.py"], ["src"])), 1)
+
+    def test_file_scope_matches_itself_only(self):
+        self.assertEqual(floorsynth.out_of_scope_defects(["src/a.py"], ["src/a.py"]), [])
+        self.assertEqual(len(floorsynth.out_of_scope_defects(["src/b.py"], ["src/a.py"])), 1)
+
+    def test_tool_residue_is_not_a_defect(self):
+        # The false-positive gate (challenge fold T2-F1): a verification run
+        # legitimately regenerates these outside scope_paths on HONEST runs.
+        residue = [".atlas/run-1/state.json", ".coverage", ".coverage.xml",
+                   ".pytest_cache/v/cache/lastfailed", "lib/__pycache__/m.pyc",
+                   "lib/old.pyo", "htmlcov/index.html", ".mypy_cache/x", ".ruff_cache/x",
+                   ".tox/x", ".nox/x", ".venv/lib/python", "venv/lib/python",
+                   "node_modules/pkg/index.js", "dist/bundle.js", "build/out.o",
+                   "target/debug/main", "foo.egg-info/PKG-INFO"]
+        self.assertEqual(floorsynth.out_of_scope_defects(residue, ["src"]), [])
+        # Control: a real out-of-scope change still fires — the residue list
+        # cannot be emptied into swallowing everything.
+        self.assertEqual(len(floorsynth.out_of_scope_defects(["lib/real.py"], ["src"])), 1)
+
+    def test_deterministic_sorted_output(self):
+        a = floorsynth.out_of_scope_defects(["z/b.py", "a/c.py", "m/d.py"], ["src"])
+        b = floorsynth.out_of_scope_defects(["m/d.py", "z/b.py", "a/c.py"], ["src"])
+        self.assertEqual(a, b)
+        self.assertEqual([d["location"] for d in a], ["a/c.py", "m/d.py", "z/b.py"])
+
+    def test_empty_inputs(self):
+        self.assertEqual(floorsynth.out_of_scope_defects([], ["src"]), [])
+        self.assertEqual(floorsynth.out_of_scope_defects(None, ["src"]), [])
+
+    def test_empty_scope_fails_closed(self):
+        # No legitimate scope is empty — an absent scope can never mean whole-tree.
+        self.assertEqual(len(floorsynth.out_of_scope_defects(["a.py"], [])), 1)
+        self.assertEqual(len(floorsynth.out_of_scope_defects(["a.py"], None)), 1)
+
+    def test_fix_is_coder_actionable_and_names_the_two_resolutions(self):
+        d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
+        self.assertIn("lib/x.py", d["fix"])
+        self.assertIn("revert", d["fix"].lower())
+        self.assertIn("scope", d["fix"])
+        # The second resolution is the HUMAN widening scope at the gate — never
+        # the coder editing the frozen scope_paths (SKILL.md:309).
+        self.assertIn("human", d["fix"].lower())
+
+    def test_id_is_coder_facing_not_orchestrator(self):
+        d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
+        self.assertNotIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+    def test_high_blocks_merge_and_drives_refine(self):
+        ds = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
+        merged = verdict.merge([], ds)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
+        self.assertTrue(verdict.should_refine(merged, 0))
+        # ... and a legitimate edit the coder must not revert ends UNVERIFIED at
+        # the human gate (fold T2-F6), never silently cleared.
+        self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
+
+    def test_defect_shape_is_canonical(self):
+        d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
 
 
 class TestGateAgreementMatrix(unittest.TestCase):

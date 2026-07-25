@@ -460,6 +460,12 @@ review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").stri
 # because it shares the parent repo's object DB.
 diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
 ctxstore.write_artifact(".atlas", run, "diff.patch", diff)
+# The WHOLE-tree capture is persisted for the HUMAN at OUTPUT (R3): the scope-
+# restricted diff above is the lenses' evidence, but the coder's real blast
+# radius is review_root. Never put these bytes in a critic packet -- token cost
+# stays O(files), not O(bytes).
+full_diff = difftool.capture_full(st["baseline_sha"], review_root)
+ctxstore.write_artifact(".atlas", run, "diff.full.patch", full_diff)
 # Split the changed files into non-test vs test by the frozen test_glob, reading each
 # from review_root, so quality.lint_deliverable(changed_files, test_files, config) can run.
 # Language-aware default (C6). Explicit override wins; else derive from the runner
@@ -606,8 +612,9 @@ PY
 ```
 PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json
-from scripts import ctxstore, floorsynth, verdict
+from scripts import ctxstore, difftool, floorsynth, verdict
 run = "${KIMI_SESSION_ID}"
+st = ctxstore.get_state(".atlas", run)
 ev = ctxstore.read_artifact(".atlas", run, "det_evidence.json")
 try:
     diff = ctxstore.read_artifact(".atlas", run, "diff.patch")
@@ -635,6 +642,16 @@ script_defects += floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("veri
 script_defects += floorsynth.synth_docs(ev.get("docs_clean", True))
 script_defects += floorsynth.empty_diff_defect(diff)
 script_defects += floorsynth.critics_missing_defects(loaded_critics)
+# R3: the reviewed tree must equal the executed tree. One blocking HIGH per file
+# changed OUTSIDE scope_paths (machine-derived path list, never patch bytes), so a
+# change beyond the lenses' scope-restricted diff can no longer hide. Gated on a
+# git tree with a resolvable baseline -- elsewhere (non-git tarball, no baseline)
+# the fold contributes [] rather than flagging every pre-existing file.
+review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
+baseline = (st.get("baseline_sha") or "").strip()
+full_paths = difftool.change_paths(baseline, review_root) \
+    if difftool.git_tree_has_baseline(review_root, baseline) else []
+script_defects += floorsynth.out_of_scope_defects(full_paths, st["scope_paths"])
 
 merged, schema_errors = floorsynth.merge_and_validate(critics, script_defects)
 

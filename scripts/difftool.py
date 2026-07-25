@@ -239,6 +239,23 @@ def capture_full(baseline_sha: str, cwd: str) -> str:
     return capture(baseline_sha, ["."], cwd)
 
 
+def git_tree_has_baseline(cwd: str, baseline_sha: str) -> bool:
+    """True iff whole-tree change evidence means anything in ``cwd`` (R3 gate).
+
+    Both preconditions: ``cwd`` is inside a git working tree AND ``baseline_sha``
+    resolves to a commit there. Outside them, ``capture_full`` / ``change_paths``
+    must contribute nothing — on a non-git tree every pre-existing file renders
+    as new, and an unresolvable baseline silently degrades the tracked channel.
+    """
+    if not _is_git_repo(cwd):
+        return False
+    baseline = (baseline_sha or "").strip()
+    if not baseline:
+        return False
+    _, rc = _run(["cat-file", "-e", "%s^{commit}" % baseline], cwd)
+    return rc == 0
+
+
 def change_paths(baseline_sha: str, cwd: str) -> list[str]:
     """Machine-derived list of paths changed vs the baseline, review_root-relative.
 

@@ -38,12 +38,13 @@ class TestStep45Delegates(unittest.TestCase):
         self.text = SKILL.read_text(encoding="utf-8")
 
     def test_imports_floorsynth(self):
-        self.assertIn("from scripts import ctxstore, floorsynth, verdict", self.text)
+        self.assertIn("from scripts import ctxstore, difftool, floorsynth, verdict", self.text)
 
     def test_calls_every_synthesiser(self):
         for call in ("floorsynth.script_defects_from(", "floorsynth.synth_runcheck(",
                      "floorsynth.synth_docs(", "floorsynth.empty_diff_defect(",
-                     "floorsynth.critics_missing_defects(", "floorsynth.merge_and_validate("):
+                     "floorsynth.critics_missing_defects(", "floorsynth.merge_and_validate(",
+                     "floorsynth.out_of_scope_defects("):
             with self.subTest(call=call):
                 self.assertIn(call, self.text)
 
@@ -172,7 +173,8 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         folded, merge_line = self._folds()
         self.assertIsNotNone(merge_line)
         self.assertEqual(set(folded), {"script_defects_from", "synth_runcheck", "synth_docs",
-                                       "empty_diff_defect", "critics_missing_defects"})
+                                       "empty_diff_defect", "critics_missing_defects",
+                                       "out_of_scope_defects"})
         for fn, line in sorted(folded.items()):
             with self.subTest(fn=fn):
                 self.assertLess(line, merge_line, "%s is folded AFTER the merge" % fn)
@@ -188,7 +190,26 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         "synth_docs": ("ev.get('docs_clean', True)",),
         "empty_diff_defect": ("diff",),
         "critics_missing_defects": ("loaded_critics",),
+        "out_of_scope_defects": ("full_paths", "st['scope_paths']"),
     }
+
+    def test_full_paths_is_gated_on_a_git_tree_with_resolvable_baseline(self):
+        """Fold T2-F2: the out-of-scope fold fires ONLY on a git tree whose
+        baseline resolves — a non-git capture renders every pre-existing file as
+        new, which would flag the whole honest repo; an unresolvable baseline
+        silently degrades the tracked channel. The gate is one expression, so it
+        cannot drift from the fold it guards."""
+        assigns = [n for n in ast.walk(self.tree)
+                   if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+                   and n.targets[0].id == "full_paths"]
+        self.assertEqual(len(assigns), 1, "expected exactly one full_paths assignment")
+        v = assigns[0].value
+        self.assertIsInstance(v, ast.IfExp, "full_paths must be gated inline")
+        self.assertEqual(ast.unparse(v.test),
+                         "difftool.git_tree_has_baseline(review_root, baseline)")
+        self.assertEqual(ast.unparse(v.body),
+                         "difftool.change_paths(baseline, review_root)")
+        self.assertEqual(ast.unparse(v.orelse), "[]")
 
     def _gate_results_literal(self):
         for node in ast.walk(self.tree):
@@ -397,6 +418,33 @@ class TestContradictionsResolved(unittest.TestCase):
             with self.subTest(defect=d["id"]):
                 self.assertEqual(d["fix"].startswith(prefix),
                                  d["id"] in floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+
+class TestFullDiffNeverEntersCriticPackets(unittest.TestCase):
+    """R3 Step-6 (fold T2-F8): ``diff.full.patch`` is persisted at Step 1 as
+    HUMAN evidence; it must never enter a critic packet — token cost stays
+    O(files), not O(bytes), and the whole tree is not the critics' evidence."""
+
+    def test_persisted_at_step1_and_absent_from_step3(self):
+        text = SKILL.read_text(encoding="utf-8")
+        # Presence first, so renaming the artifact fails this pin instead of
+        # vacuously passing on absence.
+        self.assertIn("diff.full.patch", text)
+        step3 = text.split("**Step 3", 1)[1].split("**Step 4", 1)[0]
+        self.assertNotIn("diff.full.patch", step3)
+
+    def test_full_capture_is_written_not_fed_to_critics(self):
+        # The write must be a real capture_full call in the Step-1 heredoc —
+        # not a copy of diff.patch, which would silently make the two artifacts
+        # identical and delete the point of persisting both.
+        bodies = [b for b in _heredoc_bodies(text=SKILL.read_text(encoding="utf-8"))
+                  if "diff.full.patch" in b]
+        self.assertEqual(len(bodies), 1, "exactly one heredoc touches diff.full.patch")
+        tree = ast.parse(bodies[0].replace("${KIMI_SESSION_ID}", "SID"))
+        calls = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "capture_full"]
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

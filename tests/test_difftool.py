@@ -485,5 +485,31 @@ class TestExcludeStandardAndDedupe(unittest.TestCase):
         self.assertEqual(difftool.change_paths(baseline, str(root)), ["tracked.py"])
 
 
+@unittest.skipUnless(_HAS_GIT, "git is required for baseline-resolution tests")
+class TestGitTreeHasBaseline(unittest.TestCase):
+    """The two preconditions for whole-tree change evidence to mean anything
+    (R3 wiring gate): a git working tree AND a baseline that resolves to a
+    commit. Outside them the out-of-scope fold must contribute [] (fold T2-F2:
+    non-git trees render every pre-existing file as new)."""
+
+    def test_true_in_repo_with_resolvable_baseline(self):
+        root, baseline = _git_repo(self, {"a.py": "x = 1\n"})
+        self.assertTrue(difftool.git_tree_has_baseline(str(root), baseline))
+
+    def test_false_with_bogus_baseline(self):
+        root, _baseline = _git_repo(self, {"a.py": "x = 1\n"})
+        self.assertFalse(difftool.git_tree_has_baseline(str(root), "0" * 40))
+
+    def test_false_with_empty_baseline(self):
+        root, _baseline = _git_repo(self, {"a.py": "x = 1\n"})
+        self.assertFalse(difftool.git_tree_has_baseline(str(root), ""))
+        self.assertFalse(difftool.git_tree_has_baseline(str(root), None))
+
+    def test_false_in_non_git_tree(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.assertFalse(difftool.git_tree_has_baseline(tmp.name, "abc123"))
+
+
 if __name__ == "__main__":
     unittest.main()

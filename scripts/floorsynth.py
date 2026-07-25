@@ -173,6 +173,102 @@ def empty_diff_defect(diff: str) -> list[dict]:
     }]
 
 
+# Legitimate tool residue a verification run regenerates OUTSIDE scope_paths on
+# honest runs (challenge fold T2-F1): the coder runs the suite, pytest/py/coverage
+# drop their caches next to the code, and without this set each file below fires a
+# blocking defect the coder can only clear by deleting files runcheck then
+# regenerates — a manufactured, never-resolvable RED. Excluding them is the SAME
+# invisibility class the project already accepts via ``--exclude-standard`` (a
+# deceptive coder can hide payloads under gitignored paths today, invisible to
+# every lens), so the marginal gameability is consistent with the existing threat
+# model; say so here, not just in tests.
+_RESIDUE_SEGMENTS: frozenset[str] = frozenset({
+    ".atlas", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache",
+    ".tox", ".nox", ".venv", "venv", "node_modules", "dist", "build",
+    "target", "htmlcov",
+})
+
+
+def _is_residue(path: str) -> bool:
+    """True iff ``path`` is tool residue never worth an out-of-scope defect."""
+    parts = path.split("/")
+    if any(seg in _RESIDUE_SEGMENTS for seg in parts):
+        return True
+    if any(seg.endswith(".egg-info") for seg in parts):
+        return True
+    name = parts[-1]
+    return name.endswith((".pyc", ".pyo")) or name.startswith(".coverage")
+
+
+def _normalize_scopes(scope_paths) -> list[str] | None:
+    """Scope specs normalized, or ``None`` when they mean the WHOLE tree.
+
+    Whole-tree spellings are ``.``, ``""`` and ``./`` (after stripping a single
+    leading ``./`` and trailing ``/``); for them nothing can be out of scope.
+    Do NOT reuse ``reqcoverage._under_scope``: it matches NOTHING under
+    ``["."]`` / ``["./src"]`` (verified), so it would flag every file under the
+    documented headless default. An empty result is NOT whole-tree — no
+    legitimate scope is empty, so empty fails closed (every path fires).
+    """
+    scopes: list[str] = []
+    for raw in scope_paths or []:
+        s = raw if isinstance(raw, str) else ""
+        while s.startswith("./"):
+            s = s[2:]
+        s = s.rstrip("/")
+        if s in ("", "."):
+            return None
+        scopes.append(s)
+    return scopes
+
+
+def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
+    """One blocking HIGH CORRECTNESS defect per file changed OUTSIDE ``scope_paths``.
+
+    The reviewed tree must equal the executed tree (S3(a)/R3): the scope-
+    restricted ``diff.patch`` feeds every lens, but the coder's real blast radius
+    is ``review_root`` — a change outside ``scope_paths`` (including deleting the
+    very test that would catch the bug) was invisible to all six lenses while
+    ``runcheck`` still ran the whole tree. ``full_paths`` is the machine-derived
+    whole-tree change list (``difftool.change_paths`` — never parsed patch TEXT,
+    which is content-spoofable and misses pure renames).
+
+    HIGH rather than CRITICAL, deliberately: the legitimate case exists (a
+    cross-cutting edit to a shared ``conftest.py``), and HIGH already blocks AND
+    fires V7. This id is deliberately NOT in ``ORCHESTRATOR_DEFECT_IDS``: the
+    in-loop resolution is the coder's (revert the out-of-scope part), so REFINE
+    correctly hands the ``fix`` to the coder; the ``fix`` also names the other
+    resolution — the HUMAN widening scope at the OUTPUT gate — because
+    ``scope_paths`` is frozen and a legitimate edit correctly ends UNVERIFIED
+    with the defect visible, never silently cleared. Wired ONLY when
+    ``difftool.git_tree_has_baseline`` holds (fold T2-F2): on a non-git tree or
+    an unresolvable baseline this fold contributes ``[]``, because a non-git
+    capture renders every pre-existing file as new.
+    """
+    scopes = _normalize_scopes(scope_paths)
+    if scopes is None:
+        return []
+    out: list[dict] = []
+    for path in sorted(set(full_paths or [])):
+        if not isinstance(path, str) or not path:
+            continue
+        if _is_residue(path):
+            continue
+        if any(path == s or path.startswith(s + "/") for s in scopes):
+            continue
+        out.append({
+            "id": "out-of-scope:%s" % path,
+            "category": "CORRECTNESS",
+            "severity": "HIGH",
+            "location": path,
+            "fix": "the change to %s is outside the frozen scope_paths (%s); revert "
+                   "that change, or leave it for the human to widen scope at the "
+                   "OUTPUT gate — do not edit scope_paths"
+                   % (path, ", ".join(scopes) if scopes else "<none>"),
+        })
+    return out
+
+
 def critics_missing_defects(loaded_artifacts) -> list[dict]:
     """One BLOCKING defect per judgment-critic artifact that failed to load.
 
