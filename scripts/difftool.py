@@ -115,12 +115,16 @@ def _tracked_at(cwd: str, baseline: str, path: str) -> bool:
 def _tracked_diff(cwd: str, baseline: str, path: str) -> str:
     """Diff a baseline-tracked ``path`` against the working tree (scope-restricted).
 
-    A whole-tree ``path`` diffs the ENTIRE tree with NO ``--`` pathspec — the
-    empty-string pathspec is fatal ("please use . instead"), so it must never
-    reach the command line.
+    A whole-tree ``path`` diffs via ``-- .``: the empty-string pathspec is fatal
+    ("please use . instead"), and a bare no-pathspec ``git diff`` is REPO-wide
+    even from a subdirectory — which would leak sibling-tree changes into a
+    subdir ``review_root`` while the untracked channel and ``change_paths``
+    (``--relative``) stay cwd-scoped. ``-- .`` is byte-identical to no pathspec
+    from the repo root and cwd-scoped from a subdirectory, so every channel
+    agrees on the same review_root-relative tree.
     """
     if _is_whole_tree(path):
-        argv = ["diff", "--no-color", "--no-ext-diff", baseline]
+        argv = ["diff", "--no-color", "--no-ext-diff", baseline, "--", "."]
     else:
         argv = ["diff", "--no-color", "--no-ext-diff", baseline, "--", path]
     out, rc = _run(argv, cwd)
@@ -201,12 +205,15 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
                     parts.append(_tracked_diff(cwd, baseline, path))
         else:
             # No baseline: fall back to working-tree-vs-index for tracked files.
-            # Whole-tree specs become the ABSENCE of a `--` pathspec (the
-            # empty-string pathspec is fatal).
+            # Whole-tree specs become ``-- .`` (the empty-string pathspec is
+            # fatal, and a bare no-pathspec diff is repo-wide from a subdir —
+            # see _tracked_diff), keeping every channel review_root-relative.
             concrete = _concrete_pathspecs(scope_paths)
             argv = ["diff", "--no-color", "--no-ext-diff"]
             if concrete:
                 argv += ["--", *concrete]
+            else:
+                argv += ["--", "."]
             out, rc = _run(argv, cwd)
             if rc in (0, 1):
                 parts.append(out)

@@ -406,5 +406,84 @@ class TestTwoWorktrees(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_HAS_GIT, "git is required for subdir whole-tree tests")
+class TestWholeTreeFromSubdirChannelsAgree(unittest.TestCase):
+    """Whole-tree scope from a SUBDIRECTORY: every evidence channel must
+    enumerate the SAME review_root-relative tree (review fix wave, Important-1).
+
+    A bare no-pathspec ``git diff`` is repo-wide even from a subdir, while
+    ``ls-files --others`` with no pathspec is cwd-scoped — so capture_full
+    leaked parent-dir tracked changes and lost nothing, and change_paths
+    (``--relative``) disagreed with it. ``-- .`` is byte-identical to no
+    pathspec from the repo root and cwd-scoped from a subdirectory.
+    """
+
+    def setUp(self):
+        self.root, self.baseline = _git_repo(
+            self, {"src/tracked.py": "x = 1\n", "top.py": "t = 1\n"}
+        )
+        (self.root / "src" / "tracked.py").write_text("x = 2\n", encoding="utf-8")
+        (self.root / "top.py").write_text("t = 2\n", encoding="utf-8")
+        (self.root / "rootnew.py").write_text("r = 1\n", encoding="utf-8")
+        (self.root / "src" / "subnew.py").write_text("s = 1\n", encoding="utf-8")
+        self.subdir = str(self.root / "src")
+
+    def test_whole_tree_from_subdir_is_cwd_scoped(self):
+        diff = difftool.capture(self.baseline, ["."], self.subdir)
+        self.assertIn("+x = 2", diff)        # in-cwd tracked change: kept
+        self.assertIn("subnew.py", diff)     # in-cwd new file: kept
+        self.assertNotIn("+t = 2", diff)     # parent-dir tracked change: NOT leaked
+        self.assertNotIn("rootnew.py", diff)  # parent-dir new file: NOT leaked
+
+    def test_capture_full_and_change_paths_agree_from_subdir(self):
+        self.assertEqual(
+            difftool.change_paths(self.baseline, self.subdir),
+            ["subnew.py", "tracked.py"],
+        )
+        full = difftool.capture_full(self.baseline, self.subdir)
+        self.assertIn("+x = 2", full)
+        self.assertNotIn("+t = 2", full)
+
+    def test_dot_scope_from_root_is_byte_identical_to_no_pathspec_form(self):
+        # The `-- .` form must not change root behavior: whole-tree from the
+        # repo root still covers the ENTIRE tree.
+        diff = difftool.capture(self.baseline, ["."], str(self.root))
+        self.assertIn("+x = 2", diff)
+        self.assertIn("+t = 2", diff)
+        self.assertIn("rootnew.py", diff)
+        self.assertIn("subnew.py", diff)
+
+    def test_no_baseline_whole_tree_from_subdir_is_cwd_scoped(self):
+        # The no-baseline branch (worktree-vs-index) gets the same `-- .`
+        # treatment: from a subdir it must not leak parent-dir changes.
+        diff = difftool.capture("", ["."], self.subdir)
+        self.assertIn("+x = 2", diff)
+        self.assertNotIn("+t = 2", diff)
+        self.assertNotIn("rootnew.py", diff)
+
+
+@unittest.skipUnless(_HAS_GIT, "git is required for ignore/dedupe tests")
+class TestExcludeStandardAndDedupe(unittest.TestCase):
+    """Minor-1 pins: --exclude-standard keeps gitignored files OUT of the
+    evidence (dropping it floods every lens with build output), and the
+    tracked/untracked channels never double-report one path."""
+
+    def test_gitignored_files_are_not_evidence(self):
+        root, baseline = _git_repo(self, {"a.py": "x = 1\n", ".gitignore": "build/\n*.log\n"})
+        (root / "build").mkdir()
+        (root / "build" / "out.py").write_text("b = 1\n", encoding="utf-8")
+        (root / "debug.log").write_text("l\n", encoding="utf-8")
+        self.assertEqual(difftool.change_paths(baseline, str(root)), [])
+        self.assertNotIn("out.py", difftool.capture_full(baseline, str(root)))
+
+    def test_rm_then_recreate_is_reported_once(self):
+        root, baseline = _git_repo(self, {"tracked.py": "x = 1\n"})
+        subprocess.run(
+            ["git", "rm", "-q", "tracked.py"], cwd=root, check=True, capture_output=True
+        )
+        (root / "tracked.py").write_text("x = 1\n", encoding="utf-8")
+        self.assertEqual(difftool.change_paths(baseline, str(root)), ["tracked.py"])
+
+
 if __name__ == "__main__":
     unittest.main()
