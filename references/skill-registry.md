@@ -9,7 +9,9 @@ Two scripts make the tree addressable: `scripts/skillregistry.py` distils every 
 the compact, committed registry [`references/skill-registry.json`](skill-registry.json), and
 `scripts/skillselect.py` ranks that registry against a task intent. The ranking is **advisory
 only** (V6) — a token heuristic that emits no verdicts and no defects and can never gate a
-run; the atlas flow injects it into the coder/critic packets as a hint.
+run; the atlas flow injects it into the **coder packet only** as a hint. It never reaches a
+critic: the critic packet is exactly the four items the atlas SKILL's Step 3 enumerates, and
+that isolation is what buys F6 anti-anchoring.
 
 **Coalesce policy.** The zips were grouped by frontmatter `name`; a same-name group had to be
 **byte-identical** (same member names, same bytes) to extract at all. Two duplicate pairs

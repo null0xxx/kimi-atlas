@@ -3,9 +3,9 @@
 Reads ``references/skill-registry.json`` (built by ``scripts/skillregistry.py``
 from the extracted ``skills/`` tree, manifest-anchored) and scores every skill
 against a free-text task intent, so an agent can be handed the *right skill at
-the right time*. The ranking is **advisory only** (V6): it is a string/token
-heuristic, emits no verdicts and no defects, and can never gate a run — the
-atlas flow treats it as a hint injected into the coder/critic packets.
+the right time*. The ranking is **advisory only** (V6): a string/token heuristic
+that emits no verdicts and no defects and can never gate a run. The atlas flow
+injects it into the CODER packet ONLY — never a critic's, whose isolation buys F6.
 
 Scoring (E2) is weighted and explainable: a token matched in the skill **name**
 outweighs one matched in its **trigger signals** (E1, see ``extract_triggers``

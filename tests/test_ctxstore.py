@@ -524,6 +524,40 @@ class TestWriteArtifactConfined(unittest.TestCase):
                 )
         self.assertFalse(os.path.exists(os.path.join(outside, "blob.txt")))
 
+    def test_the_tmp_open_refuses_a_symlink_planted_in_the_race_window(self):
+        """``O_NOFOLLOW|O_EXCL`` on the tmp open, proven load-bearing as a PAIR.
+
+        The docstring promises both flags and nothing verified either: they are a
+        REDUNDANT pair, so each survives deletion alone (a symlink at the tmp path fails
+        ``ELOOP`` under ``O_NOFOLLOW`` and ``EEXIST`` under ``O_CREAT|O_EXCL``), and only
+        dropping BOTH is fatal — measured, the write then follows the link and lands
+        ``PWNED`` in a file outside the run dir.
+
+        The window is real and the component walk cannot cover it: the writer unlinks any
+        stale tmp sibling and only THEN opens that path, so an attacker who plants a
+        symlink between the two calls is invisible to every earlier check. Patching
+        ``os.open`` to plant it at exactly that moment reproduces the winning race
+        deterministically; the flags are the only remaining guard.
+        """
+        victim = os.path.join(self.tmp, "victim.txt")
+        with open(victim, "w", encoding="utf-8") as fh:
+            fh.write("SAFE")
+        real_open, planted = os.open, []
+
+        def planting_open(path, flags, mode=0o777, **kwargs):
+            if str(path).endswith(".tmp") and not planted:
+                planted.append(str(path))
+                os.symlink(victim, path)        # the attacker wins the race
+            return real_open(path, flags, mode, **kwargs)
+
+        with mock.patch("os.open", planting_open):
+            with self.assertRaises(OSError):
+                ctxstore.write_artifact_confined(self.base, "R", "blob.txt", "PWNED")
+        self.assertTrue(planted, "the tmp open was never reached — the race is unpinned")
+        with open(victim, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "SAFE")
+        self.assertFalse(os.path.exists(os.path.join(self.base, "R", "blob.txt")))
+
 
 if __name__ == "__main__":
     unittest.main()

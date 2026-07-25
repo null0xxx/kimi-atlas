@@ -84,6 +84,16 @@ class TestLensSection(unittest.TestCase):
         """Guards the exact failure mode where every slice silently comes back empty."""
         self.assertEqual(rubric.lens_section("## Lens 1 - CORRECTNESS\nbody\n", "CORRECTNESS"), "")
 
+    def test_a_dimension_that_is_a_prefix_of_the_heading_does_not_match(self):
+        """The `\\b` after the dimension is load-bearing and its loss is the MIS-SLICE
+        failure mode, strictly worse than the empty-slice one: without it,
+        `## Lens 1 — CORRECTNESSX` matches the CORRECTNESS request and the critic is
+        handed a rubric for a lens it is not judging — with a NON-empty slice, so the
+        caller's "treat an empty slice as a hard failure" contract cannot see it.
+        Pinned on a REAL dimension; `references/rubric.md` matches either way."""
+        self.assertEqual(
+            rubric.lens_section("## Lens 1 — CORRECTNESSX\nbody\n", "CORRECTNESS"), "")
+
     def test_terminator_is_any_h2_not_only_a_lens_h2(self):
         md = "## Lens 6 — REQUIREMENTS-COVERAGE\nbody\n\n## Per-critic verdict\nOTHER\n"
         got = rubric.lens_section(md, "REQUIREMENTS-COVERAGE")

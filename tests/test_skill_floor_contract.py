@@ -98,6 +98,43 @@ def _initialisers_of(tree, name):
     return out
 
 
+def _reseedings_of(tree, name):
+    """Every statement that puts elements into `name` by a route OTHER than `.append`.
+
+    ``_initialisers_of`` walks only ``ast.Assign`` with a ``Name``/``Tuple`` target, so
+    the empty-literal pin below is blind to RE-seeding: ``loaded_critics += [n for n, _d
+    in floorsynth.CRITIC_ARTIFACTS]``, ``.extend([...])`` and ``[:] = [...]`` all leave
+    the initialiser a bare ``[]`` and every existing pin green. Each was MEASURED with
+    ``critic_security.json`` deleted to print ``status=OK critics_loaded=5/3
+    blocking=[]`` — the exact false green ``critics_missing_defects`` exists to close.
+    So: an ``AugAssign`` onto the name, an ``Assign`` through a ``Subscript`` of it, and
+    any method call on it other than ``append`` are all illegal here.
+    """
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == name:
+                out.append(node)
+        elif isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Subscript) and isinstance(tgt.value, ast.Name) \
+                   and tgt.value.id == name:
+                    out.append(node)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr != "append" \
+               and isinstance(node.func.value, ast.Name) and node.func.value.id == name:
+                out.append(node)
+    return out
+
+
+def _floorsynth_calls(tree, attr):
+    """Every ``floorsynth.<attr>(...)`` call node in `tree`."""
+    return [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == attr and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "floorsynth"]
+
+
 class TestStep45FoldIsStructural(unittest.TestCase):
     """Substring pins are vacuous against the two mutations that matter (spec §7): a
     synthesis whose result is DISCARDED, and one folded AFTER the merge. Parse the block
@@ -140,6 +177,53 @@ class TestStep45FoldIsStructural(unittest.TestCase):
             with self.subTest(fn=fn):
                 self.assertLess(line, merge_line, "%s is folded AFTER the merge" % fn)
 
+    # The exact argument expression each synthesiser must receive. Pinning only that a
+    # call EXISTS and is folded is vacuous against a constant argument: measured,
+    # `floorsynth.synth_docs(True)` passes every other pin in this file and, on DIRTY
+    # docs, ships `final_status=OK` while `gate` returns UNVERIFIED — the gate/merged
+    # disagreement floorsynth exists to abolish, invisible to the whole suite.
+    SYNTH_ARGUMENTS = {
+        "script_defects_from": ("ev",),
+        "synth_runcheck": ("ev.get('runcheck', {})", "ev.get('verify_cmd', '')"),
+        "synth_docs": ("ev.get('docs_clean', True)",),
+        "empty_diff_defect": ("diff",),
+        "critics_missing_defects": ("loaded_critics",),
+    }
+
+    def _gate_results_literal(self):
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) \
+               and node.targets[0].id == "gate_results":
+                return node.value
+        self.fail("no gate_results literal found")
+
+    def test_every_synthesiser_is_called_on_the_evidence_not_on_a_constant(self):
+        """Argument fidelity, expression by expression. A synthesiser handed a literal
+        (or the wrong evidence key) still folds into `script_defects` before the merge
+        and still passes every structural pin above, while silently synthesising the
+        WRONG answer — `synth_docs(True)` never blocks, `empty_diff_defect("x")` never
+        fires, `critics_missing_defects([...])` can never see a lost critic."""
+        for fn, expected in sorted(self.SYNTH_ARGUMENTS.items()):
+            with self.subTest(fn=fn):
+                calls = _floorsynth_calls(self.tree, fn)
+                self.assertEqual(len(calls), 1, "expected exactly one %s call" % fn)
+                self.assertEqual(tuple(ast.unparse(a) for a in calls[0].args), expected,
+                                 "%s is not called on the evidence it must judge" % fn)
+                self.assertEqual(calls[0].keywords, [], "%s takes positional args" % fn)
+
+    def test_synth_docs_reads_the_EXACT_expression_the_gate_reads(self):
+        """The docs floor is the one input `gate` and the merged critic both consume, so
+        the two readings must be ONE expression, not two that happen to agree today.
+        Derived from the `gate_results` literal, never re-typed: drift on either side
+        (a constant, a different key, a different default) reopens the measured
+        `gate=UNVERIFIED` / `final_status=OK` split on dirty docs."""
+        call = _floorsynth_calls(self.tree, "synth_docs")[0]
+        self.assertEqual(len(call.args), 1)
+        gate = self._gate_results_literal()
+        docs = dict(zip([k.value for k in gate.keys], gate.values))["docs_clean"]
+        self.assertEqual(ast.unparse(call.args[0]), ast.unparse(docs),
+                         "synth_docs and gate_results read docs_clean differently")
+
     def test_missing_critics_are_computed_from_what_actually_loaded(self):
         """Feeding `critics_missing_defects` a STATIC list of all three artifacts survives
         every other pin here (measured) yet makes the defect unable to EVER fire, silently
@@ -164,6 +248,12 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         self.assertEqual(inits[0].elts, [],
                          "loaded_critics must START empty — pre-seeding it makes every "
                          "critic read as loaded and critics_missing_defects can never fire")
+
+        self.assertEqual(
+            [ast.unparse(n) for n in _reseedings_of(self.tree, "loaded_critics")], [],
+            "loaded_critics may only ever grow by `.append(name)` inside the read try: "
+            "`+=`, `[:] =`, `.extend(...)` and `.insert(...)` all keep the initialiser a "
+            "bare [] — measured, each printed critics_loaded 5/3 with a critic deleted")
 
         appends = [n for n in ast.walk(self.tree) if _appends_to(n, "loaded_critics")]
         self.assertEqual(len(appends), 1, "loaded_critics must be appended exactly once")

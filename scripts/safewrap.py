@@ -94,7 +94,14 @@ def refine_feedback_block(runcheck: dict) -> str:
 def coder_redispatch_packet(
     frozen_packet: dict, fix_items: list[dict], runcheck: dict
 ) -> dict:
-    """Assemble the REFINE->CODED re-dispatch packet for the coder (pure).
+    """Assemble the FIX-FEEDBACK FIELDS of the REFINE->CODED re-dispatch (pure).
+
+    NOT the whole coder packet, and never a substitute for one: the re-dispatch
+    **re-enters CODED in full** (the SKILL's REFINE ``True`` branch), where the coder
+    is handed the role body, the ACTIVE skill and a freshly recomputed run-state graph
+    again. This function carries NONE of those — it returns exactly ``{intent,
+    scope_paths, target, fix_instructions, untrusted_failure_evidence}``, the fields
+    that carry THIS pass's failure feedback into that packet.
 
     The FROZEN packet fields (intent, scope_paths, target/review_root) and the trusted
     critic ``fix`` items are first-class structured fields. The attacker-influenceable

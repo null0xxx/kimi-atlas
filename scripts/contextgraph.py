@@ -185,7 +185,7 @@ def render_for_injection(graph: dict, max_bytes: int = INJECTION_MAX_BYTES,
     ``max_bytes`` is a HARD post-condition over the WHOLE view. No node class gets
     unconditional retention: ``task``/``verdict``/``artifact`` nodes derive from
     ``log.jsonl`` and ``plan.dag.json``, both inside the interactive coder's writable
-    root (``review_root == "."``, SKILL.md:322), so an unbounded structural class
+    root (``review_root == "."``, SKILL.md:328), so an unbounded structural class
     would let a coder blow the budget and author 100% of the injected graph — the
     same attack the per-kind event quotas close. Binding drops WHOLE nodes and
     re-serialises; never string-slices a node OUT of its JSON, which would emit

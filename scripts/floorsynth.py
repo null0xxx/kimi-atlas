@@ -130,7 +130,7 @@ CRITIC_ARTIFACTS: tuple[tuple[str, str], ...] = (
 # Defect ids naming ORCHESTRATOR work. The REFINE loop hands CRITICAL/HIGH `fix`
 # strings to the CODER as trusted instructions (the SKILL's REFINE `True` branch),
 # and in interactive mode .atlas/ sits inside the coder's writable root
-# (SKILL.md:322) — so a fix telling the coder to "persist the critic JSON" would
+# (SKILL.md:328) — so a fix telling the coder to "persist the critic JSON" would
 # invite the LLM under review to author gate input. These ids are never coder tasks.
 ORCHESTRATOR_DEFECT_IDS: frozenset[str] = frozenset(
     {"evidence-incomplete", "critic-schema"}
@@ -156,7 +156,7 @@ def empty_diff_defect(diff: str) -> list[dict]:
     trusted instruction. Because of that, the ``fix`` names ONLY coder work and never
     ``review_root`` — that value is the ``cwd`` for both ``difftool.capture`` and
     ``runcheck.run`` and, interactively, is persisted inside the coder's own writable
-    root (``skills/atlas/SKILL.md:313``, ``:322``), i.e. it is gate input the LLM under
+    root (``skills/atlas/SKILL.md:313``, ``:328``), i.e. it is gate input the LLM under
     review must never be told to inspect or adjust. The orchestrator-side possibility
     that ``review_root`` pointed at the wrong tree is carried by ``location`` instead,
     which OUTPUT shows to the human and REFINE never sends.

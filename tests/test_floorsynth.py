@@ -191,7 +191,7 @@ def _every_synthesized_defect():
 
 class TestFixStringAudience(unittest.TestCase):
     """A `fix` this module writes is either shown to a human (orchestrator ids) or handed
-    to the CODER as a trusted instruction (skills/atlas/SKILL.md:687-690). The two
+    to the CODER as a trusted instruction (skills/atlas/SKILL.md:677-680). The two
     audiences admit different content, so the split has to be enforced, not assumed."""
 
     ALL_IDS = {"evidence-incomplete", "runcheck", "docs-naming", "empty-diff",
@@ -206,7 +206,7 @@ class TestFixStringAudience(unittest.TestCase):
     def test_no_coder_facing_fix_names_review_root(self):
         # review_root is the `cwd` for BOTH difftool.capture and runcheck.run, and
         # interactively it is persisted inside the coder's own writable root
-        # (SKILL.md:313, :322) — it is gate input. A `fix` routed to the coder must
+        # (SKILL.md:313, :328) — it is gate input. A `fix` routed to the coder must
         # never tell the LLM under review to inspect or adjust it. Asserted literally
         # first, so the loop cannot be emptied by moving empty-diff into the frozenset.
         self.assertNotIn("empty-diff", floorsynth.ORCHESTRATOR_DEFECT_IDS)
