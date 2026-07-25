@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import time
 
 # ---------------------------------------------------------------------------
@@ -346,3 +347,68 @@ def write_draft(base: str, run_id: str, text: str) -> str:
 def read_draft(base: str, run_id: str) -> str:
     """Return the latest draft text (raises if no draft has been written)."""
     return (_run_dir(base, run_id) / "draft.md").read_text(encoding="utf-8")
+
+
+# A run_id is a path component AND, from Phase 3, part of `git worktree add` argv.
+# Restricting it to [A-Za-z0-9._-], banning a leading '-' (argv option injection)
+# and banning a bare '.'/'..' makes both uses safe by construction.
+_RUN_ID_RE = re.compile(r"\A(?!-)[A-Za-z0-9._-]{1,128}\Z")
+
+
+def valid_run_id(run_id) -> bool:
+    """True iff ``run_id`` is safe as a path component and as an argv token."""
+    if not isinstance(run_id, str):
+        return False
+    if run_id in (".", ".."):
+        return False
+    return bool(_RUN_ID_RE.match(run_id))
+
+
+def write_artifact_confined(base: str, run_id: str, name: str, data) -> pathlib.Path:
+    """Write ``data`` under the run dir, refusing traversal and symlinked components.
+
+    ``write_artifact`` is a bare ``write_text`` that follows symlinks at every
+    component. Callers that persist ATTACKER-INFLUENCEABLE bytes must use this hand
+    instead: in interactive mode ``review_root == "."``
+    (``skills/atlas/SKILL.md:328``), so ``.atlas/`` sits inside the coder's own
+    writable root and any component could be replaced with a symlink.
+
+    Raises ``ValueError`` on an invalid ``run_id``, on a target that resolves
+    outside the run dir, or on any symlinked component. Writes via
+    ``O_NOFOLLOW|O_CREAT|O_EXCL`` + ``os.replace`` so the final placement is atomic.
+    """
+    if not valid_run_id(run_id):
+        raise ValueError("unsafe run_id: %r" % (run_id,))
+    rel = pathlib.PurePosixPath(name)
+    if rel.is_absolute() or not rel.parts or any(p in ("", ".", "..") for p in rel.parts):
+        raise ValueError("unsafe artifact name: %r" % (name,))
+    # Anchor containment on BASE, never on the run dir: resolve()ing the run dir would
+    # move the confinement root onto a symlink target the coder chose.
+    base_dir = pathlib.Path(base).resolve()
+    run_dir = base_dir / run_id
+    if run_dir.is_symlink():
+        raise ValueError("symlinked run dir: %s" % run_dir)
+    # Walk the UNRESOLVED components: this is what catches a symlink pointing back
+    # INSIDE the run dir (untrusted/ -> .), which containment alone cannot see.
+    probe = run_dir
+    for part in rel.parts:
+        probe = probe / part
+        if probe.is_symlink():
+            raise ValueError("symlinked path component: %s" % probe)
+    resolved = probe
+    if not resolved.resolve().is_relative_to(run_dir):
+        raise ValueError("artifact escapes the run dir: %r" % (name,))
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    text = data if isinstance(data, str) else json.dumps(data, indent=2, sort_keys=True)
+    tmp = resolved.parent / ("%s.%d.tmp" % (resolved.name, os.getpid()))
+    tmp.unlink(missing_ok=True)          # a pre-planted sibling must not deny the write
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, resolved)
+    return resolved

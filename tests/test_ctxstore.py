@@ -8,9 +8,12 @@ get_refine_passes == 2).
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import ctxstore
 
@@ -388,6 +391,138 @@ class RollbackLedgerTests(unittest.TestCase):
     def test_pending_rollback_skips_malformed_lines(self) -> None:
         (Path(self.base) / self.run_id / "log.jsonl").open("a", encoding="utf-8").write("not json\n")
         self.assertIsNone(ctxstore.pending_rollback(self.base, self.run_id))
+
+
+class TestValidRunId(unittest.TestCase):
+    def test_accepts_realistic_session_ids(self):
+        for ok in ("session_cf7b23ae-885a-4ef7-9ec9-97ac841d9737", "abc123", "A-b_9"):
+            with self.subTest(run_id=ok):
+                self.assertTrue(ctxstore.valid_run_id(ok))
+
+    def test_rejects_traversal_separators_and_argv_injection(self):
+        for bad in ("..", "../x", "a/b", "a\\b", "", "  ", "-x", "--upload-pack=evil",
+                    "a b", "a\nb", "a\x00b", "x" * 129, None, 5):
+            with self.subTest(run_id=bad):
+                self.assertFalse(ctxstore.valid_run_id(bad))
+
+    def test_rejects_the_bare_current_dir_component(self):
+        """Pins the ``.`` half of the bare-dot ban, which nothing else reaches.
+
+        ``.`` matches ``_RUN_ID_RE`` (both chars are in the class, no leading ``-``),
+        so only the explicit ``run_id in (".", "..")`` check rejects it — and the
+        list's ``..`` entry alone leaves narrowing that check to ``("..",)`` green.
+        Accepting ``.`` would silently retarget the run dir at ``.atlas/`` itself.
+        """
+        self.assertFalse(ctxstore.valid_run_id("."))
+
+
+class TestWriteArtifactConfined(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.base = os.path.join(self.tmp, ".atlas")
+        ctxstore.init_run(self.base, "R", {"intent": "i", "success_criteria": [],
+                                           "scope_paths": [], "verify_cmd": "",
+                                           "baseline_sha": "", "debug_tokens": [],
+                                           "test_glob": ""})
+
+    def test_writes_and_reads_back(self):
+        p = ctxstore.write_artifact_confined(self.base, "R", "untrusted/blob.txt", "hello")
+        self.assertTrue(p.is_file())
+        self.assertEqual(p.read_text(encoding="utf-8"), "hello")
+
+    def test_refuses_traversal_out_of_the_run_dir(self):
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "../../escape.txt", "x")
+
+    def test_refuses_a_symlinked_component(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        link = os.path.join(self.base, "R", "untrusted")
+        os.symlink(outside, link)
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "untrusted/blob.txt", "x")
+        self.assertFalse(os.path.exists(os.path.join(outside, "blob.txt")))
+
+    def test_refuses_an_invalid_run_id(self):
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "../evil", "blob.txt", "x")
+
+    def test_refuses_a_symlinked_run_dir(self):
+        victim = os.path.join(self.tmp, "victim")
+        os.makedirs(victim)
+        shutil.rmtree(os.path.join(self.base, "R"))
+        os.symlink(victim, os.path.join(self.base, "R"))
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "untrusted/blob.txt", "PWNED")
+        self.assertEqual(os.listdir(victim), [])
+
+    def test_symlink_inside_the_run_dir_cannot_redirect_the_write(self):
+        run = os.path.join(self.base, "R")
+        before = open(os.path.join(run, "state.json")).read()
+        os.symlink(run, os.path.join(run, "untrusted"))
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "untrusted/state.json", "CLOBBERED")
+        self.assertEqual(open(os.path.join(run, "state.json")).read(), before)
+
+    def test_a_stale_tmp_sibling_does_not_wedge_the_writer(self):
+        run = os.path.join(self.base, "R")
+        open(os.path.join(run, "blob.txt.tmp"), "w").close()
+        open(os.path.join(run, "blob.txt.%d.tmp" % os.getpid()), "w").close()
+        p = ctxstore.write_artifact_confined(self.base, "R", "blob.txt", "ok")
+        self.assertEqual(p.read_text(encoding="utf-8"), "ok")
+
+    def test_empty_name_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "", "x")
+
+    def test_non_string_payloads_are_json_encoded(self):
+        """Byte-exact pin of the non-``str`` branch: JSON, ``indent=2``, ``sort_keys``.
+
+        Untested, ``str(data)`` would survive here and silently persist a Python
+        repr (single quotes) that ``read_artifact``'s ``json.loads`` cannot parse.
+        """
+        p = ctxstore.write_artifact_confined(self.base, "R", "critic.json", {"b": 1, "a": 2})
+        self.assertEqual(p.read_text(encoding="utf-8"), '{\n  "a": 2,\n  "b": 1\n}')
+
+    # ---- each guard proven load-bearing ALONE (anti-masking pins) ----------
+    # test_refuses_a_symlinked_run_dir above is caught by EITHER the run-dir guard
+    # OR the base-anchored containment check, so deleting either one alone still
+    # leaves it green. These two pins isolate them: each fails if its own guard is
+    # deleted, with the other guard left intact.
+
+    def test_a_self_referential_run_dir_symlink_is_refused_not_crashed(self):
+        """Only the run-dir guard can refuse ``.atlas/R -> R``, so this pins it alone.
+
+        The component walk cannot see the loop (``lstat`` through it fails ELOOP, an
+        errno ``Path.is_symlink`` swallows as False) and containment never gets to
+        judge, because ``resolve()`` raises ``RuntimeError("Symlink loop")`` first.
+        Without ``if run_dir.is_symlink()`` the caller gets that raw ``RuntimeError``
+        instead of the ``ValueError`` refusal the docstring promises.
+        """
+        shutil.rmtree(os.path.join(self.base, "R"))
+        os.symlink("R", os.path.join(self.base, "R"))  # self-referential
+        with self.assertRaises(ValueError):
+            ctxstore.write_artifact_confined(self.base, "R", "untrusted/blob.txt", "PWNED")
+
+    def test_containment_still_refuses_when_the_symlink_walk_is_defeated(self):
+        """Defence in depth: containment is the last line if the walk loses a race.
+
+        The walk probes each component and only THEN opens the file, so an attacker
+        who plants ``untrusted -> outside`` in that window is invisible to it.
+        Blinding every ``is_symlink()`` reproduces exactly that TOCTOU, and pins the
+        base-anchored containment check alone: it is the only remaining guard, and
+        deleting it lands ``PWNED`` outside ``.atlas``.
+        """
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        os.symlink(outside, os.path.join(self.base, "R", "untrusted"))
+        with mock.patch.object(Path, "is_symlink", lambda self: False):
+            with self.assertRaises(ValueError):
+                ctxstore.write_artifact_confined(
+                    self.base, "R", "untrusted/blob.txt", "PWNED"
+                )
+        self.assertFalse(os.path.exists(os.path.join(outside, "blob.txt")))
 
 
 if __name__ == "__main__":
