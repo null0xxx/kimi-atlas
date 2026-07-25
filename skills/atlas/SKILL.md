@@ -603,10 +603,49 @@ PY
    `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
    already baked into each role file carries the diversity.**
 4. Each critic **RETURNS its `critic` JSON as its final message and WRITES NOTHING** (read-only
-   `plan` — F2; the ROOT persists). Parse it; if it is not valid JSON, re-dispatch that **one**
-   critic once asking for a bare JSON object only. **You persist each returned JSON** via
-   `ctxstore.write_artifact`: correctness → `critic_correctness.json`, code-quality →
-   `critic_code_quality.json`, security → `critic_security.json`.
+   `plan` — F2; the ROOT persists). A critic's judgment is validated **where it is produced,
+   BEFORE persistence** (S4): parse with duplicate-key rejection, then
+   `quality.enforce_critic_schema` on the RAW object — a dissent filed under a drifted key, a
+   duplicated key, or a `verdict` inconsistent with the defects must never merge as a clean
+   lens. Persist **only via this block**, once per critic (NAME =
+   `critic_correctness.json` / `critic_code_quality.json` / `critic_security.json`, RAW = the
+   critic's returned text):
+   ```
+   PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
+   import json
+   from scripts import ctxstore, quality
+   run = "${KIMI_SESSION_ID}"
+   NAME = "critic_correctness.json"
+   RAW = r'''<the critic's returned JSON text>'''
+
+   def _no_dupes(pairs):
+       seen, out = set(), {}
+       for k, v in pairs:
+           if k in seen:
+               raise ValueError("duplicate key: %s" % k)
+           seen.add(k)
+           out[k] = v
+       return out
+
+   try:
+       obj = json.loads(RAW, object_pairs_hook=_no_dupes)
+   except (ValueError, TypeError) as exc:
+       print("CRITIC_INVALID: %s" % exc)
+       raise SystemExit(2)
+   errors = quality.enforce_critic_schema(obj)
+   if errors:
+       print("CRITIC_SCHEMA_ERRORS: " + json.dumps(errors))
+       raise SystemExit(2)
+   ctxstore.write_artifact(".atlas", run, NAME, obj)
+   print("PERSISTED " + NAME)
+   PY
+   ```
+   On `CRITIC_INVALID` / `CRITIC_SCHEMA_ERRORS`, re-dispatch that **one** critic **once**,
+   quoting the exact errors and the required shape. If it still fails, **do NOT persist** it:
+   a missing artifact is not a clean lens — Step 4+5 synthesizes the blocking
+   `critic-missing:<lens>` CRITICAL and the run degrades to `⚠️ UNVERIFIED` rather than
+   adopting a judgment the schema rejected. Never persist invalid JSON to "refresh" an older
+   artifact (that would arm the stale-artifact hole, not close it).
 
 **Step 4 + 5 — Merge (PURE) → enforce schema on the merged shape → Gate (PURE)** the full PASS bar:
 ```
@@ -631,6 +670,7 @@ for name, _dim in floorsynth.CRITIC_ARTIFACTS:
         loaded_critics.append(name)
     except Exception:
         pass
+loaded_map = dict(zip(loaded_critics, critics))
 
 # script_defects = every deterministic gate() failure condition, synthesized as a
 # blocking merged defect so should_refine()/final_status() (which read ONLY the
@@ -642,6 +682,10 @@ script_defects += floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("veri
 script_defects += floorsynth.synth_docs(ev.get("docs_clean", True))
 script_defects += floorsynth.empty_diff_defect(diff)
 script_defects += floorsynth.critics_missing_defects(loaded_critics)
+# S4: a critic's judgment reaches the gate ONLY through defects[]. One blocking
+# HIGH per critic that reports dimensions[d]=="no" or verdict=="FAIL" WITHOUT a
+# corresponding blocking defect -- a dissent in prose can never merge as "yes".
+script_defects += floorsynth.dimension_dissent_defects(loaded_map)
 # R3: the reviewed tree must equal the executed tree. One blocking HIGH per file
 # changed OUTSIDE scope_paths (machine-derived path list, never patch bytes), so a
 # change beyond the lenses' scope-restricted diff can no longer hide. Gated on a
@@ -682,6 +726,14 @@ blocking, so the run degrades to `⚠️ UNVERIFIED` rather than presenting a fa
 `merged_critic.json` now carries every deterministic gate() failure (runcheck, lint, reqcoverage,
 pathcheck, docs-naming, schema), the downstream steps that read **only** the merged critic stay
 consistent with `gate()`.
+
+If `blocking` carries a `dimension-dissent:<lens>` defect, re-dispatch **that** critic **once**
+(Step 3), instructing it to articulate the dissent as a blocking defect with evidence **or** change
+the dimension verdict to `yes`, then re-run this block. This happens BEFORE the REFINE? decision —
+the dissent defect is orchestrator-facing (its `fix` is never a coder task), so the REFINE loop
+must not burn a coder pass on it. If the dissent persists after one re-dispatch, the synthesized
+HIGH keeps `merged_critic.json` blocking and the run degrades to `⚠️ UNVERIFIED`: a dissent
+without a blocking defect is never read as a clean lens.
 
 > **V7 — encoded at REFINE? (below).** The PASS bar (`gate`) blocks on CRITICAL/HIGH only, but per
 > V7 **any CORRECTNESS or SECURITY defect at ANY severity forces at least one refine pass.** Because

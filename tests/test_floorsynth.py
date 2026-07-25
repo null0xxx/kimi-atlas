@@ -181,6 +181,11 @@ def _every_synthesized_defect():
     out += floorsynth.synth_docs(False)
     out += floorsynth.empty_diff_defect("")
     out += floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
+    out += floorsynth.dimension_dissent_defects({
+        "critic_correctness.json": _critic(dim_no=("CORRECTNESS",)),
+        "critic_code_quality.json": _critic(dim_no=("CODE-QUALITY",)),
+        "critic_security.json": _critic(dim_no=("SECURITY",)),
+    })
     out += floorsynth.critics_missing_defects([])
     bad = {"dimensions": {}, "verdict": "OK",
            "defects": [{"id": "x", "category": "NOPE", "severity": "MEDIUM",
@@ -197,6 +202,8 @@ class TestFixStringAudience(unittest.TestCase):
 
     ALL_IDS = {"evidence-incomplete", "runcheck", "docs-naming", "empty-diff",
                "out-of-scope:lib/x.py",
+               "dimension-dissent:correctness", "dimension-dissent:code-quality",
+               "dimension-dissent:security",
                "critic-missing:correctness", "critic-missing:code-quality",
                "critic-missing:security", "critic-schema"}
 
@@ -354,6 +361,126 @@ class TestOutOfScopeDefects(unittest.TestCase):
     def test_defect_shape_is_canonical(self):
         d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
         self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+
+def _critic(dim_no=(), verdict="OK", defects=()):
+    dims = {d: "yes" for d in (
+        "CORRECTNESS", "CODE-QUALITY", "SECURITY", "DOES-IT-RUN",
+        "REQUIREMENTS-COVERAGE", "TEST-ADEQUACY")}
+    for d in dim_no:
+        dims[d] = "no"
+    return {"dimensions": dims, "defects": list(defects), "verdict": verdict}
+
+
+def _blocking(category):
+    return {"id": "X", "category": category, "severity": "HIGH",
+            "location": "a.py:1", "fix": "f"}
+
+
+class TestDimensionDissentDefects(unittest.TestCase):
+    """S4/R4: a critic's judgment must reach the gate even when it files no
+    blocking defect — verdict.merge recomputes verdict from defects[] and
+    DISCARDS the critic's own verdict; dimensions were read by nothing. One
+    blocking HIGH per critic that reports dimensions[d]=="no" or verdict=="FAIL"
+    WITHOUT a corresponding blocking defect (same critic, same dimension,
+    BLOCKING severity). Orchestrator-facing (the fix is a critic re-dispatch,
+    never a coder task)."""
+
+    def test_clean_critic_is_silent(self):
+        raw = {"critic_correctness.json": _critic()}
+        self.assertEqual(floorsynth.dimension_dissent_defects(raw), [])
+
+    def test_dissent_with_corresponding_blocking_defect_is_silent(self):
+        raw = {"critic_correctness.json": _critic(
+            dim_no=("CORRECTNESS",), defects=(_blocking("CORRECTNESS"),))}
+        self.assertEqual(floorsynth.dimension_dissent_defects(raw), [])
+
+    def test_dissent_without_blocking_defect_fires(self):
+        raw = {"critic_correctness.json": _critic(dim_no=("CORRECTNESS",))}
+        out = floorsynth.dimension_dissent_defects(raw)
+        self.assertEqual(len(out), 1)
+        d = out[0]
+        self.assertEqual((d["id"], d["category"], d["severity"]),
+                         ("dimension-dissent:correctness", "CORRECTNESS", "HIGH"))
+        self.assertTrue(d["fix"].startswith("ORCHESTRATOR ACTION"))
+
+    def test_medium_defect_does_not_suppress(self):
+        raw = {"critic_correctness.json": _critic(dim_no=("CORRECTNESS",), defects=(
+            {"id": "X", "category": "CORRECTNESS", "severity": "MEDIUM",
+             "location": "a.py:1", "fix": "f"},))}
+        self.assertEqual(len(floorsynth.dimension_dissent_defects(raw)), 1)
+
+    def test_other_dimension_blocking_defect_does_not_suppress(self):
+        raw = {"critic_correctness.json": _critic(
+            dim_no=("CORRECTNESS",), defects=(_blocking("SECURITY"),))}
+        self.assertEqual(len(floorsynth.dimension_dissent_defects(raw)), 1)
+
+    def test_cross_lens_dissent_fires_with_the_dissented_dimension(self):
+        # The schema forces every critic to fill all six dimensions, so a
+        # correctness critic CAN dissent on SECURITY; category = the dissented
+        # dimension (fail-closed), id = the critic's own lens.
+        raw = {"critic_correctness.json": _critic(dim_no=("SECURITY",))}
+        out = floorsynth.dimension_dissent_defects(raw)
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["id"], out[0]["category"]),
+                         ("dimension-dissent:correctness", "SECURITY"))
+
+    def test_verdict_fail_without_blocking_defect_fires(self):
+        raw = {"critic_security.json": _critic(verdict="FAIL")}
+        out = floorsynth.dimension_dissent_defects(raw)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["id"], "dimension-dissent:security")
+
+    def test_verdict_fail_with_blocking_defect_is_silent(self):
+        raw = {"critic_security.json": _critic(
+            verdict="FAIL", defects=(_blocking("SECURITY"),))}
+        self.assertEqual(floorsynth.dimension_dissent_defects(raw), [])
+
+    def test_multiple_dissented_dimensions_collapse_to_one_defect(self):
+        raw = {"critic_code_quality.json": _critic(
+            dim_no=("TEST-ADEQUACY", "CODE-QUALITY"))}
+        out = floorsynth.dimension_dissent_defects(raw)
+        self.assertEqual(len(out), 1)
+        # Category = the FIRST dissented dimension in rubric order; the fix
+        # names every dissented dimension.
+        self.assertEqual(out[0]["category"], "CODE-QUALITY")
+        self.assertIn("TEST-ADEQUACY", out[0]["fix"])
+
+    def test_one_defect_per_dissenting_critic(self):
+        raw = {
+            "critic_correctness.json": _critic(dim_no=("CORRECTNESS",)),
+            "critic_security.json": _critic(dim_no=("SECURITY",)),
+            "critic_code_quality.json": _critic(),
+        }
+        out = floorsynth.dimension_dissent_defects(raw)
+        self.assertEqual(
+            sorted(d["id"] for d in out),
+            ["dimension-dissent:correctness", "dimension-dissent:security"])
+
+    def test_defect_blocks_the_merge(self):
+        raw = {"critic_correctness.json": _critic(dim_no=("CORRECTNESS",))}
+        ds = floorsynth.dimension_dissent_defects(raw)
+        merged = verdict.merge([], ds)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertTrue(verdict.should_refine(merged, 0))
+
+    def test_ids_are_orchestrator_facing(self):
+        raw = {"critic_correctness.json": _critic(dim_no=("CORRECTNESS",))}
+        for d in floorsynth.dimension_dissent_defects(raw):
+            self.assertIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+    def test_tolerates_malformed_inputs(self):
+        self.assertEqual(floorsynth.dimension_dissent_defects({}), [])
+        self.assertEqual(floorsynth.dimension_dissent_defects(None), [])
+        self.assertEqual(
+            floorsynth.dimension_dissent_defects({"critic_security.json": "oops"}), [])
+        self.assertEqual(
+            floorsynth.dimension_dissent_defects(
+                {"critic_security.json": {"dimensions": None, "defects": "x"}}), [])
+        # Unknown artifact names carry no lens mapping; they are skipped (the
+        # missing-critic and schema floors own those shapes).
+        self.assertEqual(
+            floorsynth.dimension_dissent_defects({"critic_evil.json": _critic(dim_no=("SECURITY",))}), [])
 
 
 class TestGateAgreementMatrix(unittest.TestCase):

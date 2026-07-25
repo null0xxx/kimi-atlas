@@ -174,7 +174,7 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         self.assertIsNotNone(merge_line)
         self.assertEqual(set(folded), {"script_defects_from", "synth_runcheck", "synth_docs",
                                        "empty_diff_defect", "critics_missing_defects",
-                                       "out_of_scope_defects"})
+                                       "out_of_scope_defects", "dimension_dissent_defects"})
         for fn, line in sorted(folded.items()):
             with self.subTest(fn=fn):
                 self.assertLess(line, merge_line, "%s is folded AFTER the merge" % fn)
@@ -191,6 +191,7 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         "empty_diff_defect": ("diff",),
         "critics_missing_defects": ("loaded_critics",),
         "out_of_scope_defects": ("full_paths", "st['scope_paths']"),
+        "dimension_dissent_defects": ("loaded_map",),
     }
 
     def test_full_paths_is_gated_on_a_git_tree_with_resolvable_baseline(self):
@@ -302,13 +303,79 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         self.fail("no gate_results literal found")
 
 
+class TestRawCriticValidationAtProduction(unittest.TestCase):
+    """S4/R4 part 1: a critic's judgment is validated WHERE IT IS PRODUCED
+    (Step 3.4), before persistence — enforce_critic_schema applied to each RAW
+    critic, duplicate JSON keys rejected at parse time, and a still-failing
+    critic NEVER persisted (so critics_missing_defects fires instead of a
+    drifted-key shape merging clean). CF-0: any future pass-stamp is added
+    AFTER this validation, never as part of the validated object."""
+
+    def _step34_bodies(self):
+        return [b for b in _heredoc_bodies(SKILL.read_text(encoding="utf-8"))
+                if "enforce_critic_schema" in b and "object_pairs_hook" in b]
+
+    def test_exactly_one_validate_and_persist_block(self):
+        self.assertEqual(len(self._step34_bodies()), 1)
+
+    def test_validation_precedes_persistence_and_dupes_are_rejected(self):
+        tree = ast.parse(self._step34_bodies()[0].replace("${KIMI_SESSION_ID}", "SID"))
+        schema_lines = [n.lineno for n in ast.walk(tree)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "enforce_critic_schema"]
+        write_lines = [n.lineno for n in ast.walk(tree)
+                       if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                       and n.func.attr == "write_artifact"]
+        self.assertTrue(schema_lines, "no enforce_critic_schema call")
+        self.assertTrue(write_lines, "no write_artifact call")
+        self.assertLess(max(schema_lines), min(write_lines),
+                        "validation must complete before any persistence")
+        # The duplicate-key hook: json.loads with object_pairs_hook, and a
+        # rejection path (raise/exit) when a key repeats.
+        body = self._step34_bodies()[0]
+        self.assertIn("object_pairs_hook", body)
+        self.assertIn("duplicate", body)
+
+    def test_a_failing_critic_is_never_persisted(self):
+        # The persist call must be reachable ONLY past the validation gate:
+        # an early SystemExit between them, so CRITIC_SCHEMA_ERRORS never
+        # reaches write_artifact.
+        tree = ast.parse(self._step34_bodies()[0].replace("${KIMI_SESSION_ID}", "SID"))
+        exits = [n.lineno for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                 and n.func.id == "SystemExit"]
+        write_lines = [n.lineno for n in ast.walk(tree)
+                       if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                       and n.func.attr == "write_artifact"]
+        self.assertTrue(exits, "no SystemExit gate between validation and persistence")
+        self.assertLess(max(exits), min(write_lines))
+
+    def test_step34_prose_instructs_redispatch_once_and_never_persist(self):
+        step3 = SKILL.read_text(encoding="utf-8").split("**Step 3", 1)[1]
+        step3 = step3.split("**Step 4", 1)[0]
+        self.assertIn("re-dispatch", step3)
+        self.assertIn("once", step3)
+        self.assertIn("do NOT persist", step3)
+
+    def test_schema_rejects_a_stamped_critic(self):
+        # CF-0 hazard documentation: enforce_critic_schema MUST reject the
+        # stray top-level key a pass-stamp adds — so the stamp (Task 4) can
+        # only ever be added AFTER validation passes, never before.
+        from scripts import quality
+        critic = _dissenting("CORRECTNESS")
+        self.assertEqual(quality.enforce_critic_schema(critic), [])
+        stamped = dict(critic, **{"pass": 0})
+        errs = quality.enforce_critic_schema(stamped)
+        self.assertTrue(any("pass" in e for e in errs), errs)
+
+
 class TestEveryHeredocParses(unittest.TestCase):
     def test_all_heredocs_are_valid_python(self):
         text = SKILL.read_text(encoding="utf-8")
         bodies = _heredoc_bodies(text)
         self.assertEqual(len(bodies), text.count("<<'PY'"),
                          "a heredoc lost its PY terminator")
-        self.assertEqual(len(bodies), 11)       # 11 at plan time; bump deliberately
+        self.assertEqual(len(bodies), 12)       # 11 at plan time; 12 with the Step-3.4 validate-and-persist block
         for i, b in enumerate(bodies):
             with self.subTest(block=i):
                 ast.parse(b.replace("${KIMI_SESSION_ID}", "SID")
@@ -329,6 +396,16 @@ def _orchestrator_fix_prefix():
     assert len(fixes) == 3, fixes
     head, sep, _rest = os.path.commonprefix(fixes).partition(":")
     return head + sep
+
+
+def _dissenting(dimension):
+    """A schema-clean critic that dissents on one dimension with no blocking
+    defect (the S4 shape): every other dimension yes, verdict OK."""
+    dims = {d: "yes" for d in (
+        "CORRECTNESS", "CODE-QUALITY", "SECURITY", "DOES-IT-RUN",
+        "REQUIREMENTS-COVERAGE", "TEST-ADEQUACY")}
+    dims[dimension] = "no"
+    return {"dimensions": dims, "defects": [], "verdict": "OK"}
 
 
 class TestContradictionsResolved(unittest.TestCase):
@@ -409,6 +486,11 @@ class TestContradictionsResolved(unittest.TestCase):
                        + floorsynth.synth_runcheck({})
                        + floorsynth.synth_docs(False)
                        + floorsynth.empty_diff_defect("")
+                       + floorsynth.dimension_dissent_defects({
+                           "critic_correctness.json": _dissenting("CORRECTNESS"),
+                           "critic_code_quality.json": _dissenting("CODE-QUALITY"),
+                           "critic_security.json": _dissenting("SECURITY"),
+                       })
                        + [d for d in schema_probe["defects"] if d["id"] == "critic-schema"])
         self.assertEqual(
             {d["id"] for d in synthesised} & floorsynth.ORCHESTRATOR_DEFECT_IDS,

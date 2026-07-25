@@ -28,6 +28,7 @@ INVARIANTS THIS MODULE PRESERVES
 from __future__ import annotations
 
 from scripts import quality, verdict
+from scripts.rubric import BLOCKING as _BLOCKING_SEV, DIMENSIONS as _DIMENSIONS
 
 # Mandatory evidence keys that ARE defect lists: collected AND absence-checked.
 # The pre-floorsynth SKILL read these with ``ev[...]`` and died on absence.
@@ -135,6 +136,7 @@ CRITIC_ARTIFACTS: tuple[tuple[str, str], ...] = (
 ORCHESTRATOR_DEFECT_IDS: frozenset[str] = frozenset(
     {"evidence-incomplete", "critic-schema"}
     | {"critic-missing:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
+    | {"dimension-dissent:%s" % d.lower() for _n, d in CRITIC_ARTIFACTS}
 )
 
 
@@ -271,6 +273,72 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
                    "that change, or leave it for the human to widen scope at the "
                    "OUTPUT gate — do not edit scope_paths"
                    % (path, ", ".join(scopes) if scopes else "<none>"),
+        })
+    return out
+
+
+def dimension_dissent_defects(raw_critics) -> list[dict]:
+    """One blocking HIGH per critic whose judgment never reached ``defects[]``.
+
+    S4/R4: ``verdict.merge`` recomputes ``verdict`` from ``defects[]`` and
+    DISCARDS the critic's own ``verdict`` field; ``dimensions`` was written and
+    read by nothing that decides anything. A critic that objects in prose
+    (``dimensions[d] == "no"`` or ``verdict == "FAIL"``) without filing a
+    corresponding blocking defect was silently read as a clean lens — verified
+    end-to-end: all six dimensions ``"no"`` with empty defects printed
+    ``✅ VERIFIED``. "Corresponding" means SAME critic, SAME dimension,
+    severity in BLOCKING: a same-critic HIGH in the dissented dimension
+    suppresses synthesis (the merge already blocks); a MEDIUM, or a blocking
+    defect in another dimension, does not.
+
+    Input shape: ``{artifact_name: critic_dict}`` for the artifacts that loaded
+    (the SKILL's ``loaded_map``). HIGH rather than CRITICAL, deliberately:
+    CRITICAL is this project's idiom for hard deterministic failures, and a
+    synthesized proxy for unarticulated judgment would overstate confidence —
+    HIGH already blocks AND fires V7. One defect per critic, category = the
+    FIRST dissented dimension in rubric order (cross-lens dissent keeps the
+    dissented dimension, fail-closed). Orchestrator-facing: the fix re-
+    dispatches the critic, so the ids live in ``ORCHESTRATOR_DEFECT_IDS``.
+    Malformed entries are skipped — the schema floor (Step 3.4) and
+    ``critics_missing_defects`` own those shapes.
+    """
+    blocking = _BLOCKING_SEV
+    out: list[dict] = []
+    for name, dimension in CRITIC_ARTIFACTS:
+        critic = (raw_critics or {}).get(name)
+        if not isinstance(critic, dict):
+            continue
+        dims = critic.get("dimensions")
+        dims = dims if isinstance(dims, dict) else {}
+        defects = critic.get("defects")
+        defects = defects if isinstance(defects, list) else []
+
+        def _corresponds(dim: str) -> bool:
+            return any(
+                isinstance(d, dict) and d.get("category") == dim
+                and d.get("severity") in blocking
+                for d in defects
+            )
+
+        dissented = [d for d in _DIMENSIONS
+                     if dims.get(d) == "no" and not _corresponds(d)]
+        has_blocking = any(
+            isinstance(d, dict) and d.get("severity") in blocking for d in defects
+        )
+        if critic.get("verdict") == "FAIL" and not has_blocking:
+            dissented = dissented or [dimension]
+        if not dissented:
+            continue
+        out.append({
+            "id": "dimension-dissent:%s" % dimension.lower(),
+            "category": dissented[0],
+            "severity": "HIGH",
+            "location": ".atlas/<run_id>/%s" % name,
+            "fix": "ORCHESTRATOR ACTION — not a coder task: re-dispatch the %s critic "
+                   "once: articulate the dissent (%s) as a blocking defect with "
+                   "evidence, or change the dimension verdict to yes — a dissent "
+                   "without a blocking defect must never merge as a clean lens"
+                   % (dimension, ", ".join(dissented)),
         })
     return out
 
