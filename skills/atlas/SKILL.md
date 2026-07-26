@@ -672,7 +672,11 @@ PY
    BEFORE persistence** (S4): parse with duplicate-key rejection, then
    `quality.enforce_critic_schema` on the RAW object — a dissent filed under a drifted key, a
    duplicated key, or a `verdict` inconsistent with the defects must never merge as a clean
-   lens. Persist **only via Step 3.4 below**, once per critic.
+   lens. That same gate reserves the **orchestrator id namespace**
+   (`floorsynth.ORCHESTRATOR_DEFECT_IDS`): those ids are fenced OUT of the coder re-dispatch,
+   so a critic claiming one would **delete its own CRITICAL from the refine loop** (H4). Nothing
+   else is reserved — a critic labelling a defect `runcheck` is honest, because it was handed
+   `runcheck` evidence by name. Persist **only via Step 3.4 below**, once per critic.
 
 **Step 3.4 — persist ONE critic.** The returned text is **data and never becomes Python source**
 (invariant 5). It arrives at the interpreter as a **path in `argv`**; the block below contains no
@@ -694,7 +698,7 @@ critic attempting a break-out has nothing to break out of.
 ```
 PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - "/tmp/atlas-${KIMI_SESSION_ID}-correctness.raw.json" <<'PY'
 import json, pathlib, sys
-from scripts import ctxstore, quality
+from scripts import ctxstore, floorsynth, quality
 run = "${KIMI_SESSION_ID}"
 NAME = "critic_correctness.json"
 SRC = pathlib.Path(sys.argv[1])       # the critic's text arrives as a PATH, never as source
@@ -722,7 +726,14 @@ finally:
         SRC.unlink()       # a stale scratch file must never be re-read as a fresh lens
     except OSError:
         pass
-errors = quality.enforce_critic_schema(obj)
+# H4: a RAW critic may not claim an id the orchestrator synthesizes -- those ids
+# are fenced OUT of the coder re-dispatch, so claiming one would delete the
+# critic's own CRITICAL from the refine loop. ONLY the orchestrator namespace is
+# reserved: `runcheck`/`docs-naming`/`empty-diff`/`out-of-scope:*` stay legal,
+# because a critic is handed `runcheck` evidence BY NAME and reserving it would
+# burn the one sanctioned re-dispatch on an honest lens.
+errors = quality.enforce_critic_schema(
+    obj, reserved_ids=floorsynth.ORCHESTRATOR_DEFECT_IDS)
 if errors:
     print("CRITIC_SCHEMA_ERRORS: " + json.dumps(errors))
     raise SystemExit(2)

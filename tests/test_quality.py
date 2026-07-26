@@ -199,5 +199,71 @@ class TestRoleFileExamplesValidate(unittest.TestCase):
         self.assertGreaterEqual(seen, 4, "each role file must carry an example")
 
 
+class TestReservedDefectIds(unittest.TestCase):
+    """H4 (v1.5.2.1): a RAW critic may not claim an id the orchestrator synthesizes.
+
+    Those ids are fenced OUT of the coder re-dispatch, so a critic wearing one
+    deletes its own CRITICAL from the refine loop. The seam is a KEYWORD-ONLY
+    parameter defaulting to the empty set, because the MERGED object legitimately
+    carries floor ids and every pre-existing call site validates the merged shape.
+    """
+
+    def _critic(self, defect_id):
+        return _well_formed_critic(
+            verdict="FAIL", defects=[dict(_defect(), id=defect_id)])
+
+    def test_reserved_ids_is_keyword_only_with_an_empty_default(self):
+        """The seam's whole safety argument is 'every existing call site is
+        untouched'. Positional would silently re-bind ``critic``'s neighbours;
+        a non-empty default would reserve ids for the MERGED object too, which
+        legitimately carries them — that is the manufactured-RED direction."""
+        import inspect
+        sig = inspect.signature(quality.enforce_critic_schema)
+        p = sig.parameters["reserved_ids"]
+        self.assertIs(p.kind, inspect.Parameter.KEYWORD_ONLY)
+        self.assertEqual(p.default, frozenset())
+        self.assertEqual(len(sig.parameters), 2, "no third parameter was added")
+
+    def test_a_reserved_id_is_a_schema_error_naming_the_id(self):
+        errs = quality.enforce_critic_schema(
+            self._critic("stale-verdict"), reserved_ids=frozenset({"stale-verdict"}))
+        self.assertTrue(errs)
+        self.assertTrue(any("stale-verdict" in e for e in errs), errs)
+        self.assertTrue(any(e.startswith("defects[0].id:") for e in errs), errs)
+
+    def test_only_the_named_ids_are_rejected(self):
+        """The honest direction: reserving one id must not reject its neighbours."""
+        for honest in ("C1", "Q7", "S12", "runcheck", "docs-naming", "empty-diff",
+                       "out-of-scope:\"lib/x.py\"", "stale-verdicts", "tale-verdict"):
+            with self.subTest(id=honest):
+                self.assertEqual(
+                    quality.enforce_critic_schema(
+                        self._critic(honest), reserved_ids=frozenset({"stale-verdict"})),
+                    [], "reserving one id manufactured a RED on %r" % honest)
+
+    def test_the_default_call_accepts_a_reserved_id(self):
+        """``floorsynth.merge_and_validate`` and ``run_negative_gate`` validate the
+        MERGED object, which really does carry floor ids — the default must not
+        break them."""
+        self.assertEqual(quality.enforce_critic_schema(self._critic("stale-verdict")), [])
+
+    def test_reservation_never_raises_on_a_non_string_id(self):
+        """S4 never-raise: an unhashable ``id`` must not blow up the membership
+        test — a valid-JSON garbage critic has to reach CRITIC_SCHEMA_ERRORS, not
+        crash the validate block with a bare TypeError."""
+        for bad in ([], {}, {"a": 1}, 7, None, set()):
+            with self.subTest(id=repr(bad)):
+                errs = quality.enforce_critic_schema(
+                    self._critic(bad), reserved_ids=frozenset({"stale-verdict"}))
+                self.assertIsInstance(errs, list)
+
+    def test_the_reserved_check_survives_a_malformed_defect_list(self):
+        """A non-dict entry must be skipped, not indexed into."""
+        critic = _well_formed_critic(verdict="FAIL", defects=["nope", _defect()])
+        errs = quality.enforce_critic_schema(
+            critic, reserved_ids=frozenset({"stale-verdict"}))
+        self.assertTrue(any("defects[0]" in e for e in errs), errs)
+
+
 if __name__ == "__main__":
     unittest.main()

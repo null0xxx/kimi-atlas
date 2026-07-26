@@ -27,6 +27,8 @@ INVARIANTS THIS MODULE PRESERVES
 """
 from __future__ import annotations
 
+import json
+
 from scripts import quality, verdict
 from scripts.rubric import BLOCKING as _BLOCKING_SEV, DIMENSIONS as _DIMENSIONS
 
@@ -265,6 +267,35 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
     the in-loop hazard was a coder "reverting" a user's scratch file to go
     green. A snapshot-at-INIT exclusion was rejected: the snapshot would be
     gate input living in the same writable ``.atlas/`` (the T4-F8 class).
+
+    **H1 (v1.5.2.1): the path is TARGET-CONTROLLED and this ``fix`` is a TRUSTED
+    coder instruction**, so every place it appears — ``id``, ``location`` and
+    ``fix`` — is rendered with ``json.dumps``. A filename may hold anything but
+    NUL and ``/``, git tracks it, and the target's own build can create it during
+    VERIFIED: measured, a newline-bearing name reached
+    ``safewrap.coder_redispatch_packet`` byte-raw as a ``fix_instructions`` entry
+    for a ``Write``/``Edit``-capable coder, with no critic subverted.
+    ``json.dumps`` and NOT ``safewrap._sanitize_source`` (challenge fold F9): the
+    sanitizer leaves TAB/ESC/VT/FF/BS intact, mutilates a legal ``a>>>b.py`` into
+    ``ab.py``, and COLLIDES ``a\\nb.py`` with ``a b.py`` onto one id — three
+    separate ways to lose or misattribute a defect. ``json.dumps`` is
+    control-character-free, injective (two paths can never share an id),
+    reversible with ``json.loads``, leaves ``>>>`` intact, and escapes the
+    bidi-override characters that would otherwise visually reorder the coder's
+    instruction. It is already this program's discipline for text crossing a
+    machine-read boundary (``skills/atlas/SKILL.md:738``). The normalized scopes
+    are rendered the same way and for the same reason: they come from the frozen
+    packet, which is built from the raw user request.
+
+    **Scope of the "trusted ⟺ zero target-derived bytes" criterion (fold F8):**
+    after this change it holds for *floorsynth's own* coder-facing ids, and only
+    those. It is FALSE today for three other trusted (non-orchestrator) ids that
+    also reach ``fix_instructions`` byte-raw: ``pathcheck``'s ``P*`` (the cited
+    path), ``sast``'s ``rules.*`` (semgrep's message verbatim) and ``astlens``'s
+    ``AST*``. Moving those into ``ORCHESTRATOR_DEFECT_IDS`` is explicitly
+    FORBIDDEN here — it would delete the coder's only in-loop resolution for
+    genuine CRITICAL findings and manufacture an UNRESOLVABLE red. Their remedy
+    is a v1.5.3 design item, not a hotfix.
     """
     scopes = _normalize_scopes(scope_paths)
     if scopes is None:
@@ -277,16 +308,20 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
             continue
         if any(path == s or path.startswith(s + "/") for s in scopes):
             continue
+        # H1: the path is target-controlled and every field below is read by the
+        # coder as a trusted instruction, so it is quoted, not interpolated raw.
+        safe_path = json.dumps(path)
+        safe_scopes = ", ".join(json.dumps(s) for s in scopes) if scopes else "<none>"
         out.append({
-            "id": "out-of-scope:%s" % path,
+            "id": "out-of-scope:%s" % safe_path,
             "category": "CORRECTNESS",
             "severity": "HIGH",
-            "location": path,
+            "location": safe_path,
             "fix": "the change to %s is outside the frozen scope_paths (%s); if you "
                    "made that change, revert it; if the file pre-existed the run "
                    "(untracked at baseline), leave it UNTOUCHED — either way the "
                    "human may widen scope at the OUTPUT gate; do not edit scope_paths"
-                   % (path, ", ".join(scopes) if scopes else "<none>"),
+                   % (safe_path, safe_scopes),
         })
     return out
 

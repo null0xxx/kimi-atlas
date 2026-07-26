@@ -95,6 +95,15 @@ produce it — a partial map is rejected and never persisted, so an omitted dime
 lens, never a clean one. `verdict` is `"OK"` iff you emitted **zero CRITICAL and zero HIGH**
 defects, else `"FAIL"`. Every `category` must be one of the canonical rubric dimensions.
 
+Every defect's `id` is **your own, lens-local** label: the letter `C` followed by a number,
+numbered from `C1` in the order you emit them (`C1`, `C2`, `C3`, ...). It names *your* finding —
+it is not a category, not a rule name, and not copied from any evidence you were shown.
+**Never claim an id the orchestrator synthesizes for itself:** `evidence-incomplete`,
+`critic-schema`, `stale-verdict`, or any `critic-missing:<lens>` / `critic-stale:<lens>` /
+`dimension-dissent:<lens>`. Those ids are deliberately fenced out of the coder re-dispatch, so a
+defect wearing one is **removed from the refine loop** — claiming one deletes your own finding.
+The orchestrator rejects a critic that uses one, and a second failure costs you the whole lens.
+
 ```json
 {
   "dimensions": {"CORRECTNESS": "no", "CODE-QUALITY": "yes", "SECURITY": "yes",

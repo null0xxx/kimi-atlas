@@ -88,6 +88,15 @@ omitted dimension reads as a lost lens, never a clean one. `verdict` is `"OK"` i
 **zero CRITICAL and zero HIGH** defects, else `"FAIL"`. Every `category` must be a canonical rubric
 dimension (here, `CODE-QUALITY`).
 
+Every defect's `id` is **your own, lens-local** label: the letter `Q` followed by a number,
+numbered from `Q1` in the order you emit them (`Q1`, `Q2`, `Q3`, ...). It names *your* finding —
+it is not a category, not a rule name, and not copied from any evidence you were shown.
+**Never claim an id the orchestrator synthesizes for itself:** `evidence-incomplete`,
+`critic-schema`, `stale-verdict`, or any `critic-missing:<lens>` / `critic-stale:<lens>` /
+`dimension-dissent:<lens>`. Those ids are deliberately fenced out of the coder re-dispatch, so a
+defect wearing one is **removed from the refine loop** — claiming one deletes your own finding.
+The orchestrator rejects a critic that uses one, and a second failure costs you the whole lens.
+
 ```json
 {
   "dimensions": {"CORRECTNESS": "yes", "CODE-QUALITY": "yes", "SECURITY": "yes",

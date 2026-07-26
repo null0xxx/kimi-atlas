@@ -449,5 +449,176 @@ class TestS4Controls(_RunDirMixin, unittest.TestCase):
         self.assertEqual(out["blocking"], [])
 
 
+class TestReservedIdsEndToEnd(_RunDirMixin, unittest.TestCase):
+    """H4 (v1.5.2.1): a critic claiming an ORCHESTRATOR id deletes its own
+    CRITICAL from the refine loop, because those ids are fenced OUT of the coder
+    re-dispatch (``TestRefineSkipsOrchestratorDefects`` above pins that fence).
+
+    So the raw-critic gate reserves exactly ``ORCHESTRATOR_DEFECT_IDS`` — driven
+    here through the REAL Step-3.4 block, not through ``quality`` directly, so
+    the pin covers the SKILL's wiring and not only the pure core.
+
+    The second half is the fail-open direction and it is the more important one:
+    reserving ``runcheck``/``docs-naming``/``empty-diff``/``out-of-scope:*`` was
+    the release's *fourth* manufactured RED, avoided. The correctness critic is
+    handed ``runcheck`` evidence BY NAME, so ``{"id": "runcheck"}`` is a
+    plausible HONEST emission; rejecting it would burn the one sanctioned
+    re-dispatch and can land at ``critic-missing:<lens>`` on a green tree.
+    """
+
+    def _with_id(self, defect_id):
+        return json.dumps(_critic(dim_no=("SECURITY",), verdict="FAIL", defects=[{
+            "id": defect_id, "category": "SECURITY", "severity": "CRITICAL",
+            "location": "a.py:1", "fix": "f"}]))
+
+    def test_an_orchestrator_id_is_rejected_and_never_persisted(self):
+        from scripts import floorsynth
+        for did in sorted(floorsynth.ORCHESTRATOR_DEFECT_IDS):
+            with self.subTest(id=did):
+                root, env = self._make_run()
+                name = "critic_security.json"
+                proc = self._persist(root, env, name, self._with_id(did))
+                self.assertEqual(proc.returncode, 2, proc.stdout)
+                self.assertIn("CRITIC_SCHEMA_ERRORS", proc.stdout)
+                self.assertIn(did, proc.stdout)
+                self.assertFalse((root / ".atlas" / "RUN" / name).exists())
+
+    def test_the_run_ends_unverified_when_a_critic_forges_an_orchestrator_id(self):
+        root, env = self._make_run()
+        for name in ("critic_correctness.json", "critic_code_quality.json"):
+            self.assertEqual(
+                self._persist(root, env, name, json.dumps(_CLEAN)).returncode, 0)
+        proc = self._persist(root, env, "critic_security.json",
+                             self._with_id("stale-verdict"))
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "UNVERIFIED")
+        self.assertEqual(out["critics_loaded"], "2/3")
+        self.assertIn("critic-missing:security", [d["id"] for d in out["blocking"]])
+
+    def test_FAIL_OPEN_a_floor_id_outside_the_orchestrator_set_still_persists(self):
+        """The honest direction. These ids are coder-actionable, a critic's
+        ``fix`` is already trusted by design, and forging one is byte-identical
+        to an honest ``C1`` — so reserving them buys nothing and costs a lens."""
+        for did in ("runcheck", "docs-naming", "empty-diff",
+                    'out-of-scope:"lib/x.py"', "C1", "S3", "Q7"):
+            with self.subTest(id=did):
+                root, env = self._make_run()
+                name = "critic_security.json"
+                proc = self._persist(root, env, name, self._with_id(did))
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn("PERSISTED", proc.stdout)
+                self.assertTrue((root / ".atlas" / "RUN" / name).exists())
+
+    def test_FAIL_OPEN_three_clean_critics_are_unaffected_by_the_reservation(self):
+        """The blast-radius control: adding the reservation must not disturb a
+        run in which nobody claimed anything."""
+        root, env = self._make_run()
+        self._persist_clean(root, env)
+        out = self._gate(root, env)
+        self.assertEqual(out["provisional_status"], "OK")
+        self.assertEqual(out["blocking"], [])
+
+
+class TestStep34PassesTheOrchestratorNamespace(unittest.TestCase):
+    """The wiring itself, pinned by AST rather than by substring: the Step-3.4
+    call must pass ``reserved_ids=floorsynth.ORCHESTRATOR_DEFECT_IDS``. A pin
+    that only asserted the call HAPPENS would survive deleting the keyword."""
+
+    def _tree(self):
+        import ast
+        return ast.parse(_VALIDATE_BLOCK.replace("${KIMI_SESSION_ID}", "SID"))
+
+    def test_the_call_passes_reserved_ids_by_keyword(self):
+        import ast
+        calls = [n for n in ast.walk(self._tree())
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "enforce_critic_schema"]
+        self.assertEqual(len(calls), 1)
+        kw = {k.arg: k.value for k in calls[0].keywords}
+        self.assertIn("reserved_ids", kw, "the reservation was dropped from Step 3.4")
+        self.assertEqual(ast.unparse(kw["reserved_ids"]),
+                         "floorsynth.ORCHESTRATOR_DEFECT_IDS")
+        self.assertEqual(len(calls[0].args), 1, "the critic is still the sole positional")
+
+    def test_the_block_imports_floorsynth(self):
+        import ast
+        names = set()
+        for n in ast.walk(self._tree()):
+            if isinstance(n, ast.ImportFrom):
+                names |= {a.name for a in n.names}
+        self.assertIn("floorsynth", names)
+
+    def test_the_reserved_set_excludes_every_coder_actionable_floor_id(self):
+        """The fourth-manufactured-RED guard, at the wiring level: whatever the
+        orchestrator set grows to, it must never swallow a coder-actionable id."""
+        from scripts import floorsynth
+        for did in ("runcheck", "docs-naming", "empty-diff"):
+            self.assertNotIn(did, floorsynth.ORCHESTRATOR_DEFECT_IDS)
+        self.assertFalse(
+            [d for d in floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
+             if d["id"] in floorsynth.ORCHESTRATOR_DEFECT_IDS])
+
+
+class TestCriticRoleFilesInstructTheIdFormat(unittest.TestCase):
+    """The reservation is only safe if the id format is actually INSTRUCTED —
+    before v1.5.2.1 no role file said anything about ``id`` (``C1``/``Q1``/``S1``
+    appear only inside a JSON example, and ``references/schemas.json``'s
+    ``critic`` shape constrains no ``id``). Fold F7 made this a precondition.
+    """
+
+    ROLES = {"correctness-critic.md": "C", "code-quality-critic.md": "Q",
+             "security-critic.md": "S", "integration-critic.md": "S"}
+
+    def _text(self, name):
+        return (REPO / "agents" / name).read_text(encoding="utf-8")
+
+    def test_each_role_file_instructs_its_own_id_prefix(self):
+        for name, letter in self.ROLES.items():
+            with self.subTest(role=name):
+                flat = " ".join(self._text(name).split())
+                self.assertIn("`id`", flat, "%s never mentions the id field" % name)
+                self.assertIn("`%s1`" % letter, flat,
+                              "%s does not instruct its own id prefix" % name)
+
+    def test_each_role_file_forbids_the_orchestrator_namespace(self):
+        for name in self.ROLES:
+            with self.subTest(role=name):
+                flat = " ".join(self._text(name).split())
+                for token in ("evidence-incomplete", "critic-schema", "stale-verdict",
+                              "critic-missing:", "critic-stale:", "dimension-dissent:"):
+                    self.assertIn(token, flat,
+                                  "%s does not name %s as reserved" % (name, token))
+                self.assertIn("Never claim an id the orchestrator synthesizes", flat)
+
+    def test_the_instruction_covers_every_reserved_id(self):
+        """Non-vacuity: the prose must name every family the code reserves, so
+        the two cannot drift. Iterating the constant here is the CHECK, not the
+        pin — the pin is the literal token list above."""
+        from scripts import floorsynth
+        for name in self.ROLES:
+            flat = " ".join(self._text(name).split())
+            for did in sorted(floorsynth.ORCHESTRATOR_DEFECT_IDS):
+                family = did.split(":", 1)[0] + ":" if ":" in did else did
+                with self.subTest(role=name, id=did):
+                    self.assertIn(family, flat)
+
+    def test_no_instructed_id_collides_with_a_reserved_one(self):
+        """Fold Step 4 — the collision check, over the real role files: every id
+        a critic is told to emit, and every id its worked example uses, must be
+        outside the reserved set."""
+        from scripts import floorsynth
+        for name, letter in self.ROLES.items():
+            for n in range(1, 40):
+                with self.subTest(role=name, id="%s%d" % (letter, n)):
+                    self.assertNotIn("%s%d" % (letter, n),
+                                     floorsynth.ORCHESTRATOR_DEFECT_IDS)
+            for block in self._text(name).split("```json")[1:]:
+                obj = json.loads(block.split("```", 1)[0])
+                for d in obj.get("defects", []):
+                    with self.subTest(role=name, example=d["id"]):
+                        self.assertNotIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+
+
 if __name__ == "__main__":
     unittest.main()

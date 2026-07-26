@@ -39,7 +39,9 @@ from scripts.rubric import (
 _HEURISTIC_SEVERITY = "MEDIUM"
 
 
-def enforce_critic_schema(critic: dict) -> list[str]:
+def enforce_critic_schema(
+    critic: dict, *, reserved_ids: frozenset[str] = frozenset()
+) -> list[str]:
     """Return schema-violation strings for ``critic``; empty means well-formed.
 
     Stricter than structural ``validate.py``: enforces the *value* shapes the
@@ -49,6 +51,38 @@ def enforce_critic_schema(critic: dict) -> list[str]:
     — a non-dict ``critic`` is itself a violation (S4: a valid-JSON non-object
     critic must reach the documented CRITIC_SCHEMA_ERRORS re-dispatch path, not
     crash the validate block with a bare AttributeError).
+
+    Args:
+        critic: the object to validate.
+        reserved_ids: keyword-only. Defect ids a critic may not claim. Empty by
+            default, so every pre-existing single-argument call site — including
+            ``floorsynth.merge_and_validate`` and ``run_negative_gate`` — keeps
+            validating the MERGED object, which legitimately carries the floor's
+            own ids. Only the RAW-critic gate at ``skills/atlas/SKILL.md``
+            Step 3.4 passes a set, and it passes exactly
+            ``floorsynth.ORCHESTRATOR_DEFECT_IDS``.
+
+    H4 (v1.5.2.1), with its rationale corrected by execution (challenge fold
+    F7). The original claim — "a critic forging a floor id gets its ``fix``
+    treated as plugin-authored" — is REFUTED: a critic's ``fix`` is *already* a
+    trusted coder instruction by design (``skills/atlas/SKILL.md:906-915``), so
+    ``{"id": "runcheck"}`` behaves byte-identically to an honest ``C1``
+    (measured across five ids: ``forwarded=True should_refine=True
+    final=UNVERIFIED``). The reachable hole is the REVERSE direction: an
+    **orchestrator** id lets a critic **delete its own CRITICAL from the refine
+    loop**, because those ids are fenced OUT of the coder re-dispatch — measured,
+    ``id=stale-verdict`` gives ``forwarded=False should_refine=False v7=False``.
+
+    So the reserved set is ``ORCHESTRATOR_DEFECT_IDS`` and nothing else.
+    Reserving ``runcheck``/``docs-naming``/``empty-diff``/``out-of-scope:*``
+    would MANUFACTURE A RED on an honest tree: no critic role file instructed
+    any id format before this release, and the correctness critic is handed
+    ``runcheck`` evidence *by name*, so a critic labelling that defect
+    ``runcheck`` is a plausible honest emission — it would burn the one
+    sanctioned re-dispatch and can land at ``critic-missing:<lens>`` on a green
+    tree, for zero security gain. The reservation's safety instead rests on the
+    id format now being INSTRUCTED, in all four ``agents/*-critic.md`` role
+    files, alongside the list of ids a critic must never claim.
     """
     errs: list[str] = []
 
@@ -91,6 +125,18 @@ def enforce_critic_schema(critic: dict) -> list[str]:
             errs.append(
                 f"defects[{i}].category: must be a rubric dimension "
                 f"(one of {list(_DIMENSIONS)})"
+            )
+        # isinstance first: a non-string ``id`` (a list, an object) is unhashable
+        # and ``x in frozenset`` would raise — this function must NEVER raise on
+        # malformed input, or a valid-JSON garbage critic crashes the validate
+        # block instead of reaching CRITIC_SCHEMA_ERRORS (S4).
+        if reserved_ids and isinstance(df.get("id"), str) and df["id"] in reserved_ids:
+            errs.append(
+                f"defects[{i}].id: {df.get('id')!r} is reserved for defects the "
+                f"orchestrator synthesizes itself and must not be claimed by a "
+                f"critic (a reserved id is fenced out of the coder re-dispatch, "
+                f"so claiming one would delete this defect from the refine "
+                f"loop); use your own lens-local id (C1/Q1/S1, ...)"
             )
 
     verdict = critic.get("verdict")
