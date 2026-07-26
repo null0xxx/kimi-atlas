@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -389,6 +390,77 @@ class TestOutOfScopeDefects(unittest.TestCase):
     def test_defect_shape_is_canonical(self):
         d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
         self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
+
+class TestOutOfScopeFixDefaultsToDoNotTouch(unittest.TestCase):
+    """H2 (v1.5.2.1): what the `fix` template DOES, not which words it drops.
+
+    The committed acceptance gate (`tests/test_v1521_regressions.py:628-632`)
+    bans only the literal `"revert it"`, so a cosmetic reword ("revert that
+    change") satisfies it while still ordering a coder to revert a file it did
+    not write. These pins assert the two structural properties that make the
+    template safe, so that passing them is evidence and not coincidence:
+
+    1. every revert instruction is gated on the CODER's own authorship DURING
+       THIS TASK — the one fact the coder actually holds (the code cannot
+       determine provenance: see `out_of_scope_defects`' H2 note);
+    2. the pre-existing case is the DEFAULT branch and is unconditional. v1.5.2
+       wrote it as a second `if` narrowed to `"untracked at baseline"` — a git
+       state — and the tracked-and-dirty file therefore fell through to the
+       revert branch. Re-narrowing the default to ANY git state reopens H2.
+
+    Clause granularity is the semicolon: the template is one instruction list,
+    and a condition binds only within its own clause.
+    """
+
+    # A revert may be ordered only for work the coder itself did in this run.
+    _SELF = re.compile(r"\byou(r)?\b", re.IGNORECASE)
+    _AUTHORSHIP = ("created", "modified", "wrote", "authored", "made")
+    _THIS_RUN = ("this task", "this run")
+    # Git states the do-not-touch default must never be narrowed back down to.
+    _GIT_STATE = ("untracked", "tracked", "staged", "baseline", "ignored",
+                  "committed")
+
+    def _clauses(self):
+        d = floorsynth.out_of_scope_defects(["NOTES.md"], ["src"])[0]
+        return [c.strip() for c in d["fix"].split(";") if c.strip()]
+
+    def test_every_revert_instruction_is_conditioned_on_the_coders_own_authorship(self):
+        clauses = [c for c in self._clauses() if "revert" in c.lower()]
+        self.assertTrue(clauses, "the coder's in-loop resolution vanished")
+        for c in clauses:
+            with self.subTest(clause=c):
+                self.assertTrue(self._SELF.search(c),
+                                "revert clause names no actor: %r" % c)
+                self.assertTrue(any(v in c.lower() for v in self._AUTHORSHIP),
+                                "revert clause states no authorship test: %r" % c)
+                self.assertTrue(any(s in c.lower() for s in self._THIS_RUN),
+                                "revert clause is not scoped to this run: %r" % c)
+
+    def test_the_pre_existing_branch_is_the_unconditional_default(self):
+        clauses = [c for c in self._clauses() if "UNTOUCHED" in c]
+        self.assertEqual(len(clauses), 1, "exactly one do-not-touch branch")
+        c = clauses[0]
+        self.assertIn("pre-existed", c.lower())
+        # A DEFAULT, not another condition: an `if`-guarded no-touch branch
+        # leaves the fall-through H2 shipped.
+        self.assertFalse(c.lower().startswith("if "),
+                         "the do-not-touch branch is conditional again: %r" % c)
+        self.assertIn("otherwise", c.lower(),
+                      "the do-not-touch branch is not the default: %r" % c)
+        for state in self._GIT_STATE:
+            self.assertNotIn(state, c.lower(),
+                             "do-not-touch re-narrowed to a git state (%r): %r"
+                             % (state, c))
+
+    def test_the_template_forbids_touching_any_file_the_coder_did_not_author(self):
+        """The belt to the branch's braces: an explicit prohibition, so a coder
+        that mis-reads the branches still has a standing rule to obey."""
+        prohibition = re.compile(r"\bnever\b|\bdo not\b|\bdon't\b", re.IGNORECASE)
+        self.assertTrue(
+            any("did not author" in c.lower() and prohibition.search(c)
+                for c in self._clauses()),
+            "no standing prohibition on touching an unauthored file")
 
 
 class TestOutOfScopeTargetBytesAreQuoted(unittest.TestCase):

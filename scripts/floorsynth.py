@@ -268,6 +268,24 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
     green. A snapshot-at-INIT exclusion was rejected: the snapshot would be
     gate input living in the same writable ``.atlas/`` (the T4-F8 class).
 
+    **H2 (v1.5.2.1) — the ``fix`` may never order a revert of a file the coder
+    did not write.** v1.5.2 opened with *"if you made that change, revert it"*
+    and keyed its escape clause on *"untracked at baseline"* — a git state, not
+    authorship. On an ordinary interactive run (``review_root="."``) the user's
+    own pre-existing work fires this lens, and the TRACKED-and-dirty case
+    (``docs/notes.md``) missed that clause entirely, so a coder writing the
+    user's REAL tree was told to revert it. The template is now keyed on the one
+    fact the coder actually holds — did *I* create or modify this file during
+    this task — and every other path falls through to an unconditional
+    do-not-touch. **This is an INTERIM.** ``out_of_scope_defects`` takes paths
+    and scopes only; provenance is not machine-determinable here (``baseline_sha``
+    does not capture a dirty worktree, and "untracked ⇒ human" is the very
+    heuristic that produced this defect), so the partition is stated to the coder
+    as prose and MUST NOT be approximated in code. Three HIGH defects still emit
+    on an honest dirty tree and the run still ends UNVERIFIED; the content-hashed
+    pre-coder snapshot that actually fixes that is a v1.5.3 item. What this
+    change buys is bounded and exact: the user's files are no longer at risk.
+
     **H1 (v1.5.2.1): the path is TARGET-CONTROLLED and this ``fix`` is a TRUSTED
     coder instruction**, so every place it appears — ``id``, ``location`` and
     ``fix`` — is rendered with ``json.dumps``. A filename may hold anything but
@@ -317,10 +335,15 @@ def out_of_scope_defects(full_paths, scope_paths) -> list[dict]:
             "category": "CORRECTNESS",
             "severity": "HIGH",
             "location": safe_path,
-            "fix": "the change to %s is outside the frozen scope_paths (%s); if you "
-                   "made that change, revert it; if the file pre-existed the run "
-                   "(untracked at baseline), leave it UNTOUCHED — either way the "
-                   "human may widen scope at the OUTPUT gate; do not edit scope_paths"
+            # H2: the revert branch is keyed on the CODER's own authorship during
+            # this task; every other file falls through to an unconditional
+            # do-not-touch. Never re-narrow the default to a git state.
+            "fix": "the change to %s is outside the frozen scope_paths (%s); if YOU "
+                   "created or modified that file during this task, revert your own "
+                   "change; otherwise it pre-existed this run — LEAVE IT ENTIRELY "
+                   "UNTOUCHED, and never touch a file you did not author; this "
+                   "defect is then resolved by the human, who may widen scope at "
+                   "the OUTPUT gate; do not edit scope_paths"
                    % (safe_path, safe_scopes),
         })
     return out
