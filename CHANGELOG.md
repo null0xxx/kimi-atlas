@@ -4,6 +4,129 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2.1] — 2026-07-26
+
+**Seven defects were live in the shipped v1.5.2, one CRITICAL. Three of the seven were introduced by
+v1.5.2's own fixes.** Six are closed here; the seventh (H5) ships known-open with a workaround and a
+recorded decision. Plan and full challenge record:
+[`docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md`](docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md).
+The governing rule for this release — *a fix that manufactures a RED on an honest repository is worse
+than the bug it closes* — is why two of the six ship as bounded interims rather than full remedies,
+and this entry says which.
+
+- **C1 (CRITICAL, self-inflicted) — model-supplied text is never Python source again.** v1.5.2's new
+  Step-3.4 validate-and-persist block interpolated a critic's returned text into `RAW = r'''<text>'''`.
+  A response containing `'''` closed the literal and the remainder **executed**: arbitrary code in the
+  orchestrator's shell, all three critic artifacts forgeable with correct pass stamps, and the exact
+  success token printed. The injection landed **before** `json.loads` and before
+  `enforce_critic_schema`, so v1.5.2's own S4 validation was *bypassed, not defeated* — invariants 1,
+  6, 7 and 9 from one input. Pointed the honest way it is a false RED: a critic quoting a `'''`
+  docstring — which the critic role files tell it to do — broke the block on a green tree. The
+  adversarial challenge found **four** sinks, not the three first specified: the INIT packet freeze,
+  the scout digest (carrying `untrusted_excerpts` copied verbatim out of the target repo — no agent's
+  judgment needed to trigger it), the pre-CODE plan preview, and Step 3.4. All four now take a **path
+  in `argv`**: the text is written verbatim by the native `Write` tool to a scratch file outside
+  `.atlas/` and outside the review root, then read with `utf-8-sig` **inside** the block's `try:`.
+  Shell and interpreter heredocs are explicitly forbidden as writers — a body containing a line equal
+  to the sentinel closes it early (verified: `rc=0`, a marker executed, **and** a silently truncated
+  file). A new SKILL invariant 5 states the rule, and every remaining quoted placeholder in the
+  program is enumerated with a recorded reason.
+- **H1 (self-inflicted) — a target-controlled filename no longer reaches the coder's TRUSTED
+  instruction raw.** v1.5.2's `out_of_scope_defects` interpolated the path into `fix` unquoted.
+  Filenames may contain anything but NUL and `/`, git tracks them, and the target's own build can
+  create one during VERIFIED — so a name carrying newlines and injected prose reached
+  `safewrap.coder_redispatch_packet` byte-raw for a `Write`/`Edit`-capable coder, with no critic
+  subverted. `id`, `location` and `fix` are now rendered with `json.dumps` — and **not**
+  `safewrap._sanitize_source`, which was measured to leave TAB/ESC/VT/FF/BS intact, mutilate a legal
+  `a>>>b.py`, and collide `a\
+b.py` with `a b.py` onto one id (three ways to lose a defect).
+  **Honest scope:** this holds for `floorsynth`'s own coder-facing ids only. It is still FALSE for
+  `pathcheck`'s `P*`, `sast`'s `rules.*` (semgrep's message verbatim) and `astlens`'s `AST*`, which
+  also reach `fix_instructions` raw. Moving those into the orchestrator set is forbidden here — it
+  would delete the coder's only in-loop resolution for genuine CRITICALs and manufacture an
+  *unresolvable* red. v1.5.3 design item.
+- **H2 (INTERIM, self-inflicted) — the coder is no longer told to revert the user's files. The
+  dirty-tree RED itself is NOT fixed.** v1.5.2's S3 fold fires blocking HIGHs on an ordinary
+  interactive run: a user's own untracked notes, an untracked CSV and a tracked-and-modified doc —
+  three ordinary names, first try, zero adversary — and the `fix` handed to a coder writing the user's
+  **real tree** began *"if you made that change, revert it"*, with an escape clause keyed on
+  "untracked at baseline" that missed the tracked-dirty case entirely. The template is now keyed on
+  the one fact the coder actually holds — did *I* create or modify this file during this task — and
+  every other path falls through to an unconditional do-not-touch. **This is all it buys.** Measured
+  on that same tree at this commit: three HIGH CORRECTNESS defects still emit, both refine passes
+  still burn, and the run still ends **⚠️ UNVERIFIED** on a tree where nobody did anything wrong.
+  `out_of_scope_defects` receives paths and scopes only, so provenance is **not machine-determinable**
+  there (`baseline_sha` does not capture a dirty worktree, and "untracked ⇒ human" is the very
+  heuristic that produced this defect) — approximating it in code is explicitly forbidden. The
+  content-hashed pre-coder snapshot that actually fixes this is a v1.5.3 item. **The interactive
+  dirty-tree case remains degraded.** Bound, verified: the headless lane is immune — `["."]`, `[""]`
+  and `["src","."]` each yield zero defects.
+- **H3 (self-inflicted) + H6 — the ledger no longer lies in either direction.** H3: the checkpoint
+  prose invited a standalone `advance(..., "CODED", updates=…)` after the red VERIFIED, an illegal
+  `VERIFIED → CODED` trajectory that v1.5.2's own new `stale_verdict_defects` fires on — an honest
+  2-pass run that fixed everything ended UNVERIFIED for bookkeeping. Checkpoints now ride an
+  **existing** transition's `updates=` (the passing VERIFIED's own advance; the CODED checkpoint rides
+  the REFINE advance — never CODED's own, which fires before any lens has run and would hand
+  `last_green_stage` a "stable" ref for an unverified tree), so the firing shape becomes unproducible.
+  `updates` **replaces** the top-level key, so the checkpoint map is now rebuilt read-modify-write — a
+  bare one-entry map erased every earlier checkpoint, including a genuinely green VERIFIED ref. H6: an
+  honest crash after `advance(REFINE)` resumed at OUTPUT, the V7-forced refine never ran, and the run
+  printed ✅. Closed at both layers: the resume prose in **both** sites now sends a trailing REFINE
+  back to CODED, and `stale_verdict_defects` gained a third condition — `last_refine > last_coded`.
+  Deliberately a **trailing-shape** test, not the tempting pairwise "the record after REFINE is not
+  CODED": the function is called 36 lines before that block's own `advance(…, "OUTPUT")`, so at the
+  real evaluation point the ledger simply ENDS at REFINE and a pairwise condition has no pair.
+  `budget_exhausted` is now **derived from the ledger** instead of a hard-coded `False` the model had
+  to remember to flip. Each of the three conditions carries its **own** reason string: handing an
+  honest ROLLBACK-after-REFINE or a coder-timeout run "the tree may have mutated after verification"
+  was a fabricated accusation about work nobody did.
+- **H4 — only the orchestrator id namespace is reserved, and the original rationale was wrong.**
+  `enforce_critic_schema` never checked a defect id's VALUE. The reported hole — a critic forging
+  `runcheck` for plugin-authored trust — was **refuted by execution**: a critic's `fix` is *already* a
+  trusted coder instruction by design. The reachable hole is the **reverse**: an **orchestrator** id
+  lets a critic **delete its own CRITICAL from the refine loop**, because those ids are fenced OUT of
+  the coder re-dispatch. `enforce_critic_schema(critic, *, reserved_ids=frozenset())` is keyword-only
+  and empty by default, so `merge_and_validate` and every other call site still validate the MERGED
+  object — which legitimately carries floor ids — untouched. Only the RAW-critic gate passes a set,
+  and it passes exactly `ORCHESTRATOR_DEFECT_IDS`. **Reserving `runcheck`/`docs-naming`/`empty-diff`/
+  `out-of-scope:*` was rejected as a would-be fourth manufactured RED:** no role file instructed any id
+  format before this release and the correctness critic is handed `runcheck` evidence *by name*, so a
+  critic labelling that defect `runcheck` is a plausible honest emission that would burn the one
+  sanctioned re-dispatch. All four `agents/*-critic.md` now instruct the id format explicitly.
+- **Four documentation fictions killed, each pinned shut.** `references/rubric.md` Lens 3 claimed
+  `quality.py` kept a "static grep for known secret/eval/unsafe-shell patterns" behind semgrep: it
+  never has, and `lint_deliverable` emits CODE-QUALITY and TEST-ADEQUACY only — so on a semgrep-less
+  run **lens 3 has no deterministic floor at all**, which the rubric now says. V7's "no origin filter"
+  was false — REFINE? drops every `ORCHESTRATOR_DEFECT_IDS` member *before* applying either
+  `should_refine` or the V7 clause (it still blocks: `gate`/`final_status` read the full merged
+  critic). The degradation ladder told the orchestrator to "fall back to the deterministic-only critic"
+  — the exact false green `critics_missing_defects` exists to prevent; there is no such fallback. And
+  `make ci` mirrors **one** of three CI lanes, not CI: `AGENTS.md` and the `Makefile` now say so and
+  name all three.
+
+**What is NOT closed.** **H5 — a second review in one session still inherits the first's frozen
+packet** (`run_id = ${KIMI_SESSION_ID}`, `init_run` is idempotent, and the INIT resume check adopts
+only non-terminal runs). **Workaround: start a new session per review.** Deferred to v1.5.3 by an
+explicit recorded decision (`4fa4cee`), and this is the least-bad option because **the RED is
+warranted** — review #2 genuinely runs review #1's intent and `baseline_sha`, so the run genuinely
+should not pass; it terminates `⚠️ UNVERIFIED` with a CRITICAL `stale-verdict`, never a false green.
+What remains wrong is the remedy text: the message now accurately names the illegal stage pair, but it
+still directs at repairing the ledger rather than at the packet inheritance that is the real cause.
+The correct fix derives the run id once at INIT, replaces the literal at all 49 sites *and* re-keys the
+resume check — getting that last part wrong was proven to make a compacted session adopt **another**
+session's frozen packet, i.e. it is a change to the compaction-survival mechanism and belongs with
+v1.5.3's S11. Its two pins ship **skipped, not deleted** — unweakened, as v1.5.3's acceptance gate.
+Also open: **the H2 interactive dirty-tree RED** (above); **S3(a)**, where an index-recorded rename
+*into* scope erases the out-of-scope deletion (a missed closure, not a regression); and everything the
+v1.5.2 entry lists below.
+
+Process, for the record: two independent adversarial sources found the seven, then two challengers
+attacked the fix plan **by execution** before any code was written and returned **five CRITICALs
+against the plan itself** — including a would-be fourth manufactured RED. A final whole-branch review
+mutation-hunted the branch's own new code (14 mutants, full-suite runs) and filed three residual
+test-adequacy gaps to v1.5.3; no live defect was found in the shipped artifact.
+`scripts/verdict.py` never opened (blob `57062e7` at both ends). Test suite **1460 → 1578**.
+
 ## [1.5.2] — 2026-07-25
 
 **Eight confirmed security findings closed — everything that damages an ordinary, non-attacked run.**
