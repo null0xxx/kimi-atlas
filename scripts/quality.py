@@ -9,11 +9,19 @@ Two responsibilities, both purely mechanical (no model judgment):
   severity; and ``verdict`` is consistent with the presence of a CRITICAL/HIGH
   defect. Structural type-checking (``validate.py``) is too loose to catch an
   object-valued dimension or an inconsistent verdict, so this makes those a rule.
-- ``lint_deliverable`` — the deterministic floor for lenses 2 (CODE-QUALITY),
-  3 (SECURITY) and 4 (TEST-ADEQUACY). It is **config-driven and
+- ``lint_deliverable`` — the deterministic floor for lenses 2 (CODE-QUALITY)
+  and 4 (TEST-ADEQUACY), and for **those two only**. It is **config-driven and
   language-agnostic**: the banned debug-token list and the test glob come from
   the task-packet ``config``, never hard-coded to any language. Every defect it
   emits is capped at **MEDIUM** — a text heuristic must never emit HIGH (V6).
+
+  **It emits NO SECURITY defect, at any severity, for any input.** This module
+  has never carried the "static grep for known secret/eval/unsafe-shell
+  patterns" that ``references/rubric.md`` used to attribute to it; lens 3's only
+  deterministic floor is ``scripts/sast.py`` (semgrep), which is fail-open, so
+  on a semgrep-less run lens 3 has no deterministic floor at all. Anything that
+  adds a SECURITY emitter here must update ``references/rubric.md``'s Lens 3
+  section in the same change — ``tests/test_doc_fictions.py`` pins the pair.
 
 Both return ``list[dict]`` defects in the ``{id, category, severity, location,
 fix}`` shape used across the backbone, so the orchestrator merges them into

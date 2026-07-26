@@ -1097,8 +1097,13 @@ Subagents have a **fixed 30-minute** timeout and resume-by-id is unconfirmed. So
 ## Degradation ladder (intelligent, never catastrophic)
 - **Scout returns unusable JSON after one retry** → continue **ungrounded**; plan/critics state
   assumptions; status may end `⚠️ UNVERIFIED`. (`GROUNDED` still recorded, `degraded=True`.)
-- **Critic output malformed after one re-prompt** → fall back to the **deterministic-only critic**
-  (rebuild `critic.json` from `runcheck`/`pathcheck`), then continue.
+- **Critic output malformed or missing after one re-dispatch** → **never persist it, and never build
+  a stand-in `critic_<lens>.json` out of the deterministic floor.** There is no such fallback: a
+  rejected judgment is not a clean lens, and an artifact synthesized from `runcheck`/`pathcheck`
+  would present a lens nobody judged as passed — the exact false green `critics_missing_defects`
+  exists to prevent. Leave the artifact absent (Step 3.4); Step 4+5 then synthesizes the blocking
+  `critic-missing:<lens>` CRITICAL (or `critic-schema` for a bad merged shape) and the run degrades
+  to `⚠️ UNVERIFIED` with the residual defect visible. Do not stop here — this is a decision.
 - **Coder timeout** → record id, re-dispatch a narrower sub-task (above).
 - **Budget exhausted (2 refine passes) with a residual CRITICAL/HIGH, or any deterministic gate
   red** → `gate`/`final_status` return `UNVERIFIED`; present the labelled block, never silently ship.

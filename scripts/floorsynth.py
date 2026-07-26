@@ -367,11 +367,21 @@ def dimension_dissent_defects(raw_critics) -> list[dict]:
     (the SKILL's ``loaded_map``). HIGH rather than CRITICAL, deliberately:
     CRITICAL is this project's idiom for hard deterministic failures, and a
     synthesized proxy for unarticulated judgment would overstate confidence —
-    HIGH already blocks (and a CORRECTNESS/SECURITY-category dissent also fires
-    V7). One defect per critic, category = the FIRST dissented dimension in
-    rubric order (cross-lens dissent keeps the dissented dimension,
+    HIGH already blocks. One defect per critic, category = the FIRST dissented
+    dimension in rubric order (cross-lens dissent keeps the dissented dimension,
     fail-closed). Orchestrator-facing: the fix re-
     dispatches the critic, so the ids live in ``ORCHESTRATOR_DEFECT_IDS``.
+
+    **These ids do NOT fire V7**, and an earlier revision of this docstring
+    wrongly said a CORRECTNESS/SECURITY-category dissent "also fires V7". The
+    REFINE? block (``skills/atlas/SKILL.md``) drops every
+    ``ORCHESTRATOR_DEFECT_IDS`` member *before* evaluating both ``should_refine``
+    and the V7 clause, so a HIGH ``dimension-dissent:correctness`` yields
+    ``should_refine=False`` and ``v7=False`` — correctly, since the coder cannot
+    articulate another agent's judgment and would burn a pass to no effect. The
+    blocking is not lost: ``verdict.gate`` / ``final_status`` read the FULL
+    merged critic, so the HIGH still ends the run ``⚠️ UNVERIFIED``, and the
+    dissent has its own pre-REFINE remediation (one critic re-dispatch).
     Malformed entries are skipped — the schema floor (Step 3.4) and
     ``critics_missing_defects`` own those shapes.
     """

@@ -1,8 +1,13 @@
 name: native-floor
 
-# The named toolchain lane for the universal SYNTAX floor (P2). The local build
-# shell and the default `check.yml` runner have no node/ruby/php/go, so the
-# non-execution / hermetic-env red-team proofs only `skipUnless` there. This lane
+# The named toolchain lane for the universal SYNTAX floor (P2). Neither `make ci`
+# nor the `check.yml` runner installs node/ruby/php/go, and the non-execution /
+# hermetic-env red-team proofs are `skipUnless`-gated on each binary — so
+# wherever one is absent they skip silently and prove nothing. Do NOT re-word
+# this as "the local build shell has no node/ruby/php/go": which box has which
+# binary is not a fact this file can assert (measured on one build shell, node
+# and php resolved while ruby and gofmt did not, so the blanket claim was
+# false). This lane
 # installs every interpreter, HARD-ASSERTS each resolved (so a silently-missing
 # toolchain fails the job instead of vacuously skipping the RCE-class net), and
 # runs nativefloor + syntaxlens + the red-team suite against the REAL binaries.

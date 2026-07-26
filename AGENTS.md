@@ -46,7 +46,14 @@ make skills-extract   # re-extract vendored packages + --verify against the sha2
 make negative-gate    # red-team fixtures: good→OK, each bad_*→UNVERIFIED
 ```
 
-`make ci` mirrors `.github/workflows/check.yml` (Python 3.12). Everything must stay green.
+`make ci` mirrors **one** of the three CI lanes — `.github/workflows/check.yml` (Python 3.12), which
+runs `make ci` and nothing else. The other two install toolchains `make ci` does not require and
+**hard-assert each resolved, so a missing binary fails the job instead of skipping**:
+`.github/workflows/sast-floor.yml` (semgrep → `tests.test_sast`) and
+`.github/workflows/native-floor.yml` (node/ruby/php/go → `tests.test_nativefloor`,
+`tests.test_syntaxlens`, `tests.test_syntaxlens_redteam`). Those suites are `skipUnless`-gated on the
+binary, so on a box missing one they pass **vacuously**. A green `make ci` is therefore necessary,
+not sufficient — everything must stay green on all three lanes.
 
 ## Non-negotiable conventions (any edit must match)
 

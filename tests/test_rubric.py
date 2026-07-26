@@ -103,25 +103,76 @@ class TestLensSection(unittest.TestCase):
 
 class TestV7NamesTheDeterministicFloor(unittest.TestCase):
     """E3: rubric.md's V7 narrowing ("any defect **a critic emits**") was
-    adjudicated WRONG — the shipped program (skills/atlas/SKILL.md's REFINE?
-    block) filters on category with no origin filter, and floorsynth's
-    CORRECTNESS-category syntheses (empty-diff, pathcheck, sast) deliberately
-    rely on that. The amendment must keep naming the deterministic floor
-    explicitly so it cannot silently re-narrow."""
+    adjudicated WRONG — floorsynth's CORRECTNESS/SECURITY-category syntheses
+    (empty-diff, pathcheck, sast) DO drive the loop, and V7 must keep naming
+    them explicitly so it cannot silently re-narrow.
+
+    v1.5.2.1 correction: this class used to also assert the phrase "no origin
+    filter". That phrase was itself a documentation fiction, and it is NOT
+    relaxed here — it is replaced by a strictly stronger pair. Proven by
+    execution against the shipped REFINE? block, which reads
+
+        actionable = [d for d in merged["defects"]
+                      if d.get("id") not in floorsynth.ORCHESTRATOR_DEFECT_IDS]
+
+    *before* evaluating both ``should_refine`` and the V7 clause: a HIGH
+    ``dimension-dissent:correctness`` gives ``should_refine=False v7=False``.
+    So there IS an origin filter. The replacement assertions are (a) the false
+    phrase is gone, (b) V7 states the exclusion by naming
+    ``ORCHESTRATOR_DEFECT_IDS``, and (c) the coupled behavioural pin below —
+    every floor id V7 names as forcing a pass really is outside that set."""
 
     def _rubric_text(self):
         return (pathlib.Path(__file__).resolve().parents[1]
                 / "references" / "rubric.md").read_text(encoding="utf-8")
 
+    def _v7_paragraph(self):
+        v7 = self._rubric_text().split("Severity-trust caveat (V7)", 1)[1]
+        return v7.split("\n## ", 1)[0]
+
     def test_v7_names_the_floor_and_rejects_the_narrowed_phasing(self):
-        text = self._rubric_text()
-        v7 = text.split("Severity-trust caveat (V7)", 1)[1]
-        v7 = v7.split("\n## ", 1)[0]
+        v7 = self._v7_paragraph()
         for token in ("pathcheck", "sast", "empty-diff"):
             self.assertIn(token, v7, "V7 no longer names the deterministic floor")
-        self.assertIn("no origin filter", v7)
         self.assertNotIn("any defect a critic emits", v7,
                          "the adjudicated-wrong narrowing is back")
+
+    def test_v7_does_not_claim_there_is_no_origin_filter(self):
+        """The shipped REFINE? block filters by id before filtering by category."""
+        self.assertNotIn(
+            "no origin filter", self._v7_paragraph(),
+            "V7 again claims the REFINE? decision applies no origin filter; the "
+            "shipped block drops every ORCHESTRATOR_DEFECT_IDS member first, so a "
+            "HIGH dimension-dissent:correctness forces no refine pass",
+        )
+
+    def test_v7_names_the_orchestrator_exclusion(self):
+        self.assertIn("ORCHESTRATOR_DEFECT_IDS", self._v7_paragraph(),
+                      "V7 must name the id set that decides coder-actionability")
+
+    def test_every_v7_forcing_floor_id_is_outside_the_orchestrator_set(self):
+        """Coupled pin: the ids V7 promises will drive the loop must be able to.
+
+        Not a restatement of the constant — these ids are read out of the prose
+        and checked against the code. Moving any of them into
+        ORCHESTRATOR_DEFECT_IDS (or renaming one in the docs) fails here.
+        """
+        from scripts import floorsynth
+        v7 = self._v7_paragraph()
+        forcing = ("pathcheck", "sast", "empty-diff", "out-of-scope")
+        for name in forcing:
+            self.assertIn(name, v7, f"V7 no longer names {name} as forcing")
+        # The concrete ids those names produce, all of which must stay actionable.
+        for did in ("empty-diff", "out-of-scope:src/x.py", "P1", "rules.python.foo"):
+            self.assertNotIn(
+                did, floorsynth.ORCHESTRATOR_DEFECT_IDS,
+                f"{did!r} joined ORCHESTRATOR_DEFECT_IDS, so REFINE? now drops it "
+                f"and V7's promise that it forces a pass is false",
+            )
+        # ...and the ids V7 says are excluded really are.
+        for did in ("stale-verdict", "critic-schema", "evidence-incomplete",
+                    "dimension-dissent:correctness", "critic-missing:security"):
+            self.assertIn(did, floorsynth.ORCHESTRATOR_DEFECT_IDS)
 
 
 if __name__ == "__main__":

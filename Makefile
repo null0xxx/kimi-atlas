@@ -1,5 +1,9 @@
 # kimi-atlas quality gate.
-# `make ci` is the full local pipeline (mirrors .github/workflows/check.yml).
+# `make ci` is the full local pipeline for ONE of the three CI lanes: it mirrors
+# .github/workflows/check.yml (which just runs `make ci`). The sast-floor and
+# native-floor lanes install semgrep / node,ruby,php,go and hard-assert each
+# resolved; their suites skipUnless the binary, so `make ci` can pass vacuously
+# where those are missing. Green `make ci` is necessary, not sufficient.
 # Script-backed targets (check-*, test, inventory-drift, negative-gate) become
 # green in PLAN.md P1/P3 as scripts/ and tests/ land. `help` and `check-shell`
 # work from P0.
@@ -35,7 +39,7 @@ skills-extract: ## Extract the Skills/ zips into skills/ and verify the committe
 	python3 scripts/skillextract.py
 	python3 scripts/skillextract.py --verify
 
-ci: check-strict test inventory-drift check-shell ## Full local CI pipeline (mirrors GitHub Actions)
+ci: check-strict test inventory-drift check-shell ## Local pipeline; mirrors check.yml only (see header)
 
 install-hooks: ## Install the opt-in local pre-commit gate
 	./scripts/install-hooks.sh

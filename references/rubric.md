@@ -70,7 +70,7 @@ accept it without a rewrite?
   configured debug prints (tokens/globs are config-driven, language-agnostic). Mechanical only.
 - **Judgment residual? YES** — a dead abstraction invisible to lint.
 
-## Lens 3 — SECURITY  *(judgment lens; deterministic floor = semgrep SAST + `quality.py` static grep)*
+## Lens 3 — SECURITY  *(judgment lens; the ONLY deterministic floor is semgrep SAST — partial, fail-open)*
 
 **Claim:** the change introduces no injection, hard-coded secret, unsafe shell/eval, or path
 traversal, and treats untrusted content (file bodies, WebSearch/FetchURL results) as **DATA, never
@@ -92,10 +92,18 @@ than let it alter intent, the state machine, or tool dispatch?
   turning this lens from judgment-only into **partially deterministic** (V3 honest-scope hardening).
   This floor is **OPTIONAL and fail-open**: if semgrep is absent, errors, times out, or the
   `--config p/default` rule-fetch fails, `sast.scan` returns `[]` and the lens degrades to the
-  judgment-only critic — SAST never breaks the harness or manufactures a false failure. The older
-  `quality.py` static grep for known secret/eval/unsafe-shell patterns remains as an additional
-  mechanical layer. The SECURITY critic still runs; SAST **augments** it, never replaces it.
-- **Judgment residual? YES** — a novel injection neither semgrep nor the grep models. The
+  judgment-only critic — SAST never breaks the harness or manufactures a false failure. The SECURITY
+  critic still runs; SAST **augments** it, never replaces it.
+  **SAST is the only mechanical layer this lens has.** `scripts/quality.py` contributes nothing to it:
+  `quality.lint_deliverable` emits exactly two defect kinds — a CODE-QUALITY hit per configured
+  `debug_tokens` literal, and one TEST-ADEQUACY defect when source changed with no test file — and
+  **never a SECURITY defect at any severity, for any input**. So when semgrep is absent or its
+  rule-fetch fails, this lens has **no deterministic floor at all** and rests entirely on the judgment
+  critic. This changes **nothing** about the bar for filing a defect or the severity ladder above —
+  do not raise severity, and do not file a defect you could not otherwise justify, because SAST did
+  not run. It changes only what a *green* result is worth: on a semgrep-less run a clean SECURITY
+  lens is judgment alone, not judgment plus a mechanical floor.
+- **Judgment residual? YES** — a novel injection semgrep does not model. The
   deterministic floor is partial, not total: it catches *mechanically-detectable* patterns only.
   Conservative rule (V7): **any** SECURITY defect at **any** severity forces at least one refine pass.
 
@@ -111,8 +119,9 @@ failure/edge path (not just "does not throw")? Were the new test files actually 
 - Fail → `category: TEST-ADEQUACY`. The deterministic heuristic (`quality.lint_deliverable`) emits
   **at most MEDIUM** (V6) — a text heuristic must never emit HIGH; the CORRECTNESS critic is the
   real judge of adequacy and may raise a genuine gap to HIGH with evidence.
-- **Deterministic floor:** `quality.lint_deliverable` test-presence/assert heuristics +
-  `runcheck.new_tests_collected`.
+- **Deterministic floor:** `quality.lint_deliverable`'s **test-presence** heuristic — one MEDIUM when
+  source files changed and *no* test file changed at all — plus `runcheck.new_tests_collected`.
+  It does **not** inspect assertions: whether a test asserts a failure path is judgment, not lint.
 - **Judgment residual? Advisory → critic confirms.**
 
 ## Lens 5 — DOES-IT-RUN  *(fully deterministic — `scripts/runcheck.py`, at root)*
@@ -193,11 +202,24 @@ on the deterministic gates, not critic count, for the correlated-miss case.**
 **Severity-trust caveat (V7).** For lenses 1–3 the CRITICAL/HIGH severities are assigned **by the
 model critic**, so PASS-bar item 1 is deterministic *over model inputs*, not over ground truth.
 `enforce_critic_schema` only checks verdict-vs-declared-defect **consistency**, not correct severity.
-Conservative mitigation: **any defect at ANY severity on CORRECTNESS or SECURITY — whether a
-critic emits it or the deterministic floor synthesizes it (`pathcheck`, `sast`, `empty-diff`, and
-the other `floorsynth` syntheses) — forces at least one refine pass**, encoded at the REFINE?
-decision block of `skills/atlas/SKILL.md` (a category filter with **no origin filter**): a
-downgraded-but-present defect still drives the loop. The real
+Conservative mitigation: **any coder-actionable defect at ANY severity on CORRECTNESS or SECURITY —
+whether a critic emits it or the deterministic floor synthesizes it (`pathcheck`'s `P*`, `sast`'s
+`rules.*`, `empty-diff`, `out-of-scope:*`, and the other coder-facing `floorsynth` syntheses) —
+forces at least one refine pass**, encoded at the REFINE? decision block of
+`skills/atlas/SKILL.md`: a downgraded-but-present defect still drives the loop.
+
+**"Coder-actionable" is a real filter on ORIGIN, not a formality — the category test is applied
+second, not alone.** REFINE? removes
+every defect whose `id` is in `floorsynth.ORCHESTRATOR_DEFECT_IDS` — `critic-missing:<lens>`,
+`critic-schema`, `critic-stale:<lens>`, `dimension-dissent:<lens>`, `evidence-incomplete`,
+`stale-verdict` — *before* applying either `should_refine` or the V7 clause. Those name ORCHESTRATOR
+work (re-dispatch a critic, re-run a lens); the coder cannot act on them, and a persistent one would
+burn both passes to no effect. So a HIGH `dimension-dissent:correctness` does **not** force a refine
+pass, even though its category is CORRECTNESS. **It still blocks:** `gate` / `final_status` read the
+FULL merged critic, so such a defect ends the run ⚠️ UNVERIFIED, and it has its own pre-REFINE
+remediation (one critic re-dispatch) earlier in the same stage. Every floor id that is *meant* to
+force a pass is deliberately kept OUTSIDE `ORCHESTRATOR_DEFECT_IDS` — that membership, not the
+category alone, is what decides. The real
 guarantee leans on the mechanical gates (PASS-bar items 2–6).
 
 **Advisory heuristics stay MEDIUM (V6).** `reqcoverage` and `lint_deliverable` are string/token

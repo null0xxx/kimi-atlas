@@ -1,10 +1,15 @@
 name: sast-floor
 
-# The named toolchain lane for the SECURITY deterministic floor (S7). The local
-# build shell and the default `check.yml` runner have no semgrep, so the real-
-# scanner integration test (`tests.test_sast.TestScanRealSemgrep`) only
-# `skipUnless` there — a silently-missing binary would let the argv-conflict
-# regression of S7 ship invisibly again. This lane installs semgrep, HARD-
+# The named toolchain lane for the SECURITY deterministic floor (S7). Neither
+# `make ci` nor the `check.yml` runner installs semgrep, and the real-scanner
+# integration test (`tests.test_sast.TestScanRealSemgrep`) is `skipUnless`-gated
+# on `sast.semgrep_path()` — so wherever the binary happens to be absent it
+# skips silently, which would let the argv-conflict regression of S7 ship
+# invisibly again. Do NOT re-word this as "the local build shell has no semgrep"
+# — which box has which binary is not a fact this file can assert, and the
+# claim was measurably false the last time this header made it. This lane
+# installs semgrep at a pinned version so the guarantee rests on the lane and
+# not on any box, HARD-
 # ASSERTS it resolved (so a missing binary fails the job instead of vacuously
 # skipping), and runs the full sast suite against the REAL binary. `p/default`
 # is a Registry ruleset, so the lane needs network on every scan (disclosed in
