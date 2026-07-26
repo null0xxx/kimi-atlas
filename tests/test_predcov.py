@@ -24,6 +24,16 @@ taxonomy (three distinct unmeasured reasons, not one generic string) ship with
 it: together they kill the constant-return stub, and the taxonomy is what
 ``item.json`` records per corpus item, so a collapsed state string would render
 an unreconstructible item as a measured zero.
+
+Task 3 pins the DENOMINATOR and Task 4 pins the FIRING RULE. Both are pinned the
+same way: every assertion about what fires is paired with an assertion about
+what does NOT, on an input the *naive* rule cannot tell apart. That pairing is
+the whole point of Task 4 — the naive rule ("the emitter returned a non-empty
+list") disagrees with the measured numbers on 2 of the 10 emitters and flips the
+experiment's answer from FALSIFIED to SUPPORTED, so each of those two ships with
+a companion input of IDENTICAL length and the opposite firing state.
+
+No test in this module asserts a fire count, a threshold or a verdict.
 """
 import json
 import os
@@ -32,7 +42,7 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts import corpusbuild, inventory_drift
+from scripts import corpusbuild, floorsynth, inventory_drift, predcov, rubric
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CORPUS = _ROOT / "tests" / "corpus"
@@ -190,6 +200,104 @@ class TestCorpusBuildRules(unittest.TestCase):
                     meta["tree_paths_state"] == "measured",
                     "tree.paths presence must equal the recorded measured state",
                 )
+
+
+class TestDenominatorDiscovery(unittest.TestCase):
+    """Task 3: N is DERIVED from ``scripts/floorsynth.py``'s source text, never asserted.
+
+    The pin is the ``(func_name, id_stem)`` PAIR set, not a count and not a set of
+    function names (CQ3): a count alone survives a rename in either direction, and
+    names alone survive ``"docs-naming"`` → ``"docs-clean"`` while the report's
+    ``docs-naming`` row silently reads 0 forever.
+
+    The first test cannot on its own kill a walk that ignores the BLOCKING clause
+    or the constant-severity clause — every literal in ``scripts/floorsynth.py``
+    today is a constant CRITICAL/HIGH, so those mutations still return 10. The
+    text-driven tests below are what kill them, and each one names the single
+    clause it covers.
+    """
+
+    def test_denominator_is_ten_pairs(self):
+        pairs = predcov.discover_emitters()
+        self.assertEqual(len(pairs), 10)
+        self.assertEqual({s for _f, s in pairs}, set(predcov.EMITTERS))
+
+    def test_non_constant_severity_is_a_discovery_failure_not_a_silent_miss(self):
+        src = 'def f():\n    return [{"id": "x", "severity": SEV}]\n'
+        with self.assertRaises(predcov.DiscoveryFailure):
+            predcov.discover_emitters_from_text(src)
+
+    def test_absent_source_is_empty_not_an_error(self):
+        self.assertEqual(predcov.discover_emitters("scripts/does-not-exist.py"), ())
+
+    def test_a_non_blocking_severity_is_not_an_emitter(self):
+        """The BLOCKING clause of the counting rule, which the real source cannot pin.
+
+        ``scripts/reqcoverage.py`` and ``scripts/quality.py`` emit MEDIUM defects in
+        exactly this shape; a walk that matched on ``id`` + ``severity`` alone would
+        count them as predicates the moment either module is walked, and would
+        overstate N on any future floorsynth that gains an advisory defect.
+        """
+        blocking = 'def f():\n    return [{"id": "a", "severity": "HIGH"}]\n'
+        advisory = 'def f():\n    return [{"id": "a", "severity": "MEDIUM"}]\n'
+        self.assertEqual(predcov.discover_emitters_from_text(blocking), (("f", "a"),))
+        self.assertEqual(predcov.discover_emitters_from_text(advisory), ())
+        self.assertNotIn("MEDIUM", rubric.BLOCKING)
+
+    def test_the_dict_call_form_is_matched_too(self):
+        """TA-H3: ``dict(id=..., severity=...)`` is the same predicate, spelled differently."""
+        src = 'def f():\n    return [dict(id="a:%s" % p, severity="CRITICAL")]\n'
+        self.assertEqual(predcov.discover_emitters_from_text(src), (("f", "a"),))
+
+    def test_a_blocking_id_that_is_not_statically_derivable_is_a_discovery_failure(self):
+        """The symmetric half of the severity guard, and the reason the unit is a PAIR.
+
+        A blocking literal whose id is a bare name has no stem to report. Silently
+        skipping it shrinks N; silently reporting the function under a guessed stem
+        would attach every fire to the wrong row.
+        """
+        named = 'def f():\n    return [{"id": SOME_ID, "severity": "CRITICAL"}]\n'
+        no_colon = 'def f():\n    return [{"id": "a%s" % p, "severity": "CRITICAL"}]\n'
+        starred = 'def f():\n    return [{"id": "a", "severity": "HIGH", **extra}]\n'
+        for src in (named, no_colon, starred):
+            with self.subTest(src=src):
+                with self.assertRaises(predcov.DiscoveryFailure):
+                    predcov.discover_emitters_from_text(src)
+
+    def test_a_hoisted_defect_template_is_a_discovery_failure_not_a_silent_shrink(self):
+        """A module-level defect constant is not a top-level ``def`` and would drop N by one.
+
+        This is a hardening BEYOND the plan's counting rule, adopted for the reason
+        the plan gives for the severity clause: the rule's blind spots must be loud.
+        """
+        src = ('D = {"id": "a", "severity": "CRITICAL"}\n'
+               'def f():\n    return [D]\n')
+        with self.assertRaises(predcov.DiscoveryFailure):
+            predcov.discover_emitters_from_text(src)
+
+    def test_the_real_builder_idiom_in_this_repo_is_a_discovery_failure(self):
+        """The plan's named refactor hazard, run against the module that really uses it.
+
+        ``scripts/quality.py:171`` builds defects through ``_d(did, category,
+        severity, ...)``. Walked, that builder is an id-bearing dict whose severity
+        is a parameter — the exact shape that would silently shrink N if
+        ``scripts/floorsynth.py`` ever adopted it. Skipped rather than pinned if
+        that module stops using the idiom: an honest refactor elsewhere in the repo
+        must never turn this report-only instrument's suite red.
+        """
+        src = (_ROOT / "scripts" / "quality.py").read_text(encoding="utf-8")
+        if '"severity": severity' not in src:
+            self.skipTest("scripts/quality.py no longer uses the _d() builder idiom")
+        with self.assertRaises(predcov.DiscoveryFailure):
+            predcov.discover_emitters("scripts/quality.py")
+
+    def test_the_instrument_is_not_itself_an_emitter(self):
+        """GLOBAL CONSTRAINT 2, checked instead of promised: Phase 1 adds NO predicate.
+
+        The same walk over the new module must return zero pairs — and must not
+        raise, which would make the zero unreadable.
+        """
+        self.assertEqual(predcov.discover_emitters("scripts/predcov.py"), ())
 
 
 if __name__ == "__main__":  # pragma: no cover
