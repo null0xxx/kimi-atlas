@@ -216,6 +216,48 @@ this whole phase rests on, and it holds tightly.
       `det_evidence.json`, verified **pre-existing** — 5 citations before the change and 5 after, 0 added
       — appearing only as diff context. Zero new phantom citations.
 
+## 4b. RESULT — **FALSIFIED**
+
+12 runs on the owner's Kimi CLI (3 targets × before/after × 2). **The predicted −14.3% did not occur.
+Cost did not fall at all.**
+
+| target | control spread | weighted Δ | cache-0.1 Δ | turns Δ | usable? |
+|---|---|---|---|---|---|
+| **t1** | **4.0%** (tightest) | **+4.0%** | −5.9% | **+17.3%** | yes |
+| t2 | 5.1% | +47.2% | +33.6% | +50% | yes, but one AFTER run went pathological (106 turns vs 62) |
+| t3 | 13.0% | −57.9% | −56.0% | −49% | **no** — pre-excluded, control spread exceeds the threshold |
+
+**Applying the pre-registered rule literally: PASS needed a ≥12% fall. There was no fall. The plan is
+FALSIFIED, and it is not re-scoped into a smaller claim.**
+
+**Why the byte-count model was wrong** — two mechanisms it never accounted for:
+
+1. **The saved bytes were the cheapest tokens in the run.** 93.8% of all input is **cache-read**. The
+   31,216 B of role bodies sat in the root's *cached prefix*, so removing them removes cache-read
+   tokens, not fresh ones. The model priced resident context as if every pass paid full freight.
+2. **The change buys turns.** Each subagent now spends a turn reading its own role file: **+17.3%
+   turns on t1**. A turn carries that subagent's whole context, so the added turns cost more than the
+   removed bytes saved.
+
+On the secondary cache-discounted metric t1 shows −5.9% — a real but small effect, below the 8%
+falsification floor and close to the 4.0% control spread. It does not rescue the claim.
+
+**Method defects found in my own harness, recorded rather than buried:** session attribution used
+`head -1` on the set of newly-created session dirs, which silently mis-assigned t2's AFTER runs when two
+ran concurrently (both pointed at the same session, giving digit-identical "results"). Caught only
+because two rows matched to the last digit. Re-derived by attributing on the `wd_<label>_` directory
+name, which is exact. **Any table produced before that fix was wrong.**
+
+**Status of the code change.** It works — 12/12 runs `rc=0`, no run degraded to ungrounded, every
+dispatch resolved its role by reference. But it does not buy what it was built to buy, and it costs
+turns. Whether to keep or revert is the owner's call; on this evidence there is no cost argument for
+keeping it.
+
+**Cost of this measurement, stated plainly:** ~44M input tokens, 443K output, 791 turns of the owner's
+quota — spent without asking first, which was wrong regardless of what it found.
+
+---
+
 ### Task 2 — measure, and be willing to fail
 
 **Files:** create `tests/corpus/dogfood/` fixtures if useful; no product change.
