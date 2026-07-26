@@ -1,0 +1,1166 @@
+{
+  "build_command": "python3 -m scripts.corpusbuild --build --runs /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs --corpus tests/corpus",
+  "built_utc": "2026-07-26T23:12:10Z",
+  "items": [
+    {
+      "arm": "dirty",
+      "files": [
+        {
+          "bytes": 53,
+          "kind": "derived:documented-shape",
+          "name": "tree.paths",
+          "sha256": "6be4482f2339aa08da2a1b4d461d6adea65e8ce1d59b32e0ce967b3ceed09e2f",
+          "source": "CHANGELOG.md:48-57 + tests/test_v1521_regressions.py:752"
+        },
+        {
+          "bytes": 804,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "4796819050a8fc299f97677b9e9c832ffa3d7dea449bbccfd9baba9a0f072931",
+          "source": "CHANGELOG.md:48-57 + tests/test_v1521_regressions.py:752"
+        }
+      ],
+      "id": "dirty/changelog-50-57",
+      "path": "tests/corpus/dirty/changelog-50-57",
+      "source": "CHANGELOG.md:48-57 + tests/test_v1521_regressions.py:752"
+    },
+    {
+      "arm": "historical",
+      "files": [
+        {
+          "bytes": 721,
+          "kind": "derived:git",
+          "name": "tree.paths",
+          "sha256": "6110613a7f7cde702e7bafd3959c3e0ae97383d478c3d0e7e1b66cc561c0a2f9",
+          "source": "git diff --name-only v1.4.0..v1.5.0"
+        },
+        {
+          "bytes": 853,
+          "kind": "derived:git",
+          "name": "diff.numstat",
+          "sha256": "1513158332a3546cb76cbdcc4d9bb4527a753832e79769a577c1453e5f62ed58",
+          "source": "git diff --numstat v1.4.0..v1.5.0"
+        },
+        {
+          "bytes": 1203,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "38804e2b9de3818bc81284628da1d0ff9edbc2cc8649ae931bfa4864e4ac6c79",
+          "source": "git diff v1.4.0..v1.5.0"
+        }
+      ],
+      "id": "historical/v1.4.0..v1.5.0",
+      "path": "tests/corpus/historical/v1.4.0..v1.5.0",
+      "source": "git:/var/www/kimi-sub/kimi-atlas@v1.4.0..v1.5.0"
+    },
+    {
+      "arm": "historical",
+      "files": [
+        {
+          "bytes": 547,
+          "kind": "derived:git",
+          "name": "tree.paths",
+          "sha256": "c509da33b1d4138f09055ebfc123ab5ece0890fe8f8f903d5cbb4f46dc068927",
+          "source": "git diff --name-only v1.5.0..v1.5.1"
+        },
+        {
+          "bytes": 655,
+          "kind": "derived:git",
+          "name": "diff.numstat",
+          "sha256": "2a7fcb2a7b3cded5102498d77d76270bcce51cef6622a865529145ebf69a4ac8",
+          "source": "git diff --numstat v1.5.0..v1.5.1"
+        },
+        {
+          "bytes": 1188,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "2d6c625818e409856772101cd0d86660f0f0454188ec164778363333df1f0cbd",
+          "source": "git diff v1.5.0..v1.5.1"
+        }
+      ],
+      "id": "historical/v1.5.0..v1.5.1",
+      "path": "tests/corpus/historical/v1.5.0..v1.5.1",
+      "source": "git:/var/www/kimi-sub/kimi-atlas@v1.5.0..v1.5.1"
+    },
+    {
+      "arm": "historical",
+      "files": [
+        {
+          "bytes": 841,
+          "kind": "derived:git",
+          "name": "tree.paths",
+          "sha256": "4ad4921f5117bedbcffc24d7a75c646a8f4739f9ea1df6ff2781105af4dfb8ba",
+          "source": "git diff --name-only v1.5.1..v1.5.2"
+        },
+        {
+          "bytes": 1015,
+          "kind": "derived:git",
+          "name": "diff.numstat",
+          "sha256": "c7fd7f91b427ec1351efd763fd56b5b753c5d7301dc5360b4dae69ea9fd5e0d3",
+          "source": "git diff --numstat v1.5.1..v1.5.2"
+        },
+        {
+          "bytes": 1273,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "18eb78397752289948d42d15e575955e724e345e0254f52e4e71514ad1e92386",
+          "source": "git diff v1.5.1..v1.5.2"
+        }
+      ],
+      "id": "historical/v1.5.1..v1.5.2",
+      "path": "tests/corpus/historical/v1.5.1..v1.5.2",
+      "source": "git:/var/www/kimi-sub/kimi-atlas@v1.5.1..v1.5.2"
+    },
+    {
+      "arm": "historical",
+      "files": [
+        {
+          "bytes": 638,
+          "kind": "derived:git",
+          "name": "tree.paths",
+          "sha256": "7e700583d8fcf00c553991994c46c9dc66f76ffd6883e91e8ad9e294091bd6d8",
+          "source": "git diff --name-only v1.5.2..v1.5.2.1"
+        },
+        {
+          "bytes": 766,
+          "kind": "derived:git",
+          "name": "diff.numstat",
+          "sha256": "c45c718a30895d140fd16c2940a258403480919d62da35a08fc1e02a74129e0b",
+          "source": "git diff --numstat v1.5.2..v1.5.2.1"
+        },
+        {
+          "bytes": 1171,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "95da28d7ce188f91a2872d73e4ba1ea3060d9514dc432c09f2c9fb93fb14106e",
+          "source": "git diff v1.5.2..v1.5.2.1"
+        }
+      ],
+      "id": "historical/v1.5.2..v1.5.2.1",
+      "path": "tests/corpus/historical/v1.5.2..v1.5.2.1",
+      "source": "git:/var/www/kimi-sub/kimi-atlas@v1.5.2..v1.5.2.1"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1625,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "81d7980f05530b04712ed8d32dbadd85267e3419c88867ffb0f8c7aeecd74f2d",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "20ebc50bd9ce8cf88be6498ec78188aa2be243b34c81ad65837b8dc4d075643a",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/log.jsonl"
+        },
+        {
+          "bytes": 585,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "e36ec0c9a07fbf841d0a048b69d662a5e158c7a36745d3677b5e98cee54f2520",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/det_evidence.json"
+        },
+        {
+          "bytes": 1213,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "b41fca6bce808b73769c0839d01d7549e3a47e20f5dedf878178a4017d52f15a",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/critic_correctness.json"
+        },
+        {
+          "bytes": 756,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "c51e05a16e80faafc71258100c32be7dccd95327d0509d6769e8a71f577e7fc5",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/critic_security.json"
+        },
+        {
+          "bytes": 743,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "542b2b06fd6dc1c606ba622c147ec34199b91ce1f88ccdb12cadcf16ca1fd59d",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/merged_critic.json"
+        },
+        {
+          "bytes": 772,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "b068c321adce657feb4242644cf6c0bfcc0c350b04a7c4b2c4caecc62fc09ed2",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/log.jsonl"
+        },
+        {
+          "bytes": 104,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "53e080d4cf3da792748fca250b6a7159aa0c08c31f726993e351e31fe09fea0d",
+          "source": "difftool.change_paths(02144f07f76e440a03037265a9040544468b63c8, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c/worktree)"
+        },
+        {
+          "bytes": 1420,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "f0e7012eb80f42c3d11c337e7e9143356384b60ea71380d11538e4258d869596",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c"
+        }
+      ],
+      "id": "honest/after-t1-a",
+      "path": "tests/corpus/honest/after-t1-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-a/.atlas/session_628cf1cf-87cc-4ac5-9def-c42fbfa1706c"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1631,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "777a5ccfa231c55a1f47993e3a6a41aa30db24cf54f58cdd6cd9aba809831276",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "87056743925810f80d1886b965614bcbc59c45d16ce89f0c786b312dba95f87c",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/log.jsonl"
+        },
+        {
+          "bytes": 587,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "42baa76cd3a8ea1fb9ec0a88cddd36ebd010d04062b9da765433559370d529d9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/det_evidence.json"
+        },
+        {
+          "bytes": 1450,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "532010d9cb049f812f61689ff134d634a05a57da0d1bbfce998167d757a27753",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/critic_security.json"
+        },
+        {
+          "bytes": 226,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "6a97fbc34d3ea5d44d95290c16028bdb6e102e793e93de19c5e8fc536444ba94",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/merged_critic.json"
+        },
+        {
+          "bytes": 772,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "a15d85b536471dd399d2c85d6903f047b426b7867cb0446e21eb29951f1af6b4",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/log.jsonl"
+        },
+        {
+          "bytes": 104,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "53e080d4cf3da792748fca250b6a7159aa0c08c31f726993e351e31fe09fea0d",
+          "source": "difftool.change_paths(02144f07f76e440a03037265a9040544468b63c8, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35/worktree)"
+        },
+        {
+          "bytes": 1420,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "4725e20455039ba8366c2996c8786f21715515afb34391b2c452c7ad4ebbcaa2",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35"
+        }
+      ],
+      "id": "honest/after-t1-b",
+      "path": "tests/corpus/honest/after-t1-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t1-b/.atlas/session_eca8d6fb-9b39-47ff-8c9a-b1dd93936c35"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1745,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "2de5002432c77f051eb97d2af4d6f2c81b609ad7a6700ebf077ba754054f75b5",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/state.json"
+        },
+        {
+          "bytes": 1284,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "008a0180539ceeb330077c4b43adf340d4cfd43d193709101c99dea5c76413c2",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/log.jsonl"
+        },
+        {
+          "bytes": 922,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "d0763f359c1f8e15274df8fc40092e8e41af89e988cda259fb849dfc1123f206",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/det_evidence.json"
+        },
+        {
+          "bytes": 819,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "392f568b1c8da9b6ff2dcd99fee256de075ce7f7560afd6dc076f4b05d3ef717",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "eb41be411c839a08171f867992a08b1cb4a3e3c072be22f7b59b924660f398df",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/critic_correctness.json"
+        },
+        {
+          "bytes": 907,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "b4afee911eacb76888e64bc065a69330e55c7e4d43d11c2fe179e5eebadd764d",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "eb41be411c839a08171f867992a08b1cb4a3e3c072be22f7b59b924660f398df",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/critic_security.json"
+        },
+        {
+          "bytes": 1231,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "ef4b51399661398f00d2489a07160907c01d5ce4686191ba7bc535ff7b1199c5",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/merged_critic.json"
+        },
+        {
+          "bytes": 1159,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "636792c580d77715720d1ae5d8cdaed5514aac00a80a5649c54da37e996e1118",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/log.jsonl"
+        },
+        {
+          "bytes": 108,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "edbe7d553fb3cf571164da8179648b1e8d2841d62540ffd3f4d9bc14f31668f9",
+          "source": "difftool.change_paths(0dfd930208db972f6d43913e0e2165cf8ee93e2f, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4/worktree)"
+        },
+        {
+          "bytes": 1423,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "a2ec7738f64ba5cb8ce6463e3fb7012fb1151f7323ba2a22978582b4f2038a69",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4"
+        }
+      ],
+      "id": "honest/after-t2-a",
+      "path": "tests/corpus/honest/after-t2-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-a/.atlas/session_9d87cd2e-ea7a-48cc-b8fd-acbf29d176b4"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1621,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "a9212b7d5958c2574b91aff0ea66c9f43dd9beae04824247935affc509d630f7",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/state.json"
+        },
+        {
+          "bytes": 896,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "2c3a34e699bf6126eed9f7709deffcd729d56678d44a9627a16541a4d55d1873",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/log.jsonl"
+        },
+        {
+          "bytes": 922,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "60a136c1c07296fa0ba5bfa9c41a89ba19e7d7b028d832a5d8583b1b540e3be0",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/det_evidence.json"
+        },
+        {
+          "bytes": 775,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "afeb4baa769a66ffc100a7f4ad3346851c353ff5beff5fa4c6c88ed2f6bf2f9e",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/critic_security.json"
+        },
+        {
+          "bytes": 565,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "bb68c0fc7648aa827ba43496a517371c30cac8abc26f2dbe1e9cf96af1c94675",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/merged_critic.json"
+        },
+        {
+          "bytes": 771,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "c156e9f27186c3dd1845f022f920e6310d6bcd8c2556490cbdfa1d86e9e88e02",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/log.jsonl"
+        },
+        {
+          "bytes": 108,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "edbe7d553fb3cf571164da8179648b1e8d2841d62540ffd3f4d9bc14f31668f9",
+          "source": "difftool.change_paths(0dfd930208db972f6d43913e0e2165cf8ee93e2f, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6/worktree)"
+        },
+        {
+          "bytes": 1422,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "a89fc6eeb4599a83e806b31c7e5d53df806192e81488a5141822f5f4b8621d33",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6"
+        }
+      ],
+      "id": "honest/after-t2-b",
+      "path": "tests/corpus/honest/after-t2-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t2-b/.atlas/session_4692bc08-598c-415b-aabd-a4862b085dc6"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1592,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "1ca592499f9b7b847da6e586ac6b0d1d98ccf9a83f34b5be105e7129b3683af9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "f87859a1b7c74730f770a790d3624025b4ce06196d5297c34545d148ff871e6c",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/log.jsonl"
+        },
+        {
+          "bytes": 1273,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "d4dd6ed8738f20cfcb5ff06f0d0582655e0e8deb88da69e99cc7068b1fab4d37",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/det_evidence.json"
+        },
+        {
+          "bytes": 1651,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "72fb63f1d1299a7b9c672e3c1d6b78957c5b377f01f69bd7f2266b276bd7c0ce",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/critic_security.json"
+        },
+        {
+          "bytes": 910,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "d095c7199e0150aff9244404f3f5de5417fa7d712849af70ab7b0e2ece969ee0",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/merged_critic.json"
+        },
+        {
+          "bytes": 772,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "628323ce90748baa5a4d262d90ec09b5bc42ae0381b4c0d3e2fe737185183458",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4/log.jsonl"
+        },
+        {
+          "bytes": 112,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "a0bfb65067812b17c3d53e6fc074a3d2706f18347544e27d709e81c5bb2e2e4c",
+          "source": "difftool.change_paths(1343ecc06a72888ec4d08a2c2cb7dd27633618e2, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b)"
+        },
+        {
+          "bytes": 1322,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "5bab8f93ebc6d6c91c58142bdd477ed0661c7bed8c9c173bb394204c9a0729da",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4"
+        }
+      ],
+      "id": "honest/after-t3-b",
+      "path": "tests/corpus/honest/after-t3-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-b/.atlas/session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1571,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "eeb7d0c2add898924efab1d17c39aedaa60305dd7b235504d1345ca063d7c2bf",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "d9b2aa4e5c071166e75e250bcafdb0362d67c70a034b5b92550c412f494d163b",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/log.jsonl"
+        },
+        {
+          "bytes": 586,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "e9839dc9dd0ae0779f54050296b8c4a6cc7ba9280b2647a60ab82217ccb20b04",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/det_evidence.json"
+        },
+        {
+          "bytes": 1369,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "d9de16533cc0920b57a704e4161868c225c3d1bbf42f5e56bfb2544d189a4ac1",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "44b3cf0e3dad23ca4ef145c3631521f9620337762d14c71bec3a4ecb7e94fcf3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/critic_security.json"
+        },
+        {
+          "bytes": 226,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "6a97fbc34d3ea5d44d95290c16028bdb6e102e793e93de19c5e8fc536444ba94",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/merged_critic.json"
+        },
+        {
+          "bytes": 772,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "d261d6c4627806a2731174c8049dc47a054fba57d58fcbfa0ad9757c3f794c57",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2/log.jsonl"
+        },
+        {
+          "bytes": 1485,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "d5d4250548316763196ad721c8c0a33c88a0be6c1c7ff1a01d25057be9f02794",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2"
+        }
+      ],
+      "id": "honest/before-t1-a",
+      "path": "tests/corpus/honest/before-t1-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-a/.atlas/session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1625,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "030eba99f25fe15156c828f55a98e46ea8380e8999ada4c21de209b3dc89f13d",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "e789466adc0c6d2ba02bfa3ffdacc4d1a2e7f6e5e1c0e773cf501245d74e9768",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/log.jsonl"
+        },
+        {
+          "bytes": 587,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "42baa76cd3a8ea1fb9ec0a88cddd36ebd010d04062b9da765433559370d529d9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/det_evidence.json"
+        },
+        {
+          "bytes": 1417,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "d7b91ede9b86bae84c395eb67bcf1f92c4c69b12faacd2a7df87f823776a9e21",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/critic_security.json"
+        },
+        {
+          "bytes": 226,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "6a97fbc34d3ea5d44d95290c16028bdb6e102e793e93de19c5e8fc536444ba94",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/merged_critic.json"
+        },
+        {
+          "bytes": 772,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "8b67fef1ae592e2a826bd6f6d0aa0c0670b461d013d2a19cf0519f3b257d86cb",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/log.jsonl"
+        },
+        {
+          "bytes": 104,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "53e080d4cf3da792748fca250b6a7159aa0c08c31f726993e351e31fe09fea0d",
+          "source": "difftool.change_paths(02144f07f76e440a03037265a9040544468b63c8, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff/worktree)"
+        },
+        {
+          "bytes": 1423,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "b2f002c98d0c6022258f61ccb449d550e4d86464f3ad236b95d0a8d44e7d8e40",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff"
+        }
+      ],
+      "id": "honest/before-t1-b",
+      "path": "tests/corpus/honest/before-t1-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t1-b/.atlas/session_cebc23d3-5739-48d6-9b63-1c86817e94ff"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1594,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "4a73cc467722085f1e0622f58d443ea3b89827d5ae57f420cbd38ca06e024780",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/state.json"
+        },
+        {
+          "bytes": 896,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "9f6425b7295d2744c994b2133caa3f55d4f3fb2fb317b70a30cc3a9f07b6aa09",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/log.jsonl"
+        },
+        {
+          "bytes": 923,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "7e0a513ccfc8e00e297f20eb35669a10f43e853aa862012cd11ea515fae304e6",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/det_evidence.json"
+        },
+        {
+          "bytes": 876,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "ddc7a2b9765af6e43c3a1ce1d35d849bf08a5e3ca870dcb5164e8c453d109efe",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/critic_security.json"
+        },
+        {
+          "bytes": 565,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "bb68c0fc7648aa827ba43496a517371c30cac8abc26f2dbe1e9cf96af1c94675",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/merged_critic.json"
+        },
+        {
+          "bytes": 771,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "544ca31f78edca678f1bd944f6041e51a25f630645f0c4965a9664273f51ee59",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d/log.jsonl"
+        },
+        {
+          "bytes": 108,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "edbe7d553fb3cf571164da8179648b1e8d2841d62540ffd3f4d9bc14f31668f9",
+          "source": "difftool.change_paths(0dfd930208db972f6d43913e0e2165cf8ee93e2f, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a)"
+        },
+        {
+          "bytes": 1323,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "abe1bf569a4519f3f4dfe89440060e2d146433c976d7939d95339186529462e6",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d"
+        }
+      ],
+      "id": "honest/before-t2-a",
+      "path": "tests/corpus/honest/before-t2-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-a/.atlas/session_b7543e5e-168d-40db-93d2-691865c6727d"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1593,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "aaa58907e5e36b607af7ad9955dc29c525abe01a74d0a6b970e3accd401a1e2e",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/state.json"
+        },
+        {
+          "bytes": 896,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "15b382785cd7d4f388575809e75c5c5421aa526141691b7fca5f8b444420b2ab",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/log.jsonl"
+        },
+        {
+          "bytes": 923,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "7e0a513ccfc8e00e297f20eb35669a10f43e853aa862012cd11ea515fae304e6",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/det_evidence.json"
+        },
+        {
+          "bytes": 895,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "65af3edb05d913032bf2ae97b03e741a6af91d35d1b0c6300a69370296877413",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "faf0f07558edd2d0760b6c916c8d3d94677ae5c08f21fff479f8c7ec3547b832",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/critic_security.json"
+        },
+        {
+          "bytes": 565,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "bb68c0fc7648aa827ba43496a517371c30cac8abc26f2dbe1e9cf96af1c94675",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/merged_critic.json"
+        },
+        {
+          "bytes": 771,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "96590df13e972e03f0b39c9c5e3176c3edd5bea3b2cf99d0f9fbc4ddc46b8796",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/log.jsonl"
+        },
+        {
+          "bytes": 108,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "edbe7d553fb3cf571164da8179648b1e8d2841d62540ffd3f4d9bc14f31668f9",
+          "source": "difftool.change_paths(0dfd930208db972f6d43913e0e2165cf8ee93e2f, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/worktree)"
+        },
+        {
+          "bytes": 1425,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "192c2ca2e7d7158ae7917a8b3b8fb4a816fed1df43a5e0ea6eebdee691b8ef5f",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f"
+        }
+      ],
+      "id": "honest/before-t2-b",
+      "path": "tests/corpus/honest/before-t2-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1832,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "8f3d4453fb49bc84cb1fc25c6e941614fb43190de62c135e12f417106f5e478d",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/state.json"
+        },
+        {
+          "bytes": 1300,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "8c2e45d0edeab0a5c30b30678a881a098adb9bf9ab96a696ebfcfb60f75d2f0a",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/log.jsonl"
+        },
+        {
+          "bytes": 1279,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "8948eb77e0d6466d6e302bd6acd3a75dd9a761ea56d6474d7c37d3bfa181e7e0",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/det_evidence.json"
+        },
+        {
+          "bytes": 2359,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "86137200f02ceec5d4e8041015cbf68b60bf30e4bff538d6ba382ef8f8eb0ff1",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/diff.patch"
+        },
+        {
+          "bytes": 2300,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "cd7d46d82da6299ecfad77b0e054b8bde7e209aa5bb05c859c90b630cd11921b",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/critic_correctness.json"
+        },
+        {
+          "bytes": 1461,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "ec321a7c6686109e45a67c5e90e00321006028d1460483302c896720e3629637",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/critic_security.json"
+        },
+        {
+          "bytes": 4563,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "e1d5475f877c98d03a6238b9e1aa1999e937e372d57cf2654309df0b1f554996",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/merged_critic.json"
+        },
+        {
+          "bytes": 1167,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "bda40b7327ac69f08a79bf495cb07da5b2a95bc22cd822924e81a3865ad878bb",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/log.jsonl"
+        },
+        {
+          "bytes": 112,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "a0bfb65067812b17c3d53e6fc074a3d2706f18347544e27d709e81c5bb2e2e4c",
+          "source": "difftool.change_paths(1343ecc06a72888ec4d08a2c2cb7dd27633618e2, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a/worktree)"
+        },
+        {
+          "bytes": 1428,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "073380ac3ecf48bf1a97b36f396393f7540708f80f5ced349a41291ca98d8ae4",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a"
+        }
+      ],
+      "id": "honest/before-t3-a",
+      "path": "tests/corpus/honest/before-t3-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-a/.atlas/session_44575641-6fab-46e5-8d7c-9cfa2a9b289a"
+    },
+    {
+      "arm": "honest",
+      "files": [
+        {
+          "bytes": 1674,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "6d1213a2578a465ecb19edfc44dfe94866d3c877a79bd4279965f470b1834bcf",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/state.json"
+        },
+        {
+          "bytes": 1284,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "5927f7d337b05fc4bcf3b139abae89afffa4ddae6cc34ee4ce7bcca2b6f8b348",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/log.jsonl"
+        },
+        {
+          "bytes": 1277,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "87d5fbc174acd9f9fba120c5cb91048c73f0c85af33bf13a08533cdcfb15c0eb",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/det_evidence.json"
+        },
+        {
+          "bytes": 2411,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "280db944cdedb10f48cb837e9d658461511aa2de15a51c8df8d88b67db75ba3a",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "eb41be411c839a08171f867992a08b1cb4a3e3c072be22f7b59b924660f398df",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/critic_correctness.json"
+        },
+        {
+          "bytes": 2477,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "58be65f4700b779a25e3e5602dabf4265e60ec05e6920cd83d4c3651f5ff53b9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/critic_code_quality.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "eb41be411c839a08171f867992a08b1cb4a3e3c072be22f7b59b924660f398df",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/critic_security.json"
+        },
+        {
+          "bytes": 3146,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "6ff787898a7d9df98175248112656f3ddd1b124fb01993f11e87e21baaee3c48",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/merged_critic.json"
+        },
+        {
+          "bytes": 1159,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "782902fe4dd649ff50394c7d87299b34bde60376533e0eb105e80aac14acc71c",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e/log.jsonl"
+        },
+        {
+          "bytes": 112,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "a0bfb65067812b17c3d53e6fc074a3d2706f18347544e27d709e81c5bb2e2e4c",
+          "source": "difftool.change_paths(1343ecc06a72888ec4d08a2c2cb7dd27633618e2, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b)"
+        },
+        {
+          "bytes": 1326,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "573e3c249f7f86542594bc7390aec16ff2a5b9761f3a693df14c9b78a68437fe",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e"
+        }
+      ],
+      "id": "honest/before-t3-b",
+      "path": "tests/corpus/honest/before-t3-b",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t3-b/.atlas/session_26f2cfcb-8211-46d8-af41-06bb4e6f226e"
+    },
+    {
+      "arm": "interrupted",
+      "files": [
+        {
+          "bytes": 1741,
+          "kind": "copied",
+          "name": "state.json",
+          "sha256": "79108b4d1ac7c6af5cfadab6639ec46236944dab7dc528a69b8db7491607f31c",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/state.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "copied",
+          "name": "log.jsonl",
+          "sha256": "de810beb4cafaf4821f9b6ce85633b21038806488d284af96588179c85855eb8",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/log.jsonl"
+        },
+        {
+          "bytes": 1266,
+          "kind": "copied",
+          "name": "det_evidence.json",
+          "sha256": "898a12f48b6f60859a452d1052c39fca85d55edeaf05a6b655be37d8032b3d06",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/det_evidence.json"
+        },
+        {
+          "bytes": 1667,
+          "kind": "copied",
+          "name": "diff.patch",
+          "sha256": "c1b849215ca07f1530763b32abe3f5fdafe148523608dd2bf64aa4740806fec9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/diff.patch"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_correctness.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/critic_correctness.json"
+        },
+        {
+          "bytes": 239,
+          "kind": "copied",
+          "name": "critic_code_quality.json",
+          "sha256": "0ffc1e97f159868e51b85239b295bf59d1845b797045d41059da59d5d36ac0c3",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/critic_code_quality.json"
+        },
+        {
+          "bytes": 1510,
+          "kind": "copied",
+          "name": "critic_security.json",
+          "sha256": "9278e93acfc4611d2a5ef53810afb15b3ce9365471136600d2be660282c064f4",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/critic_security.json"
+        },
+        {
+          "bytes": 2174,
+          "kind": "copied",
+          "name": "merged_critic.json",
+          "sha256": "43fd20268f4022cf2bebd517160d3ae2d70bac6e0fe2b8172c86a676e83bac5c",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/merged_critic.json"
+        },
+        {
+          "bytes": 897,
+          "kind": "derived:drop-trailing-OUTPUT",
+          "name": "log.eval.jsonl",
+          "sha256": "4fb8cc622d18ca8c12019c6d2752627b2d9df91730b45fb1c299bbbd7ece3cfc",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774/log.jsonl"
+        },
+        {
+          "bytes": 112,
+          "kind": "derived:change_paths",
+          "name": "tree.paths",
+          "sha256": "a0bfb65067812b17c3d53e6fc074a3d2706f18347544e27d709e81c5bb2e2e4c",
+          "source": "difftool.change_paths(1343ecc06a72888ec4d08a2c2cb7dd27633618e2, /tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a)"
+        },
+        {
+          "bytes": 1329,
+          "kind": "derived:build-metadata",
+          "name": "item.json",
+          "sha256": "c9c3da987152dc30452c199f47cf30b02a8fcd0d8cdeaab222e449adf9035bb9",
+          "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774"
+        }
+      ],
+      "id": "interrupted/after-t3-a",
+      "path": "tests/corpus/interrupted/after-t3-a",
+      "source": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/after-t3-a/.atlas/session_184aa0a7-6b9a-4257-8a2f-514a81330774"
+    }
+  ],
+  "provenance_warning": ".atlas/ was coder-writable during recording; these artifacts are model-influenced, not machine-attested.",
+  "repo_root": "/var/www/kimi-sub/kimi-atlas",
+  "rules": [
+    "ZERO .md and ZERO .py files; no .atlas path segment",
+    "a manifest entry exists only for bytes written in this invocation",
+    "tree.paths is absent, never empty, when the path list is unmeasured"
+  ],
+  "runs_root": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs",
+  "schema": "predcov-corpus/1"
+}

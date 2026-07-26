@@ -1,0 +1,42 @@
+diff --git a/slugify.py b/slugify.py
+index a23bf10..847d1d2 100644
+--- a/slugify.py
++++ b/slugify.py
+@@ -4,3 +4,8 @@
+ def normalize(text: str) -> str:
+     """Collapse whitespace and lowercase."""
+     return " ".join(text.split()).lower()
++
++
++def slugify(text: str) -> str:
++    """Lowercase text, collapse whitespace, and join words with hyphens."""
++    return "-".join(text.split()).lower()
+diff --git a/test_slugify.py b/test_slugify.py
+index 8d8892e..a166f94 100644
+--- a/test_slugify.py
++++ b/test_slugify.py
+@@ -1,6 +1,6 @@
+ import unittest
+ 
+-from slugify import normalize
++from slugify import normalize, slugify
+ 
+ 
+ class TestNormalize(unittest.TestCase):
+@@ -8,5 +8,16 @@ class TestNormalize(unittest.TestCase):
+         self.assertEqual(normalize("  Hello   World "), "hello world")
+ 
+ 
++class TestSlugify(unittest.TestCase):
++    def test_lowercases_and_joins_with_hyphens(self):
++        self.assertEqual(slugify("  Hello   World  Again "), "hello-world-again")
++
++    def test_single_hyphen_between_words(self):
++        self.assertNotIn("--", slugify("a\t \n b"))
++
++    def test_empty_input(self):
++        self.assertEqual(slugify(""), "")
++
++
+ if __name__ == "__main__":
+     unittest.main()

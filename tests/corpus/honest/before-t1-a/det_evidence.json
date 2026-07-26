@@ -1,0 +1,21 @@
+{
+  "verify_cmd": "python3 -m unittest discover -s . -p 'test_*.py'",
+  "runcheck": {
+    "ok": true,
+    "returncode": 0,
+    "test_count": 5,
+    "new_tests_collected": true,
+    "revert_red": false,
+    "stdout_tail": "",
+    "stderr_tail": ".....\n----------------------------------------------------------------------\nRan 5 tests in 0.000s\n\nOK"
+  },
+  "runcheck_green": true,
+  "lint_defects": [],
+  "reqcoverage_defects": [],
+  "pathcheck_defects": [],
+  "sast_defects": [],
+  "astlens_defects": [],
+  "syntaxlens_defects": [],
+  "lintlens_advisory": [],
+  "docs_clean": true
+}

@@ -1,0 +1,53 @@
+{
+  "run_id": "session_1a1ee8b9-e5e2-4b4d-92ef-edb78150bcb2",
+  "created_ts": "2026-07-26T17:44:53Z",
+  "updated_ts": "2026-07-26T17:56:58Z",
+  "current_state": "OUTPUT",
+  "intent": "Add a `slugify(text)` function to slugify.py that lowercases, collapses whitespace, and joins words with a single hyphen. Add a unit test for it in test_slugify.py.",
+  "success_criteria": [
+    "slugify.py defines a function slugify(text) that lowercases the input, collapses runs of whitespace, and joins words with a single hyphen",
+    "test_slugify.py contains a unit test exercising slugify",
+    "python3 -m unittest discover -s . -p 'test_*.py' passes"
+  ],
+  "stages": {
+    "INIT": {
+      "status": "done",
+      "ts": "2026-07-26T17:45:02Z"
+    },
+    "INTENT_CAPTURED": {
+      "status": "done",
+      "ts": "2026-07-26T17:45:02Z"
+    },
+    "TRIAGED": {
+      "status": "done",
+      "ts": "2026-07-26T17:45:10Z"
+    },
+    "GROUNDED": {
+      "status": "done",
+      "ts": "2026-07-26T17:46:35Z"
+    },
+    "CODED": {
+      "status": "done",
+      "ts": "2026-07-26T17:48:57Z"
+    },
+    "VERIFIED": {
+      "status": "done",
+      "ts": "2026-07-26T17:56:26Z"
+    },
+    "OUTPUT": {
+      "status": "done",
+      "ts": "2026-07-26T17:56:58Z"
+    }
+  },
+  "refine_passes": 0,
+  "draft_ref": "",
+  "verify_cmd": "python3 -m unittest discover -s . -p 'test_*.py'",
+  "scope_paths": [
+    "slugify.py",
+    "test_slugify.py"
+  ],
+  "baseline_sha": "02144f07f76e440a03037265a9040544468b63c8",
+  "checkpoints": {
+    "VERIFIED": "617682294ef31212b26437dd9de2f3baba929961"
+  }
+}

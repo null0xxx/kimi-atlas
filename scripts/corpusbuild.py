@@ -65,20 +65,73 @@ the source path and the report never calls the list machine-attested.
 ``.atlas/`` was coder-writable during recording (SEC-4): every byte copied from
 a session directory is model-influenced evidence.
 
+THE FOUR ARMS (plan §5.1), and why the corpus holds no ``.md`` and no ``.py``.
+``tests/corpus/`` is NOT in ``inventory_drift.FUTURE_DIRS`` (which lists
+``agents``, ``probe``, ``tests/fixtures``, ``skills/atlas-resume``), so
+``inventory_drift.is_tracked_doc("tests/corpus/x.md")`` is **True** — verified —
+and a single copied ``.md`` would turn ``make inventory-drift`` red and move the
+tracked-doc count that ``tests/test_tracked_docs_count.py`` pins against
+``AGENTS.md``. ``plan.md`` and the run worktrees are therefore excluded, which
+costs nothing: no predicate reads them. A ``.py`` would be discovered by
+``unittest discover -s tests``, and no path may contain an ``.atlas`` segment
+(``.gitignore`` line 6) or the file would be silently untracked.
+
+  honest/<label>/       11 recorded runs, rc=0 and a ledger ending at OUTPUT
+  interrupted/<label>/   1 run (``after-t3-a``, rc=143, ledger ends at REFINE)
+  historical/<b>..<t>/   4 release intervals, derived from THIS repo's own tags
+  dirty/changelog-50-57/ 1 documented honest-dirty-tree shape
+
+TWO LEDGERS PER RECORDED RUN, and the truncation rule (M2). ``log.jsonl`` is the
+byte copy; ``log.eval.jsonl`` is derived by dropping the TRAILING ``OUTPUT``
+records, because ``floorsynth.stale_verdict_defects`` is called by the SKILL's
+OUTPUT block *before* that block's own ``advance(..., "OUTPUT")`` — its own
+docstring tells fixture authors to truncate exactly there, since an
+OUTPUT-terminated fixture makes the H6 trailing-shape condition unfirable.
+Caveat, recorded rather than coded: a final ``OUTPUT`` record carrying
+``cancelled=True`` marks the sanctioned pre-CODE cancel that
+``stale_verdict_defects`` skips outright, and dropping it would change that
+shape. Measured across all 12 ledgers: **zero** ``cancelled`` records, so no
+branch is written for a case this corpus does not contain.
+
+WHAT THE HISTORICAL ARM STORES, and what it does not. Its source is this
+repository's own tags, which are durable and re-derivable by anyone — unlike the
+run sandboxes — so the arm stores the machine-derived changed-path list, a
+``--numstat`` summary (machine-readable and terminal-width independent, unlike
+``--stat``), and the exact byte counts (whole diff and ``scripts``/``skills``
+diff, the plan's §6 second measure), together with the command that reproduces
+the full patch. It deliberately does NOT vendor ~1.2 MB of release patch text
+that ``git diff <base>..<tip>`` regenerates on demand; ``item.json`` marks the
+stored diff evidence ``not_the_full_patch`` so nothing downstream can mistake
+it for one.
+
+THE DIRTY ARM IS NOT AUTHORED GROUND TRUTH. Its expectation is documented
+independently of the fixture, at ``CHANGELOG.md``:48-57 (*"three ordinary names,
+first try, zero adversary … three HIGH CORRECTNESS defects still emit … the run
+still ends ⚠️ UNVERIFIED on a tree where nobody did anything wrong"*), in
+``floorsynth.out_of_scope_defects``' own docstring, and in
+``tests/test_v1521_regressions.py``:752, which pins the same three names. The
+item stores the path list and the citation; it derives no expectation from the
+thing it pins.
+
 CLI: ``python3 -m scripts.corpusbuild --capture`` writes the durable capture
-index; it is human-invoked, never wired into ``make ci``, and returns non-zero
-only when it captured nothing at all.
+index and ``--build`` writes ``tests/corpus/``; both are human-invoked, never
+wired into ``make ci``. The build REFUSES to write a partial manifest — a
+manifest entry exists only for bytes copied in that invocation (TA-H1), so a
+missing source is an error, never a silently smaller corpus.
 """
 from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
-from scripts import difftool
+from scripts import difftool, floorsynth
 
 # A baseline sha is 7-40 hex characters and nothing else. Anything that could be
 # read by git as an option, a path or a revision expression is refused (SEC-2).
@@ -95,6 +148,59 @@ DEFAULT_RUNS = (
 # Durable, outside the repository: the capture must survive the session that
 # produced it even if the corpus build that follows is abandoned.
 DEFAULT_CAPTURE = "/root/atlas-dogfood-corpus-2026-07-26/_capture"
+
+# Where the committed corpus lives. Never ``.atlas``-segmented, never ``.md``.
+DEFAULT_CORPUS = "tests/corpus"
+
+# The 2026-07-26 dogfood corpus is exactly these run sandboxes: 3 tasks x 2 arms
+# x 2 replicates. Not a sanity check — an identity check (see build_corpus).
+EXPECTED_RUN_SANDBOXES = 12
+
+# SEC-4, stated wherever the bytes are: ``.atlas/`` was coder-writable during
+# recording, so every copied artifact is model-influenced evidence.
+_PROVENANCE_WARNING = (
+    ".atlas/ was coder-writable during recording; these artifacts are "
+    "model-influenced, not machine-attested."
+)
+
+# The three judgment-critic artifact names, taken from floorsynth itself rather
+# than hand-copied: a fourth critic must not silently go uncollected (CQ5's
+# hand-copy class).
+CRITIC_FILES: tuple[str, ...] = tuple(name for name, _dim in floorsynth.CRITIC_ARTIFACTS)
+
+# The run artifacts a floorsynth predicate actually reads, byte-copied verbatim.
+# ``det_evidence.json`` carries ``runcheck`` (the dict ``synth_runcheck`` judges),
+# ``docs_clean`` (``synth_docs``) and the six lens defect lists
+# (``script_defects_from``), so ``runcheck.json`` would be a second copy of data
+# already here. ``plan.md``/``worktree/``/``context*.json``/``hooks.jsonl`` are
+# excluded: no predicate reads them, and a ``.md`` would turn ``make ci`` red.
+RUN_ARTIFACTS: tuple[str, ...] = (
+    ("state.json", "log.jsonl", "det_evidence.json", "diff.patch")
+    + CRITIC_FILES
+    + ("merged_critic.json",)
+)
+
+# Arm C: the four release intervals the roadmap's growth thesis is about. Their
+# changed ``.md`` lists are the ONLY real supply ``docs-naming`` has anywhere in
+# this corpus (the three seed targets contain zero ``.md``).
+RELEASE_INTERVALS: tuple[tuple[str, str], ...] = (
+    ("v1.4.0", "v1.5.0"),
+    ("v1.5.0", "v1.5.1"),
+    ("v1.5.1", "v1.5.2"),
+    ("v1.5.2", "v1.5.2.1"),
+)
+
+# Arm C's §6 second measure: the "code" half of the diff, by the plan's own
+# definition of code (``scripts`` + ``skills``).
+CODE_DIRS: tuple[str, ...] = ("scripts", "skills")
+
+# Arm D. Three ordinary names, documented at CHANGELOG.md:48-57 and pinned
+# independently at tests/test_v1521_regressions.py:752, plus the one file the
+# coder was actually asked to write. scope_paths=["src"] is the interactive
+# shape; the headless whole-tree scopes are immune and are not this item.
+DIRTY_PRE_EXISTING: tuple[str, ...] = ("NOTES.md", "data/download.csv", "docs/notes.md")
+DIRTY_CODER_PATH = "src/calc.py"
+DIRTY_SCOPE: tuple[str, ...] = ("src",)
 
 
 def frozen_tree_paths(review_root: str, baseline_sha: str) -> tuple[list[str] | None, str]:
@@ -146,6 +252,21 @@ def last_stage(log_text: str) -> str:
         if isinstance(rec, dict) and isinstance(rec.get("stage"), str):
             return rec["stage"]
     return ""
+
+
+def drop_trailing_output(records: list[dict]) -> list[dict]:
+    """The ledger as the SKILL's OUTPUT block sees it: trailing OUTPUT removed.
+
+    ``floorsynth.stale_verdict_defects`` runs BEFORE that block's own
+    ``advance(..., "OUTPUT")``, so a fixture that keeps the OUTPUT record models
+    a state the predicate is never called in — and specifically makes H6's
+    trailing-shape condition unfirable. A ledger that never reached OUTPUT is
+    returned unchanged; nothing but trailing OUTPUT records is ever dropped.
+    """
+    out = list(records or [])
+    while out and isinstance(out[-1], dict) and out[-1].get("stage") == "OUTPUT":
+        out.pop()
+    return out
 
 
 def arm_of(rc: int | None, final_stage: str) -> str:
@@ -246,15 +367,7 @@ def capture(runs_root: str, out_dir: str) -> dict:
     Writes ``<out_dir>/capture.json`` (the index) and, for each measured item,
     ``<out_dir>/<label>/tree.paths``. Returns the index.
     """
-    try:
-        labels = sorted(
-            n for n in os.listdir(runs_root)
-            if os.path.isdir(os.path.join(runs_root, n))
-            and os.path.isdir(os.path.join(runs_root, n, ".atlas"))
-        )
-    except OSError:
-        labels = []
-    items = [capture_run(runs_root, label) for label in labels]
+    items = [capture_run(runs_root, label) for label in _run_labels(runs_root)]
     index = {
         "schema": "predcov-capture/1",
         "captured_utc": datetime.datetime.now(datetime.timezone.utc).strftime(
@@ -263,8 +376,7 @@ def capture(runs_root: str, out_dir: str) -> dict:
         "capture_command": "python3 -m scripts.corpusbuild --capture --runs %s --out %s"
                            % (runs_root, out_dir),
         "runs_root": os.path.abspath(runs_root),
-        "provenance_warning": ".atlas/ was coder-writable during recording; these "
-                              "artifacts are model-influenced, not machine-attested.",
+        "provenance_warning": _PROVENANCE_WARNING,
         "items": items,
     }
     os.makedirs(out_dir, exist_ok=True)
@@ -279,6 +391,343 @@ def capture(runs_root: str, out_dir: str) -> dict:
         json.dump(index, fh, indent=2, sort_keys=True)
         fh.write("\n")
     return index
+
+
+# --------------------------------------------------------------------------
+# The corpus build. Every write is planned in memory first: a manifest entry
+# exists only for bytes copied in THIS invocation (TA-H1), and a missing source
+# aborts the build rather than shrinking the corpus silently.
+# --------------------------------------------------------------------------
+def _sha256(data: bytes) -> str:
+    """Hex sha256 of the bytes actually written."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _json_bytes(obj) -> bytes:
+    """Deterministic JSON bytes: sorted keys, 2-space indent, trailing newline."""
+    return (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _read_bytes(path: str) -> bytes | None:
+    """File bytes, or None when absent/unreadable. Never raises."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def _entry(name: str, data: bytes, source: str, kind: str) -> dict:
+    """One manifest file entry: what was written, from where, and its hash."""
+    return {"name": name, "kind": kind, "source": source,
+            "bytes": len(data), "sha256": _sha256(data)}
+
+
+def _git_bytes(repo_root: str, args: list[str]) -> tuple[bytes, int]:
+    """Run git in ``repo_root`` capturing raw stdout. Never raises."""
+    try:
+        proc = subprocess.run(["git", "--no-pager", *args], cwd=repo_root,
+                              capture_output=True, check=False)
+    except (FileNotFoundError, OSError):
+        return b"", 127
+    return proc.stdout, proc.returncode
+
+
+def plan_run_item(runs_root: str, rec: dict) -> tuple[dict, list, list[str]]:
+    """Plan one recorded-run item: (manifest_item, [(relpath, bytes)], errors)."""
+    label = rec["label"]
+    arm = rec.get("arm") or "interrupted"
+    item_id = "%s/%s" % (arm, label)
+    sess = rec.get("source_session_dir") or ""
+    errors: list[str] = []
+    writes: list[tuple[str, bytes]] = []
+    files: list[dict] = []
+
+    for name in RUN_ARTIFACTS:
+        src = os.path.join(sess, name)
+        data = _read_bytes(src)
+        if data is None:
+            errors.append("%s: missing source artifact %s" % (item_id, src))
+            continue
+        writes.append(("%s/%s" % (item_id, name), data))
+        files.append(_entry(name, data, src, "copied"))
+
+    log_src = os.path.join(sess, "log.jsonl")
+    log_text = _read(log_src)
+    records = []
+    for line in log_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            errors.append("%s: unparsable log.jsonl record" % item_id)
+    eval_records = drop_trailing_output(records)
+    eval_bytes = "".join(
+        json.dumps(r, sort_keys=True) + "\n" for r in eval_records
+    ).encode("utf-8")
+    writes.append(("%s/log.eval.jsonl" % item_id, eval_bytes))
+    files.append(_entry("log.eval.jsonl", eval_bytes, log_src,
+                        "derived:drop-trailing-OUTPUT"))
+
+    if rec.get("paths") is not None:
+        paths_bytes = "".join(p + "\n" for p in rec["paths"]).encode("utf-8")
+        writes.append(("%s/tree.paths" % item_id, paths_bytes))
+        files.append(_entry(
+            "tree.paths", paths_bytes,
+            "difftool.change_paths(%s, %s)" % (rec.get("baseline_sha", ""),
+                                               rec.get("resolved_review_root", "")),
+            "derived:change_paths"))
+
+    try:
+        state_json = json.loads(_read(os.path.join(sess, "state.json")) or "{}")
+    except ValueError:
+        state_json = {}
+    refine_passes = state_json.get("refine_passes")
+    refine_passes = refine_passes if isinstance(refine_passes, int) else None
+
+    item = {
+        "arm": arm,
+        "kind": "recorded-run",
+        "label": label,
+        "run_id": rec.get("run_id", ""),
+        "rc": rec.get("rc"),
+        "final_stage": rec.get("final_stage", ""),
+        "refine_passes": refine_passes,
+        # H4/§7: the pass-1 evaluations are GONE (critic artifact names are
+        # pass-invariant and merged_critic.json is overwritten), so a per-run
+        # rate is never a per-evaluation rate.
+        "n_evaluations_performed": (refine_passes + 1) if refine_passes is not None else None,
+        "n_evaluations_replayed": 1,
+        "baseline_sha": rec.get("baseline_sha", ""),
+        "scope_paths": rec.get("scope_paths", []),
+        "recorded_review_root": rec.get("recorded_review_root", ""),
+        "resolved_review_root": rec.get("resolved_review_root", ""),
+        "tree_paths_state": rec.get("state", ""),
+        "tree_paths_state_if_worktree_only": rec.get("state_if_worktree_only", ""),
+        "log_records": len(records),
+        "eval_log_records": len(eval_records),
+        "evidence_file": "det_evidence.json",
+        "diff_file": "diff.patch",
+        "log_file": "log.jsonl",
+        "eval_log_file": "log.eval.jsonl",
+        "recorded_merged_critic_file": "merged_critic.json",
+        "critic_files": list(CRITIC_FILES),
+        "provenance_warning": _PROVENANCE_WARNING,
+        "source_session_dir": sess,
+    }
+    item_bytes = _json_bytes(item)
+    writes.append(("%s/item.json" % item_id, item_bytes))
+    files.append(_entry("item.json", item_bytes, sess, "derived:build-metadata"))
+
+    manifest_item = {"id": item_id, "arm": arm, "source": sess, "files": files}
+    return manifest_item, writes, errors
+
+
+def plan_historical_item(repo_root: str, base: str, tip: str) -> tuple[dict, list, list[str]]:
+    """Plan one release-interval item from THIS repository's own tags."""
+    spec = "%s..%s" % (base, tip)
+    item_id = "historical/%s" % spec
+    errors: list[str] = []
+    names_out, rc1 = _git_bytes(repo_root, ["diff", "--name-only", spec, "--"])
+    numstat, rc2 = _git_bytes(repo_root, ["diff", "--numstat", spec, "--"])
+    whole, rc3 = _git_bytes(repo_root, ["diff", spec, "--"])
+    code, rc4 = _git_bytes(repo_root, ["diff", spec, "--", *CODE_DIRS])
+    if rc1 or rc2 or rc3 or rc4:
+        errors.append("historical %s: git failed (rc %s/%s/%s/%s)" % (spec, rc1, rc2, rc3, rc4))
+        return {}, [], errors
+
+    paths = sorted(p for p in names_out.decode("utf-8", "replace").split("\n") if p)
+    if not paths:
+        errors.append("historical %s: no changed paths — is the tag present?" % spec)
+        return {}, [], errors
+
+    writes: list[tuple[str, bytes]] = []
+    files: list[dict] = []
+    paths_bytes = "".join(p + "\n" for p in paths).encode("utf-8")
+    writes.append(("%s/tree.paths" % item_id, paths_bytes))
+    files.append(_entry("tree.paths", paths_bytes,
+                        "git diff --name-only %s" % spec, "derived:git"))
+    writes.append(("%s/diff.numstat" % item_id, numstat))
+    files.append(_entry("diff.numstat", numstat, "git diff --numstat %s" % spec, "derived:git"))
+
+    item = {
+        "arm": "historical",
+        "kind": "release-interval",
+        "base": base,
+        "tip": tip,
+        "range": spec,
+        # A release point is a whole-tree state, not a scoped review: nothing can
+        # be out of scope, which is exactly the second out-of-scope input value.
+        "scope_paths": ["."],
+        "changed_paths_file": "tree.paths",
+        "changed_path_count": len(paths),
+        "changed_md": [p for p in paths if p.endswith(".md")],
+        "docs_check": "scripts/check_artifact_naming.py::check_file(root, rel) over changed_md",
+        "diff_evidence": {
+            "file": "diff.numstat",
+            "kind": "numstat-summary",
+            "not_the_full_patch": True,
+            "reproduce_full_patch": "git diff %s" % spec,
+            "full_diff_bytes": len(whole),
+            "full_diff_sha256": _sha256(whole),
+        },
+        # Plan §6, in BYTES because the roadmap asked for bytes. No conclusion is
+        # attached here; n=3 audited releases and the variables are not separable.
+        "second_measure": {
+            "whole_diff_bytes": len(whole),
+            "code_diff_bytes": len(code),
+            "code_dirs": list(CODE_DIRS),
+        },
+        "source": "git tags in this repository",
+    }
+    item_bytes = _json_bytes(item)
+    writes.append(("%s/item.json" % item_id, item_bytes))
+    files.append(_entry("item.json", item_bytes, "git diff %s" % spec, "derived:build-metadata"))
+    return {"id": item_id, "arm": "historical",
+            "source": "git:%s@%s" % (os.path.abspath(repo_root), spec),
+            "files": files}, writes, errors
+
+
+def plan_dirty_item() -> tuple[dict, list, list[str]]:
+    """Plan the documented honest-dirty-tree item (arm D).
+
+    The expectation is NOT authored here: it is quoted from ``CHANGELOG.md``
+    and cross-pinned by ``tests/test_v1521_regressions.py``. This item stores
+    the path list and the citations only.
+    """
+    item_id = "dirty/changelog-50-57"
+    paths = sorted(list(DIRTY_PRE_EXISTING) + [DIRTY_CODER_PATH])
+    paths_bytes = "".join(p + "\n" for p in paths).encode("utf-8")
+    source = "CHANGELOG.md:48-57 + tests/test_v1521_regressions.py:752"
+    writes = [("%s/tree.paths" % item_id, paths_bytes)]
+    files = [_entry("tree.paths", paths_bytes, source, "derived:documented-shape")]
+    item = {
+        "arm": "dirty",
+        "kind": "documented-shape",
+        "scope_paths": list(DIRTY_SCOPE),
+        "changed_paths_file": "tree.paths",
+        "pre_existing": list(DIRTY_PRE_EXISTING),
+        "coder_authored": DIRTY_CODER_PATH,
+        "review_root_shape": ".",
+        "documented_expectation": (
+            "three HIGH CORRECTNESS defects still emit, both refine passes still "
+            "burn, and the run still ends UNVERIFIED on a tree where nobody did "
+            "anything wrong"
+        ),
+        "expectation_sources": [
+            "CHANGELOG.md:48-57",
+            "tests/test_v1521_regressions.py:752",
+            "scripts/floorsynth.py::out_of_scope_defects docstring (H2)",
+        ],
+        "note": "documented independently of this fixture; the fixture derives no "
+                "expectation from the thing it pins",
+        "source": source,
+    }
+    item_bytes = _json_bytes(item)
+    writes.append(("%s/item.json" % item_id, item_bytes))
+    files.append(_entry("item.json", item_bytes, source, "derived:build-metadata"))
+    return {"id": item_id, "arm": "dirty", "source": source, "files": files}, writes, []
+
+
+def build_corpus(runs_root: str, repo_root: str, corpus_root: str) -> tuple[dict | None, list[str]]:
+    """Build the whole corpus. Returns (manifest, errors); writes nothing on error.
+
+    The run-count check is FIRST and is not decoration. Measured while building
+    this: with an unreachable ``runs_root`` the planner happily produced a
+    five-item corpus of the two arms that need no sandbox (historical, dirty),
+    reported success, and left the eleven honest item directories on disk
+    UNLISTED by the manifest — a corpus that disagrees with its own provenance
+    record, produced by a typo. A build that finds a different number of run
+    sandboxes is building a DIFFERENT corpus, which is a deliberate act: it must
+    change ``EXPECTED_RUN_SANDBOXES`` and say so, not slip through as a smaller
+    numerator.
+    """
+    labels = _run_labels(runs_root)
+    if len(labels) != EXPECTED_RUN_SANDBOXES:
+        return None, [
+            "expected %d run sandboxes under %s, found %d (%s). A different run "
+            "set is a different corpus: change EXPECTED_RUN_SANDBOXES deliberately."
+            % (EXPECTED_RUN_SANDBOXES, runs_root, len(labels), ", ".join(labels) or "none")
+        ]
+    index = {"items": [capture_run(runs_root, label) for label in labels]}
+    manifest_items: list[dict] = []
+    writes: list[tuple[str, bytes]] = []
+    errors: list[str] = []
+
+    for rec in index["items"]:
+        item, item_writes, item_errors = plan_run_item(runs_root, rec)
+        manifest_items.append(item)
+        writes += item_writes
+        errors += item_errors
+    for base, tip in RELEASE_INTERVALS:
+        item, item_writes, item_errors = plan_historical_item(repo_root, base, tip)
+        if item:
+            manifest_items.append(item)
+        writes += item_writes
+        errors += item_errors
+    item, item_writes, item_errors = plan_dirty_item()
+    manifest_items.append(item)
+    writes += item_writes
+    errors += item_errors
+
+    for relpath, _data in writes:
+        if ".atlas" in relpath.split("/"):
+            errors.append("corpus path contains an .atlas segment: %s" % relpath)
+        if relpath.endswith((".md", ".py")):
+            errors.append("corpus path is a .md or .py file: %s" % relpath)
+    if errors:
+        return None, errors
+
+    for item in manifest_items:
+        item["path"] = "%s/%s" % (corpus_root.rstrip("/"), item["id"])
+    manifest = {
+        "schema": "predcov-corpus/1",
+        "built_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "build_command": "python3 -m scripts.corpusbuild --build --runs %s --corpus %s"
+                         % (runs_root, corpus_root),
+        "runs_root": os.path.abspath(runs_root),
+        "repo_root": os.path.abspath(repo_root),
+        "provenance_warning": _PROVENANCE_WARNING,
+        "rules": [
+            "ZERO .md and ZERO .py files; no .atlas path segment",
+            "a manifest entry exists only for bytes written in this invocation",
+            "tree.paths is absent, never empty, when the path list is unmeasured",
+        ],
+        "items": sorted(manifest_items, key=lambda i: i["id"]),
+    }
+    manifest_bytes = _json_bytes(manifest)
+
+    # Prune the arms this build OWNS before writing them. Without this a rebuild
+    # leaves orphans: a file dropped from RUN_ARTIFACTS would survive on disk,
+    # unlisted by the manifest, and the corpus would carry bytes no invocation
+    # claims (the TA-H1 class, from the other direction). Arms this builder does
+    # not produce — notably ``failopen/`` — are never touched.
+    for arm_dir in sorted({relpath.split("/")[0] for relpath, _d in writes}):
+        target = os.path.join(corpus_root, arm_dir)
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+    for relpath, data in writes:
+        dest = os.path.join(corpus_root, *relpath.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(data)
+    with open(os.path.join(corpus_root, "manifest.json"), "wb") as fh:
+        fh.write(manifest_bytes)
+    return manifest, []
+
+
+def _run_labels(runs_root: str) -> list[str]:
+    """Sorted run-sandbox names under ``runs_root``. Never raises."""
+    try:
+        return sorted(
+            n for n in os.listdir(runs_root)
+            if os.path.isdir(os.path.join(runs_root, n))
+            and os.path.isdir(os.path.join(runs_root, n, ".atlas"))
+        )
+    except OSError:
+        return []
 
 
 def _summarize(index: dict) -> str:
@@ -312,23 +761,47 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--capture", action="store_true",
                         help="Capture whole-tree change paths + provenance.")
+    parser.add_argument("--build", action="store_true",
+                        help="Write the four-arm corpus under --corpus.")
     parser.add_argument("--runs", default=DEFAULT_RUNS,
                         help="Directory holding the run sandboxes (default: %(default)s).")
     parser.add_argument("--out", default=DEFAULT_CAPTURE,
                         help="Where to write the capture index (default: %(default)s).")
+    parser.add_argument("--corpus", default=DEFAULT_CORPUS,
+                        help="Where to write the corpus (default: %(default)s).")
+    parser.add_argument("--repo", default=".",
+                        help="Repository the historical arm is derived from "
+                             "(default: %(default)s).")
     args = parser.parse_args(argv)
 
-    if not args.capture:
+    if not (args.capture or args.build):
         parser.print_help()
         return 0
 
-    index = capture(args.runs, args.out)
-    print(_summarize(index))
-    print("capture index: %s" % os.path.join(args.out, "capture.json"))
-    if not index["items"]:
-        print("NOTHING CAPTURED: no run sandboxes under %s" % args.runs, file=sys.stderr)
-        return 1
-    return 0
+    rc = 0
+    if args.capture:
+        index = capture(args.runs, args.out)
+        print(_summarize(index))
+        print("capture index: %s" % os.path.join(args.out, "capture.json"))
+        if not index["items"]:
+            print("NOTHING CAPTURED: no run sandboxes under %s" % args.runs, file=sys.stderr)
+            rc = 1
+    if args.build:
+        manifest, errors = build_corpus(args.runs, args.repo, args.corpus)
+        if errors:
+            for err in errors:
+                print("BUILD REFUSED: %s" % err, file=sys.stderr)
+            print("BUILD REFUSED: nothing written; a partial corpus is a fabricated one.",
+                  file=sys.stderr)
+            return 1
+        counts: dict[str, int] = {}
+        for item in manifest["items"]:
+            counts[item["arm"]] = counts.get(item["arm"], 0) + 1
+        print("corpus %s: %d items (%s)"
+              % (args.corpus, len(manifest["items"]),
+                 ", ".join("%d %s" % (n, arm) for arm, n in sorted(counts.items()))))
+        print("manifest: %s" % os.path.join(args.corpus, "manifest.json"))
+    return rc
 
 
 if __name__ == "__main__":

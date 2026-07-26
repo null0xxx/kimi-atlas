@@ -1,0 +1,12 @@
+{
+  "dimensions": {
+    "CORRECTNESS": "yes",
+    "CODE-QUALITY": "yes",
+    "SECURITY": "yes",
+    "TEST-ADEQUACY": "yes",
+    "DOES-IT-RUN": "yes",
+    "REQUIREMENTS-COVERAGE": "yes"
+  },
+  "defects": [],
+  "verdict": "OK"
+}

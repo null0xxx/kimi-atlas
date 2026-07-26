@@ -1,0 +1,34 @@
+{
+  "arm": "honest",
+  "baseline_sha": "0dfd930208db972f6d43913e0e2165cf8ee93e2f",
+  "critic_files": [
+    "critic_correctness.json",
+    "critic_code_quality.json",
+    "critic_security.json"
+  ],
+  "diff_file": "diff.patch",
+  "eval_log_file": "log.eval.jsonl",
+  "eval_log_records": 6,
+  "evidence_file": "det_evidence.json",
+  "final_stage": "OUTPUT",
+  "kind": "recorded-run",
+  "label": "before-t2-b",
+  "log_file": "log.jsonl",
+  "log_records": 7,
+  "n_evaluations_performed": 1,
+  "n_evaluations_replayed": 1,
+  "provenance_warning": ".atlas/ was coder-writable during recording; these artifacts are model-influenced, not machine-attested.",
+  "rc": 0,
+  "recorded_merged_critic_file": "merged_critic.json",
+  "recorded_review_root": ".atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/worktree",
+  "refine_passes": 0,
+  "resolved_review_root": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f/worktree",
+  "run_id": "session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f",
+  "scope_paths": [
+    "rangesum.py",
+    "test_rangesum.py"
+  ],
+  "source_session_dir": "/tmp/claude-0/-var-www-kimi-sub-kimi-atlas/7d80d815-419b-471c-ba00-772d792eb539/scratchpad/runs/before-t2-b/.atlas/session_c68af5f6-e05b-4fe2-8c20-8a5471d80c3f",
+  "tree_paths_state": "measured",
+  "tree_paths_state_if_worktree_only": "measured"
+}

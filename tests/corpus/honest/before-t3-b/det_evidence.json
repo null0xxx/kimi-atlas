@@ -1,0 +1,36 @@
+{
+  "verify_cmd": "python3 -m unittest discover -s . -p 'test_*.py'",
+  "runcheck": {
+    "ok": true,
+    "returncode": 0,
+    "test_count": 10,
+    "new_tests_collected": true,
+    "revert_red": false,
+    "stdout_tail": "",
+    "stderr_tail": "..........\n----------------------------------------------------------------------\nRan 10 tests in 0.001s\n\nOK"
+  },
+  "runcheck_green": true,
+  "lint_defects": [],
+  "reqcoverage_defects": [
+    {
+      "id": "RC2",
+      "category": "REQUIREMENTS-COVERAGE",
+      "severity": "MEDIUM",
+      "location": "success_criteria[2]",
+      "fix": "No diff token overlaps criterion 'test_parseport.py contains unit tests covering the rejected cases'; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this)."
+    },
+    {
+      "id": "RC3",
+      "category": "REQUIREMENTS-COVERAGE",
+      "severity": "MEDIUM",
+      "location": "success_criteria[3]",
+      "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this)."
+    }
+  ],
+  "pathcheck_defects": [],
+  "sast_defects": [],
+  "astlens_defects": [],
+  "syntaxlens_defects": [],
+  "lintlens_advisory": [],
+  "docs_clean": true
+}
