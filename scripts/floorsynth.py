@@ -434,18 +434,59 @@ def critics_stale_defects(loaded_map, current_pass: int) -> list[dict]:
     return out
 
 
+# One reason string per INDEPENDENT ledger-shape failure ``stale_verdict_defects``
+# detects. They are separate constants, and the emitted ``fix`` names ONLY the
+# reasons that actually fired, because the three shapes have genuinely different
+# diagnoses and genuinely different remedies (fold M-1). Handing an honest
+# ROLLBACK-after-REFINE or a coder-timeout run "the tree may have mutated after
+# verification" would be a fabricated accusation about work nobody did: neither
+# shape mutates anything, and a wrong diagnosis on a correct RED is how an
+# orchestrator gets talked into "fixing" the wrong thing.
+_STALE_REASON_ORDERING = (
+    "a CODED record post-dates the last VERIFIED, so the tree may have mutated "
+    "after verification — re-run CODED → VERIFIED"
+)
+_STALE_REASON_ADJACENCY = (
+    "the ledger contains a stage pair that is not a legal transition of this "
+    "machine, so the recorded trajectory is not a path the run can have taken — "
+    "reconstruct the transition that was skipped or mis-recorded"
+)
+_STALE_REASON_REFINE_UNRESOLVED = (
+    "a REFINE record post-dates the last CODED, so the refine pass the gate "
+    "forced never re-entered CODED and NO verification covers the tree as it now "
+    "stands — re-enter CODED and re-run VERIFIED; if the coder could not be "
+    "re-run at all (timeout, budget spent), this is the degraded could-not-verify "
+    "path and the run must end ⚠️ UNVERIFIED with budget_exhausted = True"
+)
+
+
 def stale_verdict_defects(log_records) -> list[dict]:
-    """One blocking DOES-IT-RUN/CRITICAL when the ledger's stage ORDER is broken.
+    """One blocking DOES-IT-RUN/CRITICAL when the ledger's stage SHAPE is broken.
 
     S10: ``ctxstore.advance`` is a permissive recorder and
     ``verdict.missing_stages`` is set-membership — order-blind — so a ledger
     reading ``[..., VERIFIED, REFINE, CODED, OUTPUT]`` (the tree mutated AFTER
-    verification) printed a stale ✅. Two conditions, either sufficient:
+    verification) printed a stale ✅. THREE conditions, any one sufficient:
     (a) the last CODED record's APPEND-ORDER index exceeds the last
-    VERIFIED record's; (b) any adjacent pair fails ``fsm.legal_transition``.
+    VERIFIED record's; (b) any adjacent pair fails ``fsm.legal_transition``;
+    (c) the last REFINE record's index exceeds the last CODED record's.
     Append-order index, NEVER a timestamp — the ledger clock is
     second-granular, so a fast honest run shares one ``ts`` across entries
     (fold T4-F2).
+
+    (c) is H6 (v1.5.2.1), and it is deliberately a TRAILING-SHAPE test rather
+    than the pairwise "the record after a REFINE is not CODED" it is tempting to
+    write. This function is called by ``skills/atlas/SKILL.md``'s OUTPUT block
+    **29 lines before** that block's own ``advance(..., "OUTPUT")``, so at the
+    real evaluation point a run that crashed after ``advance(REFINE)`` presents a
+    ledger ENDING at ``REFINE``, with no successor record at all — a pairwise
+    condition has no pair to look at and can never fire, while an
+    OUTPUT-terminated test fixture makes it look closed. The honest crash then
+    resumed at OUTPUT (``STAGES`` order puts OUTPUT after REFINE), the forced
+    refine never ran, and the run printed ✅ off a verdict the gate had already
+    superseded. Corollary for anyone adding a fixture here: **truncate it where
+    the SKILL evaluates it**, and never append an ``OUTPUT`` record unless the
+    fixture also models the ``cancelled=True`` early return below.
 
     The sequence is normalized FIRST (fold T4-F1), because honest sequences
     contain shapes that are not machine transitions: ``stage == "ROLLBACK"``
@@ -454,7 +495,13 @@ def stale_verdict_defects(log_records) -> list[dict]:
     state.json, so a crash-resume re-records one stage — idempotent, benign),
     and a ledger whose final OUTPUT record carries ``cancelled=True`` is
     skipped outright (the sanctioned pre-CODE cancel). The S10 attack shape
-    has no duplicates and still trips both conditions after normalization.
+    has no duplicates and still trips (a) and (b) after normalization.
+
+    At most ONE defect is ever returned: the three conditions share one id, one
+    location and one remedy sentence, and differ only in the reason text, which
+    names exactly the conditions that fired. A ledger tripping two of them is one
+    broken ledger, not two defects — and keeping the arity at one is what lets
+    every ``len(...) == 1`` pin in the matrix stay a pin.
 
     NON-RAISING, deliberately: it records a defect; it does not turn
     ``advance`` into a hard error — resume-after-compaction legitimately
@@ -475,21 +522,28 @@ def stale_verdict_defects(log_records) -> list[dict]:
 
     last_coded = max((i for i, s in enumerate(deduped) if s == "CODED"), default=-1)
     last_verified = max((i for i, s in enumerate(deduped) if s == "VERIFIED"), default=-1)
-    ordering_broken = last_coded >= 0 and last_verified >= 0 and last_coded > last_verified
-    adjacency_broken = any(
-        not fsm.legal_transition(a, b) for a, b in zip(deduped, deduped[1:])
-    )
-    if not (ordering_broken or adjacency_broken):
+    last_refine = max((i for i, s in enumerate(deduped) if s == "REFINE"), default=-1)
+    reasons: list[str] = []
+    if last_coded >= 0 and last_verified >= 0 and last_coded > last_verified:
+        reasons.append(_STALE_REASON_ORDERING)
+    if any(not fsm.legal_transition(a, b) for a, b in zip(deduped, deduped[1:])):
+        reasons.append(_STALE_REASON_ADJACENCY)
+    # No ``last_refine >= 0`` guard is needed or wanted: the absent-REFINE
+    # sentinel is -1 and ``last_coded`` is never below -1, so an empty or
+    # pre-CODED ledger cannot satisfy this. A redundant conjunct here would be a
+    # branch no mutation could kill.
+    if last_refine > last_coded:
+        reasons.append(_STALE_REASON_REFINE_UNRESOLVED)
+    if not reasons:
         return []
     return [{
         "id": "stale-verdict",
         "category": "DOES-IT-RUN",
         "severity": "CRITICAL",
         "location": ".atlas/<run_id>/log.jsonl",
-        "fix": "ORCHESTRATOR ACTION — not a coder task: the ledger's stage order is "
-               "broken (a CODED after the last VERIFIED, or an illegal transition), "
-               "so the tree may have mutated after verification; re-run CODED → "
-               "VERIFIED and recompute the verdict before printing any status",
+        "fix": "ORCHESTRATOR ACTION — not a coder task: " + "; also ".join(reasons)
+               + ". Recompute the verdict from the repaired ledger before printing "
+                 "any status.",
     }]
 
 

@@ -172,6 +172,15 @@ refine-pass counter).
   non-terminal run above. **If a resumable run exists, do NOT restart** — load its `ctxstore` state
   and jump to the stage after its last recorded ledger entry, reusing every persisted artifact
   (`context.json`, `plan.md`, the diff, `critic.json`). If the result is `NONE`, start fresh below.
+  **`REFINE` is the one entry whose successor is NOT the next `STAGES` member.** A last recorded
+  `REFINE` means the gate already decided `REFINE?=True`, so resume by **re-entering the refine loop
+  at `CODED`, never `OUTPUT`** — re-dispatch the coder, then `VERIFIED`. Resuming at `OUTPUT` would print a status
+  computed from the verdict that decision had already superseded: the forced pass never ran, and the
+  run reports ✅ for a tree nothing re-verified. Reaching `OUTPUT` directly from a trailing `REFINE`
+  is legal **only** on the degraded could-not-verify path (the coder could not be re-run at all), and
+  that path requires `budget_exhausted = True` at OUTPUT — i.e. ⚠️ UNVERIFIED, never a green.
+  `floorsynth.stale_verdict_defects` blocks the shape either way, so a resume that skips `CODED`
+  cannot be laundered into a ✅.
   If the output **begins with** `ATLAS-PRECONDITION-FAILED` (the token opens the line; everything
   after it is diagnosis, so never match on equality), **abort the run** — this is a sanctioned terminal
   halt, not a pause — and report the line to the user verbatim: the environment cannot provide the
@@ -929,11 +938,28 @@ CRITICAL keeps `merged_critic.json` blocking and the run degrades to `⚠️ UNV
 *(Cross-cutting reference — **not** a `ctxstore.STAGES` member and not a pause: the machine still
 flows `REFINE? → OUTPUT` unchanged. This block documents the checkpoint/rollback machinery the
 CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage transition.)*
-- **Per-stage checkpoints at green stages.** At each green stage — a *passing* VERIFIED, and after
-  CODED just before a REFINE re-dispatch — create a per-stage code ref on the isolated
-  `atlas/${KIMI_SESSION_ID}` branch (`git commit --no-verify`, or a recorded `git stash create`)
-  and record it into state:
-  `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","<stage>", updates={"checkpoints": {"<stage>": "<sha>"}})`.
+- **Per-stage checkpoints at green stages — carried by an EXISTING `advance`, NEVER a new one.**
+  A checkpoint is *state*, not a transition, so it must ride the `updates=` of a stage transition the
+  machine already makes. A standalone checkpoint-only `ctxstore.advance(...)` call
+  appends a **second ledger record for a stage already recorded**, and a second `CODED` record after
+  the red `VERIFIED` is an illegal `VERIFIED → CODED` trajectory that
+  `floorsynth.stale_verdict_defects` blocks on — the bookkeeping alone would end an honest 2-pass run
+  that fixed everything at ⚠️ UNVERIFIED. There are exactly two checkpoints, and each has one carrier:
+  - **A *passing* VERIFIED** → ride the **VERIFIED** advance itself (the call closing Step 4+5, made
+    once `provisional_status` is known), and only when that status is `OK`:
+    `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", verdict="<provisional_status>", updates={"checkpoints": dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") or {}, VERIFIED="<sha>")})`
+  - **CODED, just before a REFINE re-dispatch** → ride the **REFINE** advance (the REFINE? `True`
+    branch). A re-dispatch is only *knowable* after `REFINE?=True`, so that transition is the first
+    point at which this checkpoint is even decidable:
+    `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","REFINE", updates={"checkpoints": dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") or {}, CODED="<sha>")})`
+    **Never ride CODED's own advance:** it fires *before any lens has run*, so a checkpoint recorded
+    there would make `last_green_stage` hand out a "last STABLE" ref for a tree nothing verified.
+  `updates` **replaces** the whole top-level key (`ctxstore.advance` does `st.update(updates)`), so
+  the map must be rebuilt from the persisted one exactly as shown — passing a bare one-entry map
+  **erases every checkpoint recorded earlier**, including a genuinely green
+  VERIFIED ref, and silently downgrades what a later rollback restores.
+  Create the ref first — `git commit --no-verify`, or a recorded `git stash create`, on the isolated
+  `atlas/${KIMI_SESSION_ID}` branch — then carry its sha in the `updates=` above.
   `ctxstore.last_green_stage(state)` then names the **last STABLE** ref — the recorded
   `checkpoints` entry furthest along `STAGES` — so a rollback targets *that* ref, never
   `baseline_sha`.
@@ -975,10 +1001,17 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
       ctxstore.write_artifact(".atlas", "${KIMI_SESSION_ID}", "merged_critic.json", merged)
   # budget_exhausted is True ONLY in the degraded case where VERIFIED could not be
   # re-run after the last refine (e.g. coder timeout), so no fresh critic exists to
-  # trust. In the normal path it is False and the blocking-ness of the final merged
-  # critic decides: a run fixed on its 2nd (last) refine pass is legitimately OK, and
-  # residual CRITICAL/HIGH already forces UNVERIFIED via final_status's _has_blocking.
-  budget_exhausted = False   # set True only on the degraded 'could-not-verify' path
+  # trust. DERIVED from the ledger, never a literal the model must remember to flip
+  # (H6): "no VERIFIED after the last REFINE" IS that condition, and a hard-coded
+  # False turned an honest crash-after-REFINE into a printed green. In the normal
+  # path a VERIFIED follows every REFINE, so this stays False and the blocking-ness
+  # of the final merged critic decides: a run fixed on its 2nd (last) refine pass is
+  # legitimately OK, and residual CRITICAL/HIGH already forces UNVERIFIED via
+  # final_status's _has_blocking.
+  _stages = [r.get("stage") for r in log_records]
+  def _last_index(stage):
+      return max((i for i, s in enumerate(_stages) if s == stage), default=-1)
+  budget_exhausted = _last_index("REFINE") > _last_index("VERIFIED")
   status = verdict.final_status(merged, budget_exhausted)
   # P3 advisory surface -- SAFE-2-wrapped, NON-BLOCKING. Load det_evidence ourselves
   # (this heredoc otherwise reads only merged_critic.json); a missing artifact omits
@@ -1070,6 +1103,9 @@ Subagents have a **fixed 30-minute** timeout and resume-by-id is unconfirmed. So
 - **Budget exhausted (2 refine passes) with a residual CRITICAL/HIGH, or any deterministic gate
   red** → `gate`/`final_status` return `UNVERIFIED`; present the labelled block, never silently ship.
 - **Interruption / compaction** → the on-disk ledger allows resume from the last recorded stage
-  (INIT resume check). Partial output is emitted as `⚠️ UNVERIFIED` with residual defects.
+  (INIT resume check). Partial output is emitted as `⚠️ UNVERIFIED` with residual defects. **A last
+  recorded `REFINE` resumes at `CODED`, never `OUTPUT`** — the refine the gate forced has not run
+  yet, so no verification covers the tree; `OUTPUT` straight from a trailing `REFINE` is the degraded
+  could-not-verify path only, and it carries `budget_exhausted = True` (⚠️ UNVERIFIED, never ✅).
 - **Any destructive action** stays behind the human gate / isolation — never auto-run, never
   auto-merge.

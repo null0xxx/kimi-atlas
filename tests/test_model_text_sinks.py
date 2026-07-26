@@ -152,10 +152,22 @@ WAIVED = {
     '- `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", '
     'verdict="<provisional_status>")`.':
         "One of the enumerated verdict words computed by the FROZEN pure gate.",
-    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","<stage>", '
-    'updates={"checkpoints": {"<stage>": "<sha>"}})`.':
-        "A ctxstore.STAGES name and a hex git sha — both machine-generated, neither "
-        "foreign text.",
+    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", '
+    'verdict="<provisional_status>", updates={"checkpoints": '
+    'dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") '
+    'or {}, VERIFIED="<sha>")})`':
+        "The passing-VERIFIED checkpoint riding the VERIFIED transition's own advance "
+        "(H3/H-1). <provisional_status> is an enumerated verdict word from the FROZEN "
+        "pure gate and <sha> is a hex git ref the orchestrator just created — both "
+        "machine-generated, neither foreign text.",
+    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","REFINE", '
+    'updates={"checkpoints": '
+    'dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") '
+    'or {}, CODED="<sha>")})`':
+        "The pre-re-dispatch CODED checkpoint riding the REFINE transition's own "
+        "advance (H3/H-1: it may not ride CODED's, which fires before any lens runs). "
+        "<sha> is a hex git ref the orchestrator just created — machine-generated, "
+        "never foreign text.",
     '(`ctxstore.advance(..., timeout_agent="<id>")` or `write_artifact`), then '
     "**degrade by":
         "An agent id from the fixed role set under `agents/`.",

@@ -222,24 +222,157 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
     """The checkpoint prose invites ``advance("CODED")`` after VERIFIED.
 
     A re-dispatch is only knowable AFTER ``REFINE?=True``, i.e. after the red
-    VERIFIED, so the literal reading of ``SKILL.md:833-837`` records a second
-    CODED advance there — and that shape FIRES v1.5.2's own stale-verdict fold.
-    An honest 2-pass run that fixed everything ends UNVERIFIED for bookkeeping.
+    VERIFIED, so the literal reading of the shipped checkpoint prose records a
+    second CODED advance there — and that shape FIRES v1.5.2's own stale-verdict
+    fold. An honest 2-pass run that fixed everything ends UNVERIFIED for
+    bookkeeping.
+
+    THE FIXTURE-LEVEL ASSERTION THIS CLASS SHIPPED WITH WAS REPLACED, and the
+    reason is the whole point of the defect, so it is recorded here rather than
+    in a commit message alone. It read::
+
+        stale_verdict_defects(LEDGER_v152_CHECKPOINT_PROSE_PRODUCES) == []
+
+    Measured, that ledger fires on **one** condition and one only: the adjacency
+    check, over the pairs ``VERIFIED -> CODED`` and ``CODED -> REFINE`` (the
+    ordering condition is False for it — its last VERIFIED post-dates its last
+    CODED). So the *only* way to satisfy that assertion inside ``floorsynth`` is
+    to stop treating those two pairs as illegal — and measured, that also
+    silences ``[.., CODED, VERIFIED, CODED, VERIFIED]``: a run that re-coded and
+    re-verified with **no REFINE recorded at all**, i.e. the refine counter
+    defeated and ``MAX_PASSES`` unbounded, which the shipped code blocks. It
+    would additionally leave ``tests/test_floorsynth.py``'s
+    ``test_coded_after_verified_without_refine_fires`` passing only through its
+    ``INIT -> CODED`` prefix — green, and vacuous with respect to its own name.
+
+    The plan's remedy is therefore the right one and it is not in ``floorsynth``
+    at all: the checkpoint must ride an advance the machine ALREADY makes, so
+    that ledger becomes **unproducible**. This class now pins that remedy from
+    both ends — the ledger the fixed prose produces is silent (and byte-identical
+    to the no-checkpoint one), and the SKILL structurally cannot emit the
+    v1.5.2 shape. The old fixture is kept below as a NEGATIVE control: it is an
+    illegal trajectory and it must keep firing.
     """
 
+    # What the v1.5.2 checkpoint prose produced: a standalone
+    # advance("CODED", updates={"checkpoints": ...}) after the red VERIFIED.
+    LEDGER_v152_CHECKPOINT_PROSE_PRODUCES = [
+        "INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED", "VERIFIED",
+        "CODED", "REFINE", "CODED", "VERIFIED",
+    ]
+    # What the fixed prose produces: the checkpoints ride the VERIFIED and
+    # REFINE advances, so the ledger carries ZERO extra records.
     HONEST_2PASS_WITH_CHECKPOINT = [
         "INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED", "VERIFIED",
-        "CODED", "REFINE", "CODED", "VERIFIED", "OUTPUT",
+        "REFINE", "CODED", "VERIFIED",
     ]
 
+    def _skill(self):
+        return _SKILL.read_text(encoding="utf-8")
+
+    def _checkpoint_advances(self):
+        """Every SKILL line whose ``advance`` carries a ``checkpoints`` update."""
+        return [ln.strip() for ln in self._skill().splitlines()
+                if "ctxstore.advance(" in ln and '"checkpoints"' in ln]
+
     def test_the_checkpoint_shape_is_silent(self):
-        got = floorsynth.stale_verdict_defects([_rec(s) for s in self.HONEST_2PASS_WITH_CHECKPOINT])
-        self.assertEqual(got, [], "an honest 2-pass run with a checkpoint is RED for bookkeeping")
+        """The ledger the FIXED prose produces — driven through the real ctxstore,
+        using the two calls the SKILL now shows, and read at the point the OUTPUT
+        block reads it (before its own ``advance(..., "OUTPUT")``)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base, rid = str(pathlib.Path(tmp) / ".atlas"), "RUN"
+            ctxstore.init_run(base, rid, {"intent": "i", "success_criteria": ["c"],
+                                          "verify_cmd": "make test",
+                                          "scope_paths": ["src"], "baseline_sha": "a"})
+            for stage in ("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED"):
+                ctxstore.advance(base, rid, stage)
+            ctxstore.advance(base, rid, "VERIFIED", verdict="UNVERIFIED")
+            prior = ctxstore.get_state(base, rid).get("checkpoints") or {}
+            ctxstore.advance(base, rid, "REFINE",
+                             updates={"checkpoints": dict(prior, CODED="cafe123")})
+            ctxstore.advance(base, rid, "CODED")
+            prior = ctxstore.get_state(base, rid).get("checkpoints") or {}
+            ctxstore.advance(base, rid, "VERIFIED", verdict="OK",
+                             updates={"checkpoints": dict(prior, VERIFIED="deadbee")})
+            recs = list(ctxstore._iter_log_records(base, rid))
+        self.assertEqual([r["stage"] for r in recs], self.HONEST_2PASS_WITH_CHECKPOINT,
+                         "a checkpoint added a ledger record of its own")
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [],
+                         "an honest 2-pass run with a checkpoint is RED for bookkeeping")
+
+    def test_a_verified_checkpoint_survives_a_later_coded_one(self):
+        """FOLD (challenge H-2): ``advance``'s ``updates`` REPLACES the top-level
+        key (``st.update(updates)``), so a bare ``{"CODED": sha}`` erases the
+        genuinely-green VERIFIED ref and ``last_green_stage`` then hands a
+        rollback a tree that no lens ever passed. The SKILL must show a
+        read-modify-write, and it must actually work."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base, rid = str(pathlib.Path(tmp) / ".atlas"), "RUN"
+            ctxstore.init_run(base, rid, {"intent": "i", "success_criteria": ["c"],
+                                          "verify_cmd": "make test",
+                                          "scope_paths": ["src"], "baseline_sha": "a"})
+            ctxstore.advance(base, rid, "INIT")
+            ctxstore.advance(base, rid, "VERIFIED", updates={"checkpoints": dict(
+                ctxstore.get_state(base, rid).get("checkpoints") or {}, VERIFIED="green1")})
+            ctxstore.advance(base, rid, "REFINE", updates={"checkpoints": dict(
+                ctxstore.get_state(base, rid).get("checkpoints") or {}, CODED="c1")})
+            st = ctxstore.get_state(base, rid)
+        self.assertEqual(st.get("checkpoints"), {"VERIFIED": "green1", "CODED": "c1"})
+        self.assertEqual(ctxstore.last_green_stage(st), "VERIFIED")
+
+    def test_the_skill_records_no_checkpoint_of_its_own(self):
+        """The remedy, pinned structurally: every checkpoint ``updates=`` rides an
+        advance for a stage the machine already transitions to — VERIFIED or
+        REFINE — and never a stage placeholder, which is what made the v1.5.2
+        prose readable as "call advance again for the stage you checkpointed"."""
+        lines = self._checkpoint_advances()
+        self.assertEqual(len(lines), 2, "expected exactly two checkpoint carriers: %s" % lines)
+        stages = sorted(re.search(r'ctxstore\.advance\([^)]*?"([A-Z_]+)"', ln).group(1)
+                        for ln in lines)
+        self.assertEqual(stages, ["REFINE", "VERIFIED"])
+        for ln in lines:
+            self.assertNotIn('"<stage>"', ln, "a checkpoint advance still takes a stage placeholder")
+
+    def test_the_coded_checkpoint_never_rides_codeds_own_advance(self):
+        """FOLD (challenge H-1): ``advance("CODED")`` fires BEFORE any lens has
+        run, so a checkpoint recorded there makes ``last_green_stage`` — the "last
+        STABLE state" — hand out a green ref for a tree nothing verified.
+        Measured on the shipped tree: ``None`` (rollback correctly refuses)."""
+        for ln in self._checkpoint_advances():
+            self.assertNotIn('"CODED",', ln,
+                             "the CODED checkpoint rides CODED's own advance")
+        self.assertTrue(any('"REFINE"' in ln and 'CODED=' in ln
+                            for ln in self._checkpoint_advances()),
+                        "the CODED checkpoint must ride the REFINE advance")
+
+    def test_checkpoint_updates_are_a_read_modify_write(self):
+        for ln in self._checkpoint_advances():
+            self.assertIn('ctxstore.get_state(', ln, ln)
+            self.assertIn('.get("checkpoints")', ln, ln)
+
+    def test_the_v152_checkpoint_ledger_is_still_caught(self):
+        """NEGATIVE control — and the reason the original fixture assertion could
+        not stand. That ledger contains ``VERIFIED -> CODED`` with no REFINE
+        between: not a path this machine can take. Blessing it in ``floorsynth``
+        is the only way to make it silent, and doing so also blesses a run that
+        re-codes and re-verifies with the refine counter never incremented."""
+        got = floorsynth.stale_verdict_defects(
+            [_rec(s) for s in self.LEDGER_v152_CHECKPOINT_PROSE_PRODUCES])
+        self.assertTrue(got, "the adjacency condition was defanged to force this green")
+        self.assertIn("not a legal transition", got[0]["fix"])
 
     def test_the_plain_2pass_shape_stays_silent(self):
         """Honest control — this one already passes and must keep passing."""
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
                "VERIFIED", "REFINE", "CODED", "VERIFIED", "OUTPUT"]
+        self.assertEqual(floorsynth.stale_verdict_defects([_rec(s) for s in seq]), [])
+
+    def test_the_plain_2pass_shape_stays_silent_at_the_evaluation_point(self):
+        """FOLD (challenge C-1): the same shape truncated where ``SKILL.md``
+        actually calls ``stale_verdict_defects`` — 29 lines before that block's
+        own ``advance(..., "OUTPUT")``, so no OUTPUT record exists yet."""
+        seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
+               "VERIFIED", "REFINE", "CODED", "VERIFIED"]
         self.assertEqual(floorsynth.stale_verdict_defects([_rec(s) for s in seq]), [])
 
     def test_a_genuinely_stale_verdict_still_fires(self):
@@ -248,6 +381,16 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
                "VERIFIED", "REFINE", "CODED", "OUTPUT"]
         self.assertTrue(floorsynth.stale_verdict_defects([_rec(s) for s in seq]),
                         "the S10 fold must still catch a tree mutated after verification")
+
+    def test_a_genuinely_stale_verdict_still_fires_at_the_evaluation_point(self):
+        """FOLD (challenge C-1), the attack direction: truncated at the real
+        evaluation point the S10 shape must STILL fire, on the ordering
+        condition — an OUTPUT-terminated fixture must not be what carries it."""
+        seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
+               "VERIFIED", "REFINE", "CODED"]
+        got = floorsynth.stale_verdict_defects([_rec(s) for s in seq])
+        self.assertTrue(got)
+        self.assertIn("post-dates the last VERIFIED", got[0]["fix"])
 
 
 class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
@@ -298,6 +441,45 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
                "VERIFIED", "REFINE", "CODED", "VERIFIED"]
         self.assertEqual(floorsynth.stale_verdict_defects([_rec(s) for s in seq]), [])
+
+    # ---- layer (a): the prose, in BOTH resume sites ----
+    # The deterministic condition above is the guarantee; the prose is what stops
+    # the run reaching a state the guarantee then has to block. Both are required
+    # — prose is not a gate on this project, and floorsynth exists precisely
+    # because a model's transcription is not the guarantee.
+    RESUME_SITES = ("jump to the stage after its last recorded ledger entry",
+                    "Interruption / compaction")
+
+    def _resume_paragraphs(self):
+        """The two resume sites, each as the block of lines following its anchor."""
+        lines = _SKILL.read_text(encoding="utf-8").splitlines()
+        out = []
+        for anchor in self.RESUME_SITES:
+            idx = [i for i, ln in enumerate(lines) if anchor in ln]
+            self.assertEqual(len(idx), 1, "resume site moved or duplicated: %s" % anchor)
+            out.append(" ".join(lines[idx[0]:idx[0] + 12]))
+        return out
+
+    def test_both_resume_sites_send_a_trailing_refine_back_to_coded(self):
+        for i, para in enumerate(self._resume_paragraphs()):
+            with self.subTest(site=self.RESUME_SITES[i]):
+                flat = " ".join(para.split())
+                self.assertIn("REFINE", flat)
+                self.assertIn("CODED", flat)
+                self.assertRegex(flat, r"at `?CODED`?, never `?OUTPUT`?",
+                                 "the site does not forbid resuming a trailing REFINE at OUTPUT")
+
+    def test_both_resume_sites_gate_the_degraded_output_path_on_budget_exhausted(self):
+        """FOLD (challenge M-2): the prose must NOT contradict the REFINE? block —
+        a run may legitimately reach OUTPUT from REFINE on the degraded
+        could-not-verify path, and the two ledgers are byte-identical where
+        ``stale_verdict_defects`` reads them. So that path is allowed, but only
+        with ``budget_exhausted = True``, i.e. never as a green."""
+        for i, para in enumerate(self._resume_paragraphs()):
+            with self.subTest(site=self.RESUME_SITES[i]):
+                flat = " ".join(para.split())
+                self.assertIn("budget_exhausted = True", flat)
+                self.assertIn("UNVERIFIED", flat)
 
 
 # --------------------------------------------------------------------------

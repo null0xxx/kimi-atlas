@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import pathlib
+import tempfile
 import unittest
 
-from scripts import floorsynth
+from scripts import ctxstore, floorsynth
 
 
 def _defect(category="CODE-QUALITY", severity="HIGH", did="X1"):
@@ -819,6 +821,185 @@ class TestStaleVerdictDefects(unittest.TestCase):
         self.assertEqual(floorsynth.stale_verdict_defects(None), [])
         self.assertEqual(floorsynth.stale_verdict_defects([{}]), [])
         self.assertEqual(floorsynth.stale_verdict_defects([{"stage": None}, "x", 3]), [])
+
+
+class TestStaleVerdictAtTheRealEvaluationPoint(unittest.TestCase):
+    """H6 (v1.5.2.1): the trailing-REFINE condition, and the FIDELITY GAP that
+    hid it.
+
+    Every fixture in ``TestStaleVerdictDefects`` above is OUTPUT-terminated, but
+    ``skills/atlas/SKILL.md``'s OUTPUT block calls ``stale_verdict_defects`` 29
+    lines BEFORE its own ``advance(..., "OUTPUT")``. So the ledger the function is
+    really handed never carries an OUTPUT record (the one exception being the
+    sanctioned ``cancelled=True`` cancel, which is recorded by a different block
+    and short-circuits here). A run that crashed after ``advance(REFINE)``
+    therefore presents a ledger ENDING at REFINE with **no successor at all** — a
+    pairwise "the record after a REFINE is not CODED" condition has nothing to
+    look at and can never fire, while an OUTPUT-terminated fixture makes it look
+    closed. That is why the condition is the trailing-shape
+    ``last_refine > last_coded``.
+
+    WHAT WAS DONE ABOUT THE EXISTING MATRIX: its rows are left exactly as they
+    are — an OUTPUT-terminated ledger is still what a *resumed* run appends to,
+    so they remain valid inputs — and this class re-drives the honest shapes
+    truncated where the SKILL evaluates them, through the REAL ``ctxstore``
+    rather than hand-built dicts. Both the old and the new form must be silent;
+    if they ever disagree, that disagreement is itself the finding.
+    """
+
+    PACKET = {"intent": "i", "success_criteria": ["c"], "verify_cmd": "make test",
+              "scope_paths": ["src"], "baseline_sha": "abc"}
+
+    def _drive(self, stages, cancel=False, rollback_after=None):
+        """Record a run through the real ctxstore; return its ledger records."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base, rid = str(pathlib.Path(tmp) / ".atlas"), "RUN"
+            ctxstore.init_run(base, rid, self.PACKET)
+            for s in stages:
+                ctxstore.advance(base, rid, s)
+                if rollback_after == s:
+                    ctxstore.rollback_to(base, rid, "deadbee", "VERIFIED", "rollback_intent")
+                    ctxstore.rollback_to(base, rid, "deadbee", "VERIFIED", "rollback_complete")
+            if cancel:
+                ctxstore.advance(base, rid, "OUTPUT", verdict="UNVERIFIED", cancelled=True)
+            return list(ctxstore._iter_log_records(base, rid))
+
+    # ---- the honest matrix, truncated at the real evaluation point ----
+    HONEST = {
+        "clean": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED", "VERIFIED"],
+        "clarify": ["INIT", "INTENT_CAPTURED", "CLARIFY", "TRIAGED", "GROUNDED",
+                    "CODED", "VERIFIED"],
+        "one-refine": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
+                       "VERIFIED", "REFINE", "CODED", "VERIFIED"],
+        "two-refine": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
+                       "VERIFIED", "REFINE", "CODED", "VERIFIED", "REFINE",
+                       "CODED", "VERIFIED"],
+        "crash-resume-dup": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                             "GROUNDED", "CODED", "CODED", "VERIFIED"],
+        "dup-inside-refine-loop": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                                   "CODED", "VERIFIED", "REFINE", "CODED", "CODED",
+                                   "VERIFIED"],
+        "clarify-plus-refine": ["INIT", "INTENT_CAPTURED", "CLARIFY", "TRIAGED",
+                                "GROUNDED", "CODED", "VERIFIED", "REFINE", "CODED",
+                                "VERIFIED"],
+        "resume-re-entered-CODED": ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                                    "CODED", "VERIFIED", "REFINE", "CODED", "VERIFIED"],
+    }
+
+    def test_every_honest_shape_is_silent_through_the_real_ctxstore(self):
+        for name, stages in sorted(self.HONEST.items()):
+            with self.subTest(shape=name):
+                recs = self._drive(stages)
+                self.assertEqual([r["stage"] for r in recs], stages)
+                self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_rollback_after_a_red_verified_is_silent(self):
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                            "CODED", "VERIFIED"], rollback_after="VERIFIED")
+        self.assertIn("ROLLBACK", [r["stage"] for r in recs])
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    def test_the_sanctioned_cancel_is_silent(self):
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED"],
+                           cancel=True)
+        self.assertTrue(recs[-1].get("cancelled"))
+        self.assertEqual(floorsynth.stale_verdict_defects(recs), [])
+
+    # ---- the H6 shape, and it fires ----
+    def test_a_trailing_refine_fires(self):
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                            "CODED", "VERIFIED", "REFINE"])
+        out = floorsynth.stale_verdict_defects(recs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["id"], out[0]["category"], out[0]["severity"]),
+                         ("stale-verdict", "DOES-IT-RUN", "CRITICAL"))
+
+    def test_a_trailing_refine_survives_a_rollback_marker(self):
+        """M-1's first honest firing shape. ROLLBACK records are normalised away,
+        so this reduces to the trailing REFINE — and it must not be told the tree
+        mutated, because a rollback mutates nothing after a verification."""
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                            "CODED", "VERIFIED", "REFINE"], rollback_after="REFINE")
+        out = floorsynth.stale_verdict_defects(recs)
+        self.assertEqual(len(out), 1)
+        self.assertNotIn("may have mutated after verification", out[0]["fix"])
+
+    def test_the_trailing_refine_blocks_final_status(self):
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                            "CODED", "VERIFIED", "REFINE"])
+        merged = verdict.merge([{"dimensions": {}, "defects": [], "verdict": "OK"}],
+                               floorsynth.stale_verdict_defects(recs))
+        self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
+
+    def test_a_pairwise_condition_could_not_have_fired(self):
+        """The C-1 non-vacuity control: at the real evaluation point the REFINE
+        record has NO successor, so anything that inspected ``the next record``
+        would have been inert. Pins the shape, so a future rewrite back to a
+        pairwise test is caught by construction rather than by review."""
+        recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                            "CODED", "VERIFIED", "REFINE"])
+        self.assertEqual(recs[-1]["stage"], "REFINE")
+        self.assertNotIn("OUTPUT", [r["stage"] for r in recs])
+
+    # ---- the reasons are per-condition, not one blanket accusation (M-1) ----
+    def _fix(self, *stages):
+        out = floorsynth.stale_verdict_defects([{"stage": s} for s in stages])
+        self.assertTrue(out, "expected this shape to fire")
+        return out[0]["fix"]
+
+    def test_the_ordering_reason_fires_alone(self):
+        fix = self._fix("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                        "CODED", "VERIFIED", "REFINE", "CODED")
+        self.assertIn("post-dates the last VERIFIED", fix)
+        self.assertNotIn("not a legal transition", fix)
+        self.assertNotIn("post-dates the last CODED", fix)
+
+    def test_the_adjacency_reason_fires_alone(self):
+        fix = self._fix("INIT", "INTENT_CAPTURED", "TRIAGED", "CODED", "GROUNDED",
+                        "CODED", "VERIFIED")
+        self.assertIn("not a legal transition", fix)
+        self.assertNotIn("post-dates the last VERIFIED", fix)
+        self.assertNotIn("post-dates the last CODED", fix)
+
+    def test_the_refine_reason_fires_alone(self):
+        fix = self._fix("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                        "CODED", "VERIFIED", "REFINE")
+        self.assertIn("post-dates the last CODED", fix)
+        self.assertNotIn("post-dates the last VERIFIED", fix)
+        self.assertNotIn("not a legal transition", fix)
+
+    def test_the_refine_reason_names_the_degraded_escape(self):
+        """M-2: reaching OUTPUT from a trailing REFINE is legal on the degraded
+        could-not-verify path — but only with ``budget_exhausted = True``. The
+        remedy text must say so, or an orchestrator reads the defect as
+        unresolvable and has no correct move."""
+        fix = self._fix("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                        "CODED", "VERIFIED", "REFINE")
+        self.assertIn("budget_exhausted = True", fix)
+        self.assertIn("UNVERIFIED", fix)
+
+    def test_two_conditions_yield_one_defect_naming_both(self):
+        """Arity pin: one broken ledger is one defect, however many conditions it
+        trips — which is what keeps every ``len(...) == 1`` assertion in the
+        matrix above a real pin rather than an accident."""
+        out = floorsynth.stale_verdict_defects(
+            [{"stage": s} for s in ("INIT", "TRIAGED", "CODED", "GROUNDED",
+                                    "CODED", "VERIFIED", "REFINE")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("not a legal transition", out[0]["fix"])
+        self.assertIn("post-dates the last CODED", out[0]["fix"])
+
+    def test_the_reason_is_never_empty_boilerplate(self):
+        """A firing defect always names at least one condition; the fix is never
+        just the prefix and the remedy sentence."""
+        for stages in (("INIT", "CODED"),
+                       ("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
+                        "CODED", "VERIFIED", "REFINE")):
+            with self.subTest(stages=stages):
+                fix = self._fix(*stages)
+                self.assertTrue(fix.startswith("ORCHESTRATOR ACTION"))
+                body = fix.split("not a coder task: ", 1)[1]
+                self.assertGreater(len(body.split(". Recompute")[0]), 40, fix)
 
 
 class TestGateAgreementMatrix(unittest.TestCase):

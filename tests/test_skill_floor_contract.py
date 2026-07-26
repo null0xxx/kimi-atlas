@@ -444,6 +444,41 @@ class TestOutputFoldsStageOrder(unittest.TestCase):
         body = self._output_block()
         self.assertIn("_iter_log_records", body)
 
+    def test_budget_exhausted_is_derived_from_the_ledger_not_hard_coded(self):
+        """H6/M-2: ``budget_exhausted`` shipped as a literal ``False`` with a
+        comment telling the model to flip it on the degraded could-not-verify
+        path. A flag whose correct value depends on the model remembering to
+        change a constant is not a gate — and on an honest crash after
+        ``advance(REFINE)`` the un-flipped literal is what turns the missing
+        re-verification into a printed ✅. It must be COMPUTED from the same
+        ledger the stale-verdict fold reads."""
+        tree = ast.parse(self._output_block().replace("${KIMI_SESSION_ID}", "SID"))
+        rhs = [n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "budget_exhausted"
+                       for t in n.targets)]
+        self.assertEqual(len(rhs), 1, "exactly one budget_exhausted assignment")
+        self.assertNotIsInstance(rhs[0], ast.Constant,
+                                 "budget_exhausted is a literal the model must remember to flip")
+        # ...and it is derived from the ledger, not from some unrelated name.
+        # Transitive closure over the names the RHS reaches, so the derivation may
+        # be spelled through any number of intermediate bindings or helpers.
+        reached = {n.id for n in ast.walk(rhs[0]) if isinstance(n, ast.Name)}
+        for _ in range(20):
+            grown = set(reached)
+            for n in ast.walk(tree):
+                if (isinstance(n, ast.Assign)
+                        and any(isinstance(t, ast.Name) and t.id in reached
+                                for t in n.targets)):
+                    grown |= {m.id for m in ast.walk(n.value) if isinstance(m, ast.Name)}
+                if isinstance(n, ast.FunctionDef) and n.name in reached:
+                    grown |= {m.id for m in ast.walk(n) if isinstance(m, ast.Name)}
+            if grown == reached:
+                break
+            reached = grown
+        self.assertIn("log_records", reached,
+                      "budget_exhausted must be derived from the append-only ledger")
+
 
 class TestEveryHeredocParses(unittest.TestCase):
     def test_all_heredocs_are_valid_python(self):
