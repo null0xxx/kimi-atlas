@@ -120,13 +120,36 @@ path is actually taken; if it is common, that is a finding about the scout, not 
 
 ## 4. Acceptance — falsifiable, and measured before it is believed
 
-**Protocol.** Three dogfood targets, each run twice: once at `main` before the change, once after. Cost read from Kimi's own accounting — `usage.record` lines in the session's `wire.jsonl`, summing `inputOther + inputCacheCreation + inputCacheRead` and weighting `output` ×4.
+**Two corrections to this section, pre-registered BEFORE any run.** Both were found by checking the
+criterion against the code rather than against its own plausibility, and both are recorded here rather
+than applied quietly after seeing results — adjusting acceptance after the fact is precisely what this
+plan forbids.
+
+1. **"Merged critic artifact byte-identical" was impossible to satisfy.** `verdict.merge` collects every
+   critic's `defects` **verbatim**, and those are LLM-authored strings (`location`, `fix`). Two runs of the
+   same model on the same input do not produce identical prose, so that clause would fail when comparing a
+   run against *itself re-run with the same plugin*. It is not a control; it is a guaranteed red. Replaced
+   with what can actually be compared byte-for-byte: **`det_evidence.json`** (the deterministic floor),
+   the merged **`verdict`** and **`dimensions`**, and the printed final status. The LLM `defects` list is
+   compared **structurally** — count, categories, severities.
+2. **There was no control, so the experiment could not distinguish signal from noise.** LLM runs are
+   stochastic; a single before-run and a single after-run cannot tell a real 14% saving from run-to-run
+   variance. Every target therefore gets a **same-plugin control pair** — two BEFORE runs — and the
+   before/after delta must exceed the control spread to count at all. Without this the whole measurement
+   is an anecdote with a percentage attached.
+
+**Protocol.** Three dogfood targets. Per target: **2 BEFORE runs** (the control pair) and **2 AFTER runs**.
+Cost from Kimi's own accounting — `usage.record` lines in each agent's `wire.jsonl`, summing
+`inputOther + inputCacheCreation + inputCacheRead` and weighting `output` ×4. **Count `usage.record` only:**
+the wire log emits the identical usage dict a second time as a `context.append_loop_event`/`step.end`
+event (verified byte-identical), so counting both double-counts every turn exactly. Locate the live
+session by most-recently-modified **file**, not directory mtime.
 
 | | criterion |
 |---|---|
-| **PASS** | cost-weighted total falls **≥12%**, averaged across the three targets |
-| **FALSIFIED** | the fall is **<8%** — the mechanism is not what the byte count predicts, and this plan is wrong |
-| **BLOCKING, regardless of cost** | the run's merged critic artifact is **not byte-identical** to the before-run on the same target, or any printed status changes |
+| **PASS** | cost-weighted total falls **≥12%**, averaged across targets, **and the fall exceeds the control spread** |
+| **FALSIFIED** | the fall is **<8%**, or it does not exceed the control spread — the mechanism is not what the byte count predicts, and this plan is wrong |
+| **BLOCKING, regardless of cost** | `det_evidence.json`, the merged `verdict`/`dimensions`, or the printed final status differ from the before-run on the same target |
 | **BLOCKING** | any run degrades to ungrounded (`degraded=True`) that did not degrade on the before-run — the subagent failed to read what the root used to hand it |
 
 The 8–12% band is deliberate: below 8% the model is wrong, above 12% it is confirmed, and between the two the result is inconclusive and the plan gets re-derived rather than quietly accepted.
