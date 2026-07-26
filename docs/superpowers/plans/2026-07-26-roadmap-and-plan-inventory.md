@@ -37,7 +37,7 @@ Attribution within v1.5.2 is still near 1:1 — `out_of_scope_defects` (`d344aab
 
 Two control cases make the point sharper:
 
-- **`scripts/verdict.py`** — blob `57062e71`, **byte-identical at v1.4.0, v1.5.0, v1.5.1, v1.5.2 and v1.5.2.1**, and **58% natural language**. Zero defects, ever. So *language* is not the discriminating variable, and neither is *importability*: two of the four v1.5.2 injections lived in `floorsynth.py`, driven by 112 tests, and shipped anyway.
+- **`scripts/verdict.py`** — blob `57062e71`, **byte-identical at v1.4.0, v1.5.0, v1.5.1, v1.5.2 and v1.5.2.1**, and **58% natural language**. Zero defects, ever. So *language* is not the discriminating variable, and neither is *importability*: two of the four v1.5.2 injections lived in `scripts/floorsynth.py`, driven by 112 tests, and shipped anyway.
 - **`scripts/lintlens.py`** — runs the untrusted repo's own linter and **by construction never blocks**. Across the whole security programme: **zero false greens, zero false reds.** The one lane permitted to be incomplete is the one lane that has never hurt us.
 
 ### The one concrete finding — stated without the framing
@@ -70,7 +70,7 @@ test**, not a premise this roadmap is built on.
 
 ### The correction this document records
 
-The orchestrator's working thesis — *"the TCB is natural language, so the token work is the structural fix for the defect rate"* — **was tested and refuted.** The decisive evidence: the one time this project performed that thesis's own remedy, **the relocation itself injected a fail-open.** `v1.4.0` had `ev["docs_clean"]` in SKILL prose (a `KeyError` — fail-**closed**); v1.5.0 moved it into `floorsynth.synth_docs(ev.get("docs_clean", True))` — fail-**open** — and `a062d9a` had to add `MANDATORY_FLAG_KEYS` to repair damage the relocation created.
+The orchestrator's working thesis — *"the TCB is natural language, so the token work is the structural fix for the defect rate"* — **was tested and refuted.** The decisive evidence: the one time this project performed that thesis's own remedy, **the relocation itself injected a fail-open.** **v1.4.0** had `ev["docs_clean"]` in SKILL prose (a `KeyError` — fail-**closed**); v1.5.0 moved it into `floorsynth.synth_docs(ev.get("docs_clean", True))` — fail-**open** — and `a062d9a` had to add `MANDATORY_FLAG_KEYS` to repair damage the relocation created.
 
 **Relocation is not immunity.** The token work is a real cost saving and it kills one genuine class. It is not the answer to the defect rate. Cost and defects are **two problems**, and this roadmap treats them as two.
 
@@ -80,15 +80,15 @@ The orchestrator's working thesis — *"the TCB is natural language, so the toke
 
 | Plan | Shipped as |
 |---|---|
-| `2026-07-16-atlas-weave-p6..p12` (7 plans) | ATLAS-WEAVE, merged |
-| `2026-07-20-agentic-architecture-implementation-plan.md` | merged `da90f6c` (ContextGraph, fsm, rollback, astlens) |
-| `2026-07-20-flaw-register.md` | F1–F11 all fixed |
-| `2026-07-22-universal-floor-p1-plan.md`, `-p2-plan.md` | v1.3.0 |
-| `2026-07-23-universal-floor-p3-plan.md` | v1.4.0 (advisory linter) |
-| `2026-07-24-runtime-token-optimization-p0-plan.md` | v1.5.0 (Phases 0–2; **zero token saving, deliberately** — it closed three false greens) |
-| `2026-07-25-syspath-hijack-v151-plan.md` | v1.5.1 |
-| `2026-07-25-security-remediation-master-plan.md` | **partially** — v1.5.2 closed 8 of its 19 findings |
-| `2026-07-26-v1521-hotfix-plan.md` | v1.5.2.1 (6 of the 7 defects v1.5.2 introduced) |
+| the seven `docs/superpowers/plans/2026-07-16-atlas-weave-p*.md` plans | ATLAS-WEAVE, merged |
+| `docs/superpowers/plans/2026-07-20-agentic-architecture-implementation-plan.md` | merged `da90f6c` (ContextGraph, fsm, rollback, astlens) |
+| `docs/superpowers/plans/2026-07-20-flaw-register.md` | F1–F11 all fixed |
+| `docs/superpowers/plans/2026-07-22-universal-floor-p1-plan.md` and its P2 sibling | v1.3.0 |
+| `docs/superpowers/plans/2026-07-23-universal-floor-p3-plan.md` | v1.4.0 (advisory linter) |
+| `docs/superpowers/plans/2026-07-24-runtime-token-optimization-p0-plan.md` | v1.5.0 (Phases 0–2; **zero token saving, deliberately** — it closed three false greens) |
+| `docs/superpowers/plans/2026-07-25-syspath-hijack-v151-plan.md` | v1.5.1 |
+| `docs/superpowers/plans/2026-07-25-security-remediation-master-plan.md` | **partially** — v1.5.2 closed 8 of its 19 findings |
+| `docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md` | v1.5.2.1 (6 of the 7 defects v1.5.2 introduced) |
 
 ## 2. OPEN — the full ledger
 
@@ -96,9 +96,9 @@ The orchestrator's working thesis — *"the TCB is natural language, so the toke
 
 | Plan | Where | State | Disposition |
 |---|---|---|---|
-| `2026-07-25-adversarial-surface-v153-plan.md` | branch `fix/security-audit-v153` (2 ahead, **15 behind**) | 30 challenge findings folded; **37 SKILL line citations now stale** | **HARVEST — DO NOT MERGE.** See §4. |
-| `2026-07-25-token-opt-p3a-driver-core-plan.md` | branch `feature/token-opt-p3a` (2 ahead, **42 behind**) | 38 challenge findings folded; **24 stale citations** | **HARVEST** into Phase 3/4. See §4. |
-| `2026-07-19-skills-era-hardening-analysis.md` — D1–D7 | `main` | never executed; small, low-risk | Phase 4 or opportunistic |
+| **2026-07-25-adversarial-surface-v153-plan.md** (exists only on `fix/security-audit-v153`, not on `main`) | branch `fix/security-audit-v153` (2 ahead, **15 behind**) | 30 challenge findings folded; **37 SKILL line citations now stale** | **HARVEST — DO NOT MERGE.** See §4. |
+| **2026-07-25-token-opt-p3a-driver-core-plan.md** (exists only on `feature/token-opt-p3a`, not on `main`) | branch `feature/token-opt-p3a` (2 ahead, **42 behind**) | 38 challenge findings folded; **24 stale citations** | **HARVEST** into Phase 3/4. See §4. |
+| `docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md` — D1–D7 | `main` | never executed; small, low-risk | Phase 4 or opportunistic |
 | Master plan §6 — v1.5.4 supply chain (S15, S16, S17 + LOW set) | `main` | unbuilt | Phase 4 |
 
 ### 2b. The 17 open defect items
@@ -120,16 +120,16 @@ The orchestrator's working thesis — *"the TCB is natural language, so the toke
 
 Ordered by **risk retired per unit of work**. Every phase ships working software with a falsifiable acceptance test. The adversarial plan-challenge runs before every phase — at ~126 findings and ≥12 CRITICAL for two agents and zero code written, it remains the highest-yield stage in the record.
 
-**Step 1 — write the spec.** `docs/superpowers/specs/2026-07-26-advisory-first-floor-design.md`, from the graphify. No code. This is the document Phases 0–5 are cut from.
+**Step 1 — write the spec.** **docs/superpowers/specs/2026-07-26-advisory-first-floor-design.md** (to be created), from the graphify. No code. This is the document Phases 0–5 are cut from.
 
 | Phase | Release | Effort | Content | Acceptance — falsifiable |
 |---|---|---|---|---|
-| **0** | `v1.5.3` | **2 days** | **Cost only. ~5 lines of prose, zero new trusted code.** Packet by reference (31,216 B of role bodies, read at 3.4× *and* emitted at 4×); explicit batching; forbid uninstructed `TodoList` turns. | cost-weighted tokens fall **≥12%** across 3 dogfood targets vs the same 3 at `6c3734f`, with **byte-identical `merged_critic.json`**. *Falsified if* <8% or any verdict changes. |
-| **1** | `v1.5.4` | 3 days | **Additive, cannot regress.** `scripts/coverage.py`, `coverage.json`, the STOP-block coverage line, `tests/corpus/honest/` (this repo at all five tags + recorded dogfood ledgers). All 12 `floorsynth` predicates run against the corpus in **report-only** mode. R1/R2 from the shelved v1.5.3 plan enter **here, as coverage rows**. | `make ci` prints a per-predicate honest-corpus fire count. **Committed prediction — REWRITTEN, the first one was rigged.** The original said "if neither fires the diagnosis is weakened", but `out_of_scope_defects` firing was *already verified* before it was written, so the test was pre-satisfied and could not fail. The real test: **at least 3 of the 10 predicates fire on the honest corpus.** *Falsified if fewer than 3 do* — one predicate misfiring is an ordinary bug, not a structural pattern, and in that case Phase 2 is not justified and the effort belongs in Phase 0's cost work plus conventional hardening. Second, independent measure: plot injected defects against **diff bytes** per release, not against predicate count, and report whether predicate count still explains anything once volume is controlled for. |
-| **2** | `v1.5.5` | 3 days | **The structural fix.** `scripts/blocking.py::BLOCKING_CHECKS`; `merge_and_validate` rejects unlisted ids; `tests/test_promotion.py`. Seeded with exactly today's ids so behaviour is unchanged on day one — **except** any predicate the corpus shows firing on honest input is demoted to coverage in the same commit. **That closes H2 as a false-RED source without the fix the shelved branch was written for.** | write a commit adding a new id without a shadow record and a two-directional probe → `make ci` goes red. |
-| **3** | `v1.5.6` | 1 week | `scripts/atlasrun.py` for the 114 lines no test executes; `lensreg.REGISTRY` iteration; `DEGRADED` on tool absence. **Pre-execution toolchain copy + digest-as-coverage lands HERE — S6's first real answer** — before the driver is load-bearing, because an on-disk driver is strictly worse than a retyped heredoc against S6 until it does. | all 8 known survivors die (forged `runcheck`, `review_root→"."` ×2, emptied astlens/sast/pathcheck/lintlens, `docs_clean=True`), driven through the imported function; and the sast/astlens/syntaxlens-absent case yields a printed `coverage: 6/9` — **not `[]`, and not a new blocking defect.** |
-| **4** | `v1.5.7` | — | Remaining stages, **one heredoc per commit, each revertible**. `advance` driver-internal; `fsm` wired as coverage. Absorbs D1–D7 and the supply-chain set (S15–S17). | structural (not `grep`) invariant: every executable region is a call with paths in argv and no substituted literal, asserted on the extracted AST. |
-| **5** | `v1.6.0` | — | SKILL settles at its **measured floor of 32–36 KB**; the coverage line becomes part of the release contract. | — |
+| **0** | **v1.5.3** | **2 days** | **Cost only. ~5 lines of prose, zero new trusted code.** Packet by reference (31,216 B of role bodies, read at 3.4× *and* emitted at 4×); explicit batching; forbid uninstructed `TodoList` turns. | cost-weighted tokens fall **≥12%** across 3 dogfood targets vs the same 3 at `6c3734f`, with **byte-identical the merged critic artifact**. *Falsified if* <8% or any verdict changes. |
+| **1** | **v1.5.4** | 3 days | **Additive, cannot regress.** **scripts/coverage.py** (to be created), **coverage.json** (to be created), the STOP-block coverage line, `tests/corpus/honest/` (this repo at all five tags + recorded dogfood ledgers). All 12 `floorsynth` predicates run against the corpus in **report-only** mode. R1/R2 from the shelved v1.5.3 plan enter **here, as coverage rows**. | `make ci` prints a per-predicate honest-corpus fire count. **Committed prediction — REWRITTEN, the first one was rigged.** The original said "if neither fires the diagnosis is weakened", but `out_of_scope_defects` firing was *already verified* before it was written, so the test was pre-satisfied and could not fail. The real test: **at least 3 of the 10 predicates fire on the honest corpus.** *Falsified if fewer than 3 do* — one predicate misfiring is an ordinary bug, not a structural pattern, and in that case Phase 2 is not justified and the effort belongs in Phase 0's cost work plus conventional hardening. Second, independent measure: plot injected defects against **diff bytes** per release, not against predicate count, and report whether predicate count still explains anything once volume is controlled for. |
+| **2** | **v1.5.5** | 3 days | **The structural fix.** `scripts/blocking.py::BLOCKING_CHECKS`; `merge_and_validate` rejects unlisted ids; **tests/test_promotion.py** (to be created). Seeded with exactly today's ids so behaviour is unchanged on day one — **except** any predicate the corpus shows firing on honest input is demoted to coverage in the same commit. **That closes H2 as a false-RED source without the fix the shelved branch was written for.** | write a commit adding a new id without a shadow record and a two-directional probe → `make ci` goes red. |
+| **3** | **v1.5.6** | 1 week | **scripts/atlasrun.py** (to be created) for the 114 lines no test executes; the lens registry (`lensreg`, to be created) iteration; `DEGRADED` on tool absence. **Pre-execution toolchain copy + digest-as-coverage lands HERE — S6's first real answer** — before the driver is load-bearing, because an on-disk driver is strictly worse than a retyped heredoc against S6 until it does. | all 8 known survivors die (forged `runcheck`, `review_root→"."` ×2, emptied astlens/sast/pathcheck/lintlens, `docs_clean=True`), driven through the imported function; and the sast/astlens/syntaxlens-absent case yields a printed `coverage: 6/9` — **not `[]`, and not a new blocking defect.** |
+| **4** | **v1.5.7** | — | Remaining stages, **one heredoc per commit, each revertible**. `advance` driver-internal; `fsm` wired as coverage. Absorbs D1–D7 and the supply-chain set (S15–S17). | structural (not `grep`) invariant: every executable region is a call with paths in argv and no substituted literal, asserted on the extracted AST. |
+| **5** | **v1.6.0** | — | SKILL settles at its **measured floor of 32–36 KB**; the coverage line becomes part of the release contract. | — |
 
 ### The cost answer, stated honestly
 
@@ -143,7 +143,7 @@ Ordered by **risk retired per unit of work**. Every phase ships working software
 
 **Turn collapse is MODELLED, not measured, and is not banked.** Measured `N` across five real runs is 22/25/25/27/45; ±3 of model-behaviour variance swamps any single-turn criterion, which is why P3A's `N > 19` tripwire cannot discriminate success from failure.
 
-**`SKILL.md` cannot go to zero.** The measured floor is **32–36 KB, not 10–12** — `KIMI ADAPTATION` (7,977 B), checkpoints/rollback (4,277 B), critic dispatch, the three human gates and the degradation ladder cannot be executed by a subcommand, because a driver cannot call the `Agent` tool, cannot ask a human, and cannot print. 78 KB → ~34 KB is the real target.
+**`skills/atlas/SKILL.md` cannot go to zero.** The measured floor is **32–36 KB, not 10–12** — `KIMI ADAPTATION` (7,977 B), checkpoints/rollback (4,277 B), critic dispatch, the three human gates and the degradation ladder cannot be executed by a subcommand, because a driver cannot call the `Agent` tool, cannot ask a human, and cannot print. 78 KB → ~34 KB is the real target.
 
 ## 4. THE IN-FLIGHT BRANCHES — explicit disposition
 
