@@ -74,21 +74,47 @@ clean one."*
 So Phase 0 adds **no token, no test file, no schema change, and no blocking predicate** — it is genuinely
 "~5 lines of prose, zero new trusted code", which is what it claimed before its own guard contradicted it.
 
-### The unguarded pair — verify before building
+### The unguarded pair — settled by execution
 
-The three critics are protected by the `critic` schema. **The scout and the coder are not** —
-`references/schemas.json` has no shape that validates a coder's return, and the scout's digest is checked
-only after the orchestrator persists it. **Verify by execution whether a role-less `explore` or `coder`
-dispatch is detectable.** If it is not, say so here plainly and state what it costs. **Do not invent a new
-blocking predicate for it** — new predicates are the generator this roadmap exists to stop; an honest
-"unguarded, and here is the cost" is worth more than a fifth manufactured RED.
+The critics are covered by the `critic` schema. The scout and the coder were the open question. Both are
+now answered by running the code, and the answers differ.
+
+**The coder is guarded — by its product, not by its role.** `floorsynth.empty_diff_defect` fires a
+CRITICAL/CORRECTNESS defect on a diff that is empty, whitespace-only, or `None`, and nothing on a real
+one-line diff (executed, four cases). Every other lens judges the artifact too — `runcheck`, `astlens`,
+`syntaxlens`, `quality.lint_deliverable`, `reqcoverage`. So a role-less coder that produces nothing is
+caught, and a role-less coder that produces something is judged on what it produced, which is the correct
+standard. **No guard is needed here and none is added.**
+
+**The scout is guarded against prose and unguarded against wrong-shaped JSON.** The SKILL already parses
+the return and retries once, then degrades to ungrounded and records it (`skills/atlas/SKILL.md:327`,
+surfaced at `:1099`) — so a role-less `explore` returning prose is caught, non-blockingly and visibly.
+What is *not* caught is a role-less scout returning **valid JSON in the wrong shape**: nothing validates
+the digest's shape, and `pathcheck.cross_check` reads `ctx.get("relevant_files", [])`, so a missing key is
+silently an empty set. Executed on a normal root, all four of `{"ok": true}`, a prose object, `{}` and an
+absent digest produce **byte-identical** pathcheck output to the honest digest — because on-disk existence
+dominates the `known` set.
+
+**The cost, stated exactly.** The direction of that failure is **fail-closed, not fail-open**: an empty
+`known` can only *add* pathcheck defects, never remove one. The single case where the digest changes the
+answer is a `review_root` that does not contain a cited repo path (sandbox or worktree) — executed there,
+the honest digest yields **0** defects and the role-less one yields **1 CRITICAL**. So the residue is a
+**manufactured RED**, which is the failure this plan's governing rule ranks as worse than the bug. It is
+also **pre-existing**: the degrade-to-ungrounded path already sets `ctx = {}` and always has. Phase 0 does
+not create this failure mode — it relocates *who* can fail to read the role file, from the root to the
+subagent.
+
+**No new predicate is added for it**, and the reason is not squeamishness: the defect is already CRITICAL
+when it fires, the failure direction is the safe one for THE ONE GUARANTEE, and every candidate guard
+tested so far in this programme has itself manufactured a RED. Phase 1 measures how often the ungrounded
+path is actually taken; if it is common, that is a finding about the scout, not a licence for a predicate.
 
 ## 3. Global constraints
 
 - **`scripts/verdict.py` is FROZEN** and is not opened. **No file in `scripts/` changes at all.**
 - **No new blocking predicate, no new gate condition, no new `floorsynth` function.**
 - All nine invariants hold. In particular **invariant 9 (critic isolation)**: the subagent reads *its own* role file and nothing else — it must not gain a path to another critic's output, the ledger, or the orchestrator's state.
-- **`make ci` EXIT 0** at every task boundary. Baseline: 1578 tests, 37 tracked docs.
+- **`make ci` EXIT 0** at every task boundary. Baseline: 1578 tests, 38 tracked docs.
 - Backticked path citations must exist on disk — this plan's own first draft shipped 20 phantom citations and they were caught by the plugin's own `pathcheck`. Re-run it before committing.
 - Commit with `git commit -F` and the trailer `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 
@@ -101,7 +127,7 @@ blocking predicate for it** — new predicates are the generator this roadmap ex
 | **PASS** | cost-weighted total falls **≥12%**, averaged across the three targets |
 | **FALSIFIED** | the fall is **<8%** — the mechanism is not what the byte count predicts, and this plan is wrong |
 | **BLOCKING, regardless of cost** | the run's merged critic artifact is **not byte-identical** to the before-run on the same target, or any printed status changes |
-| **BLOCKING** | any dispatched subagent returns without its role token in a run where the file was readable |
+| **BLOCKING** | any run degrades to ungrounded (`degraded=True`) that did not degrade on the before-run — the subagent failed to read what the root used to hand it |
 
 The 8–12% band is deliberate: below 8% the model is wrong, above 12% it is confirmed, and between the two the result is inconclusive and the plan gets re-derived rather than quietly accepted.
 
@@ -114,7 +140,10 @@ The 8–12% band is deliberate: below 8% the model is wrong, above 12% it is con
 **Files:** modify `skills/atlas/SKILL.md` (the GROUNDED, CODED and VERIFIED dispatches),
 `.kimi-plugin/plugin.json` (`skillInstructions`); modify `tests/test_dispatch_completeness_wiring.py`.
 
-- [ ] **Step 1 — settle the unguarded pair first** (section 2). Report the result before writing prose.
+- [x] **Step 1 — settle the unguarded pair first** (section 2). **DONE, by execution:** the coder is
+      guarded by `floorsynth.empty_diff_defect` plus every artifact lens and needs nothing; the scout is
+      guarded against prose and unguarded against wrong-shaped JSON, whose residue is a **pre-existing
+      fail-closed manufactured RED**, not a false green. No predicate added.
 - [ ] **Step 2 — write the failing test.** Pin that no dispatch instruction tells the root to
       read-and-prepend a role body, and that each dispatch names the role file path for the **subagent**
       to read. **Pin both sites together** — `skillInstructions` is injected into every session and would
