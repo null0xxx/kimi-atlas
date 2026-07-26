@@ -154,6 +154,32 @@ session by most-recently-modified **file**, not directory mtime.
 
 The 8–12% band is deliberate: below 8% the model is wrong, above 12% it is confirmed, and between the two the result is inconclusive and the plan gets re-derived rather than quietly accepted.
 
+### Control results, recorded BEFORE any AFTER run
+
+Six BEFORE runs, all `rc=0`. Same-plugin, same-target spread:
+
+| target | weighted spread | cache-0.1 spread | control pair agreed on outcome? |
+|---|---|---|---|
+| t1 | **4.0%** | 0.2% | yes — OK / OK, 0 defects both |
+| t2 | **5.1%** | 1.3% | yes — OK / OK, 1 defect both |
+| t3 | **13.0%** | 13.5% | **NO — FAIL (7 defects) vs OK (3 defects)** |
+
+**Two consequences, pre-registered now rather than discovered convenient later.**
+
+1. **t3 cannot resolve this hypothesis and is excluded from the cost verdict.** Its same-plugin control
+   spread (13.0%) is *larger than the PASS threshold* (12%), so on t3 a genuine 12% saving is
+   indistinguishable from noise. Reporting a t3 delta as evidence either way would be reading a
+   coin-flip. It is still run and still reported — as a stability finding, not as evidence.
+2. **The blocking outcome-identity criterion is unsatisfiable on an unstable target, and t3 proves it
+   empirically.** t3's two BEFORE runs disagree on the *verdict itself* with the plugin held constant.
+   So outcome identity is checked **against the control**: a difference counts as blocking only where
+   the target's own control pair agreed. This is the same defect as the byte-identity clause corrected
+   above, now demonstrated by measurement instead of by reading the code.
+
+**The finding that needed no statistics:** `main_share` is **87.7%–91.3%** across all six runs. The
+orchestrator is ~89% of every run's cost and the five subagents together are ~11%. That is the premise
+this whole phase rests on, and it holds tightly.
+
 **What is measured vs inherited.** The byte counts above are mine, re-derived by execution. The residency multiplier (≈3.4) and the ×4 output weight are **inherited** from earlier wire-log probes and are not re-measured here — which is why acceptance is stated as an *observed* cost delta and not as arithmetic.
 
 ---
