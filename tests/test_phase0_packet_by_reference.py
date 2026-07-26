@@ -10,11 +10,15 @@ land once, in a short-lived subagent context, at input weight.
 
 Two halves are pinned here:
 
-* PROSE -- neither dispatch site instructs the root to prepend a role body, and every
-  dispatch names its role file in a passage addressed to the SUBAGENT. Both sites are
-  pinned together: `.kimi-plugin/plugin.json`'s `skillInstructions` is injected into
-  EVERY session, so a stale contract there silently reinstates the old behaviour even
-  with `SKILL.md` correct.
+* PROSE -- no live site instructs the root to prepend a role body, and every dispatch
+  names its role file in a passage addressed to the SUBAGENT. The first draft of this
+  test claimed there were "both sites" -- `skills/atlas/SKILL.md` and
+  `.kimi-plugin/plugin.json`. That was WRONG,
+  and the audit that caught it found the worst site of all: each `agents/<role>.md`
+  opens with a comment stating that the orchestrator strips the frontmatter and prepends
+  the body -- and under the new contract the SUBAGENT reads that file as its first act,
+  so the very first thing it would read is a description of a mechanism that no longer
+  happens. `TestEveryLiveContractStatement` below pins all of them.
 * STRUCTURE -- every role path the contract names actually resolves on disk. This is
   the failure the change makes possible: under the old contract a typo'd path broke
   loudly in the root, and under the new one it silently yields a role-less subagent.
@@ -178,6 +182,102 @@ class TestEveryReferencedRolePathResolves(unittest.TestCase):
             self.assertTrue((_ROOT / "agents" / f"{lens}-critic.md").is_file(),
                             f"the VERIFIED dispatch's <lens> template covers {lens}, "
                             f"but agents/{lens}-critic.md does not exist")
+
+
+class TestEveryLiveContractStatement(unittest.TestCase):
+    """No LIVE statement of the dispatch contract may still say the root prepends.
+
+    The division is deliberate and is the whole substance of these tests:
+
+    LIVE -- the runtime program (`agents/*.md`, which subagents now read directly) and
+    the docs that describe the CURRENT contract (`AGENTS.md`, `README.md`, and the
+    `references/` set). These must move with the contract or they contradict it.
+
+    HISTORICAL -- `PLAN.md` ("Definitive Build Plan … v2", authored against the verified
+    Kimi v0.23.5 ground truth) and the dated documents under
+    `docs/superpowers/plans/`. These RECORD decisions taken at a point in time. Editing
+    them to match today's contract would falsify the record, so they are deliberately
+    excluded here rather than overlooked -- and this docstring is where that choice is
+    stated, so nobody has to guess whether the omission was intentional.
+    """
+
+    LIVE_DOCS = (
+        "AGENTS.md",
+        "README.md",
+        "references/orchestration.md",
+        "references/architecture.md",
+        "references/system-map.md",
+        "references/system-graph.json",
+    )
+
+    def test_no_role_file_claims_the_orchestrator_prepends_it(self):
+        """The runtime site: the subagent reads this file as its first act."""
+        for path in sorted((_ROOT / "agents").glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            self.assertIsNone(
+                _ROOT_SIDE_PREPEND.search(text),
+                f"agents/{path.name} still tells its reader that the orchestrator "
+                f"prepends this body. Under the by-reference contract the SUBAGENT "
+                f"reads this file, so this is a contradiction inside the program the "
+                f"subagent executes, not merely stale documentation",
+            )
+
+    def test_no_live_contract_doc_states_the_prepend_contract(self):
+        for rel in self.LIVE_DOCS:
+            text = (_ROOT / rel).read_text(encoding="utf-8")
+            match = _ROOT_SIDE_PREPEND.search(text)
+            self.assertIsNone(
+                match,
+                f"{rel} still states the prepend contract; a reader (human or model) "
+                f"following it would reinstate the root-side read",
+            )
+
+    def test_kimi_runtime_attributes_every_prepend_to_apex_not_to_atlas(self):
+        """`references/kimi-runtime.md` is the verified runtime ground-truth doc.
+
+        It is held to a SHARPER rule than the blunt no-"prepend" one, not a weaker
+        one. The blessed `apex` plugin really does prepend the body, and that is a
+        verified fact about the runtime's only supported channel -- deleting it to
+        satisfy a string match would make the ground-truth document less true, which
+        is the opposite of the point. So: every sentence mentioning prepending must
+        attribute it to apex, and kimi-atlas's own delivery must be stated as
+        by-reference. A sentence that lets a reader think ATLAS prepends fails.
+        """
+        text = (_ROOT / "references" / "kimi-runtime.md").read_text(encoding="utf-8")
+        sentences = re.split(r"(?<=[.;])\s+", text)
+        prepend_sentences = [s for s in sentences if _ROOT_SIDE_PREPEND.search(s)]
+        self.assertTrue(prepend_sentences,
+                        "kimi-runtime.md no longer records that apex prepends the "
+                        "body -- that is a verified runtime fact and must survive")
+        for sentence in prepend_sentences:
+            self.assertIn(
+                "apex", sentence,
+                f"kimi-runtime.md attributes prepending to something other than apex; "
+                f"a reader would take it as atlas's contract: {sentence.strip()!r}",
+            )
+            self.assertNotIn(
+                "kimi-atlas", sentence.split("apex")[0],
+                f"this sentence names kimi-atlas as the prepender: {sentence.strip()!r}",
+            )
+        self.assertIn("through the dispatch prompt only", text,
+                      "kimi-runtime.md no longer states how kimi-atlas itself delivers "
+                      "the role mandate")
+
+    def test_the_historical_record_is_left_intact(self):
+        """The other half of the rule: the excluded files must NOT be rewritten.
+
+        Without this, "no live doc says prepend" could be satisfied tomorrow by
+        scrubbing the build plan -- which is the failure this division exists to
+        prevent. PLAN.md described the contract that was actually built in v1, and it
+        must go on saying so.
+        """
+        plan = (_ROOT / "PLAN.md").read_text(encoding="utf-8")
+        self.assertIsNotNone(
+            _ROOT_SIDE_PREPEND.search(plan),
+            "PLAN.md no longer records the read/strip/prepend contract it was built "
+            "under. It is a historical build plan, not a live spec -- rewriting it to "
+            "match today's contract falsifies the record",
+        )
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@
 
 The single-change orchestration engine of kimi-atlas. A deterministic `INIT→OUTPUT` state machine, conducted by the root `atlas` SKILL, backed by a compaction-surviving on-disk ledger (`ctxstore`) and a family of PURE decision cores (`plandag`, `scheduler`, `planstage`, `budget`, `bestofn`, `resume`, `runcaps`) that the ATLAS-WEAVE multi-agent extension marshals but never re-implements.
 
-The SKILL is the **sole root**: it holds full-fidelity intent, dispatches read-only scout/critic and write-capable coder subagents by reading role-files (strip frontmatter → prepend body → map onto Kimi built-in `explore`/`coder`/`plan` types), runs the state machine in one uninterrupted turn, and **never computes pass/fail** — that authority lives in the `verdict` subsystem's pure `merge`/`gate`/`final_status`. The pure cores enforce provable halting (monotone gas + per-job `MAX_ATTEMPTS`), memory-safe flat-W=3 wave scheduling, and a byte-identical degrade-to-single-node guarantee.
+The SKILL is the **sole root**: it holds full-fidelity intent, dispatches read-only scout/critic and write-capable coder subagents by role-file **reference** (the subagent reads its own `agents/<role>.md` and strips the frontmatter; the root never loads one → mapped onto Kimi built-in `explore`/`coder`/`plan` types), runs the state machine in one uninterrupted turn, and **never computes pass/fail** — that authority lives in the `verdict` subsystem's pure `merge`/`gate`/`final_status`. The pure cores enforce provable halting (monotone gas + per-job `MAX_ATTEMPTS`), memory-safe flat-W=3 wave scheduling, and a byte-identical degrade-to-single-node guarantee.
 
 ### Where is what
 | To change… | Go to |

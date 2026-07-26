@@ -5,8 +5,9 @@ tools: Read, Grep, Glob, Bash
 model: sonnet
 justification: asymmetry
 ---
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. The atlas orchestrator strips it and
-     prepends the body below to an Agent(subagent_type="explore", …) dispatch. Real
+<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
+     orchestrator dispatched you by reference: strip the frontmatter above and follow
+     the body below as your role for an Agent(subagent_type="explore", …) task. Real
      permissions come only from the built-in `explore` type (read-only + read-only Bash;
      no Write/Edit). `tools:`/`model:` here are not honored by the runtime. -->
 

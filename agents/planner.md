@@ -6,8 +6,9 @@ model: sonnet
 justification: bounded read-only decomposition task — reads the frozen task packet and repo context to propose a file-disjoint plan-DAG; needs no Bash/Write/Edit.
 ---
 
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. The atlas orchestrator strips it and
-     prepends the body below to an Agent(subagent_type="plan", …) dispatch. Real
+<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
+     orchestrator dispatched you by reference: strip the frontmatter above and follow
+     the body below as your role for an Agent(subagent_type="plan", …) task. Real
      permissions come only from the built-in `plan` type (Read, ReadMediaFile, Glob,
      Grep, WebSearch, FetchURL; no Bash/Write/Edit). `tools:`/`model:` here are not
      honored by the runtime. You are a subagent: you cannot spawn subagents, ask the

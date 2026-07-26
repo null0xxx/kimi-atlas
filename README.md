@@ -216,7 +216,7 @@ skills/atlas/               the single-change root orchestrator (state machine)
 skills/atlas-weave/         the multi-agent meta-machine (decompose → integrate → aggregate)
 skills/atlas-resume/        graph-aware, compaction-surviving resume
 skills/<name>/              115 vendored official skill packages (manifest-anchored)
-agents/*.md                 role files (documentation-only frontmatter; body prepended by the SKILL)
+agents/*.md                 role files (documentation-only frontmatter; read by the subagent itself)
 scripts/*.py                the PURE decision cores + the deterministic I/O "hands" (importable, unit-tested)
 scripts/skillextract.py     zip → skills/<name>/ extractor + manifest builder + --verify (audit-gated)
 scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree

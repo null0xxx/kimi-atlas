@@ -74,7 +74,7 @@
    "subsystem": "atlas-core",
    "path": "skills/atlas/SKILL.md",
    "kind": "skill",
-   "responsibility": "Root conductor prose: runs INIT→OUTPUT in one uninterrupted turn, dispatches subagents via role-file read/strip/prepend, marshals pure cores + verdict, enforces 3 sanctioned human gates and NO-LLM-verdict."
+   "responsibility": "Root conductor prose: runs INIT→OUTPUT in one uninterrupted turn, dispatches subagents by role-file reference (the subagent reads its own agents/<role>.md; the root never loads one), marshals pure cores + verdict, enforces 3 sanctioned human gates and NO-LLM-verdict."
   },
   {
    "id": "ctxstore",

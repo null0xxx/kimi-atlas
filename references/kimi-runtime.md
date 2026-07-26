@@ -38,10 +38,10 @@ Consequences (load-bearing for kimi-atlas):
 The manifest **`agents` key is silently ignored**. The supported path (used by the blessed `apex` plugin) is:
 
 1. Ship `agents/<role>.md` with YAML frontmatter (`name`, `description`; `tools`/`model` are **documentation-only, NOT enforced**).
-2. The SKILL reads the role file, **strips the frontmatter, and prepends the body** to an `Agent(subagent_type: coder|explore|plan)` dispatch prompt.
+2. The role body reaches the subagent **through the dispatch prompt** — the only channel available, since the manifest key is ignored. Two ways to use that channel: `apex` **prepends the body** (the root reads the file); kimi-atlas passes the **path** and the subagent reads its own role. Both are the same extension point; the second keeps the body out of the root's context.
 3. Real permissions come only from the mapped built-in type.
 
-`ROLE_ADDITIONAL`, `KIMI_OS`, `KIMI_SHELL`, `KIMI_AGENTS_MD` are real system-prompt template variables (`buildTemplateVars`). Whether a root `Agent()` dispatch can *populate* `ROLE_ADDITIONAL` is **UNCONFIRMED** (apex never sets it) ⇒ kimi-atlas delivers the mandate via the **prepend path only**.
+`ROLE_ADDITIONAL`, `KIMI_OS`, `KIMI_SHELL`, `KIMI_AGENTS_MD` are real system-prompt template variables (`buildTemplateVars`). Whether a root `Agent()` dispatch can *populate* `ROLE_ADDITIONAL` is **UNCONFIRMED** (apex never sets it) ⇒ kimi-atlas delivers the mandate **through the dispatch prompt only**, never through a template variable.
 
 ## 5. Plugin manifest
 

@@ -99,7 +99,9 @@ not sufficient — everything must stay green on all three lanes.
 - A change = one uninterrupted atlas run by the root orchestrator (this assistant) following
   `skills/atlas/SKILL.md` exactly; durable state lives in `.atlas/<run_id>/` (gitignored) —
   resume reads the newest non-terminal ledger, never memory.
-- Subagent dispatch: role file under `agents/<role>.md` → strip frontmatter → prepend body →
+- Subagent dispatch is **by reference**: the root names `agents/<role>.md` in the prompt and the
+  subagent reads it as its first act, strips the frontmatter and follows the body. The root never
+  opens a role file — that is what keeps 31,216 B per pass out of its context.
   `Agent(subagent_type=...)` (context-scout→explore, elite-coder→coder, critics→plan).
   Read-only subagents RETURN JSON; the root persists via `ctxstore`.
 - Scripts run via `PYTHONSAFEPATH=1 PYTHONPATH=<plugin-root> python3 -c "from scripts import <mod>"`.
