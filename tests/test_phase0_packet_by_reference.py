@@ -98,9 +98,14 @@ class TestSkillDispatchesByReference(unittest.TestCase):
         self.assertIn(_FIRST_ACT, section)
 
     def test_the_general_dispatch_contract_is_by_reference(self):
-        """The contract stated once at the top governs every site that follows it."""
-        section = _section(self.text, "kimi-atlas ships no custom subagent runtime",
-                           "### INIT")
+        """The contract stated once at the top governs every site that follows it.
+
+        Anchored on the numbered-list heading rather than a prose sentence: prose
+        rewraps across lines, and a locator that breaks on rewrapping turns a real
+        assertion into an ERROR that reads like a failure but tests nothing.
+        """
+        section = _section(self.text, "2. **Role-file dispatch",
+                           "3. **Read-only subagents persist nothing")
         self.assertIsNone(
             _ROOT_SIDE_PREPEND.search(section),
             "the general role-file dispatch contract still says the root prepends the "

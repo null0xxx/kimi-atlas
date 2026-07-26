@@ -29,12 +29,20 @@ This skill runs natively on **Kimi Code v0.23.5** (authored against it; **revali
    `SetTodoList`, `Think`, or `SendDMail` — those are fabricated and banned. Script calls run
    through **`Bash`**; the user is asked through **`AskUserQuestion`**; subagents are dispatched
    through **`Agent`**.
-2. **Role-file dispatch (read → strip → prepend).** kimi-atlas ships no custom subagent runtime.
-   For every subagent you (1) **`Read`** `${KIMI_SKILL_DIR}/../../agents/<role>.md`, (2) **strip
-   its YAML frontmatter** (the `tools:`/`model:` there are documentation only), (3) **prepend the
-   remaining body** to the task packet, (4) call `Agent(subagent_type=<mapped built-in>,
-   prompt=<role body + packet>)`. Mapping: `context-scout → explore`, `elite-coder → coder`,
-   every critic `→ plan`. Real permissions come **only** from the built-in type.
+2. **Role-file dispatch (BY REFERENCE — you never open the role file).** kimi-atlas ships no
+   custom subagent runtime. For every subagent you call
+   `Agent(subagent_type=<mapped built-in>, prompt=<role reference + packet>)`, where the prompt
+   **opens** with this line and nothing before it:
+   > *Your role is defined in `${KIMI_SKILL_DIR}/../../agents/<role>.md`. `Read` that file as
+   > your first act, strip its YAML frontmatter, and follow its body as your role for this
+   > task. Do not begin the packet below until you have done so.*
+
+   Then the task packet. Mapping: `context-scout → explore`, `elite-coder → coder`, every critic
+   `→ plan`. Real permissions come **only** from the built-in type.
+   **You (the root) do not `Read` the role file, and never paste a role body into a prompt.** Every
+   dispatched subagent has `Read`; the body reaches it once, in its own short-lived context, instead
+   of sitting resident in yours and being re-emitted on every pass. The `tools:`/`model:` frontmatter
+   is documentation only, which is why the subagent strips it.
 3. **Read-only subagents persist nothing (F2).** `explore` and `plan` have no `Write`/`Edit`, so
    the scout and every critic **RETURN their JSON as their final message and write no file**. YOU
    (the root, which has `Write`+`Bash`) persist everything via `ctxstore`.
@@ -286,10 +294,12 @@ refine-pass counter).
 - → After that call returns, proceed immediately to **GROUNDED**.
 
 ### GROUNDED
-- **Dispatch `context-scout`** via `Agent(subagent_type="explore", …)`: first `Read`
-  `${KIMI_SKILL_DIR}/../../agents/context-scout.md`, strip its frontmatter, prepend the body, then
-  append the packet (intent, repo root = cwd, `scope_paths`, and a max-files cap, e.g. 40 for a
-  small repo). The scout is **read-only and cannot write**, so it **returns a grounding digest as
+- **Dispatch `context-scout`** via `Agent(subagent_type="explore", …)`: the prompt opens with the
+  role reference — *"Your role is defined in `${KIMI_SKILL_DIR}/../../agents/context-scout.md`.
+  `Read` that file as your first act, strip its YAML frontmatter, and follow its body as your role
+  for this task."* — and then carries the packet (intent, repo root = cwd, `scope_paths`, and a
+  max-files cap, e.g. 40 for a small repo). **You do not read that file yourself.** The scout is
+  **read-only and cannot write**, so it **returns a grounding digest as
   its final message** (shape in its role file: `relevant_files` / `conventions` / `constraints` /
   `entry_points` / `conflicts` / `untrusted_excerpts` / `index`) — **you persist it**.
 - Parse the returned text as JSON. If it is not valid JSON, **retry the scout once** asking for a
@@ -437,8 +447,10 @@ Then branch on the run mode:
 ### CODED
 - **Memory guard:** before spawning, confirm ≥3 GB `available` (`free -m`); if tight, wait/serialize
   (never exceed 3 concurrent agents — here peak is orchestrator + 1 coder).
-- **Dispatch `elite-coder`** via `Agent(subagent_type="coder", …)`: `Read`
-  `${KIMI_SKILL_DIR}/../../agents/elite-coder.md`, strip frontmatter, prepend the body, then append
+- **Dispatch `elite-coder`** via `Agent(subagent_type="coder", …)`: the prompt opens with the role
+  reference — *"Your role is defined in `${KIMI_SKILL_DIR}/../../agents/elite-coder.md`. `Read` that
+  file as your first act, strip its YAML frontmatter, and follow its body as your role for this
+  task."* — and then carries
   the **full task packet** (frozen intent, `success_criteria`, `scope_paths`, `verify_cmd`,
   `debug_tokens`, `test_glob`, and the persisted **`review_root`** — the coder's **only** writable
   root, which it must stay strictly inside: `.` interactive, the isolated worktree/sandbox headless.
@@ -657,8 +669,12 @@ PY
 ≥3 GB, dispatch all THREE concurrently as one wave (≤3 — the cap); else DOWNGRADE to sequential**
 (one critic, wait, next). Never exceed 3 concurrent agents. For **each** critic — correctness
 (→CORRECTNESS lens 1), code-quality (→CODE-QUALITY lens 2), security (→SECURITY lens 3):
-1. `Read` `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md` and **strip its YAML frontmatter**.
-2. **Prepend the body**, then append the **isolated packet — ONLY**: `{frozen intent +
+1. Open the prompt with the role reference — *"Your role is defined in
+   `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md`. `Read` that file as your first act, strip its
+   YAML frontmatter, and follow its body as your role for this task."* **You do not read it
+   yourself**, and a critic reads **only its own** lens file — invariant 9 (critic isolation) binds
+   the reference exactly as it bound the pasted body.
+2. Then the **isolated packet — ONLY**: `{frozen intent +
    success_criteria, the captured `diff.patch`, that critic's single rubric lens from
    `${KIMI_SKILL_DIR}/../../references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
    (no orchestrator state, no other critic's output) — isolation is prompt-level (F6), it buys

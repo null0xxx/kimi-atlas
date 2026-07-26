@@ -144,18 +144,28 @@ The 8–12% band is deliberate: below 8% the model is wrong, above 12% it is con
       guarded by `floorsynth.empty_diff_defect` plus every artifact lens and needs nothing; the scout is
       guarded against prose and unguarded against wrong-shaped JSON, whose residue is a **pre-existing
       fail-closed manufactured RED**, not a false green. No predicate added.
-- [ ] **Step 2 — write the failing test.** Pin that no dispatch instruction tells the root to
-      read-and-prepend a role body, and that each dispatch names the role file path for the **subagent**
-      to read. **Pin both sites together** — `skillInstructions` is injected into every session and would
-      otherwise silently reinstate the old contract.
-- [ ] **Step 3 — run it, record the exact failure.**
-- [ ] **Step 4 — rewrite the ~5 lines.** The subagent is told: read `${KIMI_SKILL_DIR}/../../agents/<role>.md`,
-      strip its frontmatter, follow it as your role. Nothing else changes — the packet, the SAFE-2 framing
-      and the isolation rules are untouched.
-- [ ] **Step 5 — invariant 9 check.** Prove the instruction gives the subagent a path to **its own** role
-      file only. State it explicitly in the report.
-- [ ] **Step 6 — mutation-check** (purge `__pycache__`, `PYTHONDONTWRITEBYTECODE=1`), `make ci`,
-      `pathcheck` on the diff, commit.
+- [x] **Step 2 — write the failing test.** `tests/test_phase0_packet_by_reference.py`, 10 tests. Six pin
+      the contract at both sites; four are the compensating control for the failure this change makes
+      possible (a role path that does not resolve now yields a silently role-less subagent instead of a
+      loud root-side error), and all four were mutation-checked because a green-on-arrival pin is
+      worthless until it has killed a mutant.
+- [x] **Step 3 — run it, record the exact failure.** 6 RED / 4 green, exactly as designed.
+- [x] **Step 4 — rewrite.** Four sites in `skills/atlas/SKILL.md` (the numbered contract, GROUNDED,
+      CODED, VERIFIED) plus `.kimi-plugin/plugin.json`'s `skillInstructions`. Each now opens the prompt
+      with *"Your role is defined in … `Read` that file as your first act"*. The packet, the SAFE-2
+      framing and the isolation rules are untouched. 10/10 green.
+- [x] **Step 5 — invariant 9 check. It holds, and the reason is capability, not wording.**
+      The reference grants the subagent **nothing it did not already have**: `plan` and `explore`
+      subagents ship with `Read`, so the plugin tree was always reachable — the old contract simply never
+      named it. And `agents/` holds **only static shipped role files**; every run artifact, critic JSON
+      included, is written by `ctxstore.write_artifact` under `.atlas/<run_id>/`, a different tree
+      entirely. So a critic that read a sibling role file would learn nothing whatsoever about the run,
+      which is what critic isolation actually protects. Isolation here is prompt-level (F6, stated in the
+      SKILL itself) and prompt-level it remains.
+- [x] **Step 6 — verify.** `make ci` EXIT 0, **1588 tests** (1578 + 10), 38 tracked docs. Mutation checks
+      run with `__pycache__` purged and `PYTHONDONTWRITEBYTECODE=1`. `pathcheck` on the diff: one hit,
+      `det_evidence.json`, verified **pre-existing** — 5 citations before the change and 5 after, 0 added
+      — appearing only as diff context. Zero new phantom citations.
 
 ### Task 2 — measure, and be willing to fail
 
