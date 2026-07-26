@@ -51,8 +51,11 @@ runs `make ci` and nothing else. The other two install toolchains `make ci` does
 **hard-assert each resolved, so a missing binary fails the job instead of skipping**:
 `.github/workflows/sast-floor.yml` (semgrep → `tests.test_sast`) and
 `.github/workflows/native-floor.yml` (node/ruby/php/go → `tests.test_nativefloor`,
-`tests.test_syntaxlens`, `tests.test_syntaxlens_redteam`). Those suites are `skipUnless`-gated on the
-binary, so on a box missing one they pass **vacuously**. A green `make ci` is therefore necessary,
+`tests.test_syntaxlens`, `tests.test_syntaxlens_redteam`). Only **parts** of those suites are
+binary-gated: `tests.test_nativefloor` and `tests.test_syntaxlens_redteam` (`skipUnless` per binary)
+and `tests.test_sast.TestScanRealSemgrep` (a skipTest in setUp) skip silently wherever the binary is
+absent, so off-lane they can pass **vacuously**; `tests.test_syntaxlens` is host-independent by
+design (in-process, no subprocess) and always runs. A green `make ci` is therefore necessary,
 not sufficient — everything must stay green on all three lanes.
 
 ## Non-negotiable conventions (any edit must match)

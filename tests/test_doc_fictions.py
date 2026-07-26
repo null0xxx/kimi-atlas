@@ -23,6 +23,11 @@ so the pair cannot drift apart again:
    local build shell has no semgrep (false on the box this was written on, where
    semgrep 1.169.0 resolves and ``TestScanRealSemgrep`` runs rather than skips),
    and AGENTS.md implied ``make ci`` covers CI when it covers one lane of three.
+   Its correction then overstated the other way — "those suites are
+   ``skipUnless``-gated ... pass vacuously" is false of ``tests.test_syntaxlens``
+   (no gate, in-process by design) and of ``tests.test_sast`` (no ``skipUnless``;
+   one ``skipTest`` in ``TestScanRealSemgrep``) — so the classification is now
+   read back out of the prose and checked against the files in both directions.
 
 Nothing here touches a target repository, so no assertion in this file can
 manufacture a RED on an honest review — these guard the plugin's own tree only.
@@ -260,6 +265,77 @@ class TestCiLanesAreNotUnderstated(unittest.TestCase):
         self.assertRegex(wf, r"sys\.exit\(0 if sast\.semgrep_path\(\) else 1\)")
         self.assertRegex(wf, re.compile(r"^\s+run: \|?\s*$.*tests\.test_sast",
                                         re.M | re.S))
+
+    # ------------------------------------------------------------------ #
+    # AGENTS.md's *which* suites skip claim must match the suites on disk. #
+    # ------------------------------------------------------------------ #
+    #
+    # The first correction of this paragraph traded one inaccuracy for another:
+    # it said all four named suites are `skipUnless`-gated and "pass vacuously"
+    # where a binary is missing. Measured: `tests/test_sast.py` has zero
+    # `skipUnless` (one `self.skipTest` inside `TestScanRealSemgrep` only) and
+    # `tests/test_syntaxlens.py` has no gate at all — it is in-process by design
+    # and always runs. These two pins read the classification back out of the
+    # prose and check it against the files, in BOTH directions.
+
+    _MODULE_RE = re.compile(r"`(tests\.test_[a-z0-9_]+)(?:\.([A-Za-z_]\w*))?`")
+    # Real gate tokens only. Prose and method names containing "skipped" must
+    # NOT satisfy this, or a docstring would stand in for a gate that is absent.
+    _GATE_RE = re.compile(r"skipUnless|skipTest|@unittest\.skip\b")
+
+    def _classified(self) -> tuple[list, list]:
+        """(gated, always) as [(module, class-or-'')] read out of AGENTS.md."""
+        body = _read("AGENTS.md").split("\n## Commands", 1)[1].split("\n## ", 1)[0]
+        norm = " ".join(body.split())
+        for marker in ("binary-gated:", "vacuously", "always runs"):
+            self.assertIn(marker, norm,
+                          f"the gated/always-run claim lost its {marker!r} marker; "
+                          f"re-anchor these pins rather than deleting them")
+        gated_txt, rest = norm.split("binary-gated:", 1)[1].split("vacuously", 1)
+        always_txt = rest.split("always runs", 1)[0]
+        gated = self._MODULE_RE.findall(gated_txt)
+        always = self._MODULE_RE.findall(always_txt)
+        self.assertTrue(gated, "AGENTS.md names no binary-gated suite")
+        self.assertTrue(always, "AGENTS.md names no always-running suite")
+        # Anti-vacuity: every suite the section names ANYWHERE must land in one
+        # bucket, so neither a narrowed regex nor a suite quietly dropped from
+        # the claim can leave these loops iterating over less than the whole set.
+        self.assertEqual(
+            {m[0] for m in self._MODULE_RE.findall(norm)},
+            {m[0] for m in gated} | {m[0] for m in always},
+            "a suite named in AGENTS.md's Commands section is classified neither "
+            "binary-gated nor always-running",
+        )
+        return gated, always
+
+    def test_every_suite_agents_md_calls_gated_really_has_a_gate(self):
+        gated, _ = self._classified()
+        for mod, cls in gated:
+            rel = f"tests/{mod.split('.')[-1]}.py"
+            self.assertTrue((_ROOT / rel).is_file(), f"AGENTS.md cites absent {rel}")
+            src = _read(rel)
+            named = mod + (f".{cls}" if cls else "")
+            if cls:
+                self.assertIn(f"\nclass {cls}", src,
+                              f"AGENTS.md cites {named}, absent from {rel}")
+                src = src.split(f"\nclass {cls}", 1)[1].split("\nclass ", 1)[0]
+            self.assertRegex(
+                src, self._GATE_RE,
+                f"AGENTS.md calls {named} binary-gated, but it carries no "
+                f"skipUnless/skipTest gate — the doc overstates what skips",
+            )
+
+    def test_every_suite_agents_md_calls_host_independent_has_no_gate(self):
+        _, always = self._classified()
+        for mod, cls in always:
+            self.assertEqual(cls, "", f"{mod}: a whole suite, not a class, runs always")
+            rel = f"tests/{mod.split('.')[-1]}.py"
+            self.assertTrue((_ROOT / rel).is_file(), f"AGENTS.md cites absent {rel}")
+            self.assertNotRegex(
+                _read(rel), self._GATE_RE,
+                f"AGENTS.md calls {mod} host-independent and always-running, but "
+                f"{rel} grew a skip gate — say so there in the same change",
+            )
 
 
 if __name__ == "__main__":
