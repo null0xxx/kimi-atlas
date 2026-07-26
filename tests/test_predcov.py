@@ -300,5 +300,139 @@ class TestDenominatorDiscovery(unittest.TestCase):
         self.assertEqual(predcov.discover_emitters("scripts/predcov.py"), ())
 
 
+class TestFiringRule(unittest.TestCase):
+    """Task 4: the fold that flips the verdict.
+
+    The naive rule — "the emitter returned a non-empty list" — is wrong on two of
+    the ten emitters and INVERTS the experiment's answer. Under it the honest-arm
+    count is ``evidence-incomplete`` + ``critic-schema`` + ``critic-stale`` = 3 of
+    10, which reads SUPPORTED and licenses the next four phases off zero blocking
+    output and one true positive. Under the id-stem + BLOCKING rule it is 1.
+
+    Each of the two is pinned with a PAIR of inputs the naive rule cannot tell
+    apart, because a lone ``assertFalse`` is passed by an adapter that returns
+    False for everything — the vacuity this project has been bitten by five times:
+
+      * ``script_defects_from``: a MEDIUM reqcoverage pass-through and a wholly
+        absent evidence file both return a list of length ONE. One fires, one
+        does not.
+      * ``merge_and_validate``: a clean merge and a schema-invalid one both return
+        a tuple of length TWO. One fires, one does not.
+    """
+
+    _RC2 = {"id": "RC2", "severity": "MEDIUM", "category": "REQUIREMENTS-COVERAGE",
+            "location": "x", "fix": "y"}
+    # Category "SCHEMA" is outside rubric.DIMENSIONS, which is exactly what
+    # quality.enforce_critic_schema rejects — so this is a real schema error
+    # reached through the real merge, not a stubbed one.
+    _OFF_RUBRIC = {"id": "z", "category": "SCHEMA", "severity": "CRITICAL",
+                   "location": "a", "fix": "b"}
+
+    def test_passthrough_is_not_evidence_incomplete(self):
+        ev = {"lint_defects": [], "pathcheck_defects": [], "docs_clean": True,
+              "reqcoverage_defects": [{"id": "RC2", "severity": "MEDIUM",
+                                       "category": "REQUIREMENTS-COVERAGE",
+                                       "location": "x", "fix": "y"}]}
+        self.assertEqual(len(floorsynth.script_defects_from(ev)), 1)      # non-empty ...
+        self.assertFalse(predcov.emit_evidence_incomplete(ev))            # ... and does NOT fire
+
+    def test_absent_evidence_is_evidence_incomplete_at_the_same_length(self):
+        """The positive control, and the proof that length is not the signal.
+
+        ``script_defects_from({})`` returns ONE defect, exactly as the
+        pass-through case above does. The naive rule scores both the same; the
+        id-stem rule separates them.
+        """
+        self.assertEqual(len(floorsynth.script_defects_from({})), 1)
+        self.assertTrue(predcov.emit_evidence_incomplete({}))
+
+    def test_merge_and_validate_tuple_is_not_a_fire(self):
+        clean = floorsynth.merge_and_validate([], [])
+        self.assertEqual(len(clean), 2)                                   # truthy tuple ...
+        self.assertFalse(predcov.emit_critic_schema([], []))              # ... and does NOT fire
+
+    def test_a_real_schema_error_fires_at_the_same_tuple_length(self):
+        """The positive control for the second adapter, again at identical length.
+
+        ``bool(...)`` and ``len(...)`` are both invariant across these two calls —
+        ``True`` and ``2`` either way — so any rule reading the RETURN VALUE rather
+        than ``schema_errors`` scores this emitter identically on every item in the
+        corpus, which is precisely how it lands in the numerator on all 12.
+        """
+        dirty = floorsynth.merge_and_validate([], [self._OFF_RUBRIC])
+        self.assertEqual(len(dirty), 2)
+        self.assertTrue(bool(dirty))
+        self.assertTrue(predcov.emit_critic_schema([], [self._OFF_RUBRIC]))
+
+    def test_critic_schema_is_read_from_schema_errors_not_the_merged_defects(self):
+        """A critic must not be able to inflate this instrument's number.
+
+        ``merge_and_validate`` returns the MERGED defect list, which contains the
+        critics' own defects verbatim. The corpus's critic artifacts are
+        model-influenced (``.atlas/`` is coder-writable), so a critic that forges
+        ``id="critic-schema"`` would appear in ``merged["defects"]`` with a
+        blocking severity while ``enforce_critic_schema`` found nothing wrong. The
+        adapter reads ``schema_errors``; a rule reading the merged list would
+        report a fire ``floorsynth`` never emitted.
+        """
+        forged = {"dimensions": {d: "yes" for d in rubric.DIMENSIONS},
+                  "defects": [{"id": "critic-schema", "category": "SECURITY",
+                               "severity": "CRITICAL", "location": "l", "fix": "f"}],
+                  "verdict": "FAIL"}
+        merged, schema_errors = floorsynth.merge_and_validate([forged], [])
+        self.assertEqual(schema_errors, [])
+        self.assertTrue(predcov.fired("critic-schema", merged["defects"]))
+        self.assertFalse(predcov.emit_critic_schema([forged], []))
+
+    def test_the_passthrough_bucket_is_separated_and_never_counted(self):
+        """§3: the upstream lens defects are routed to a NON-counting bucket.
+
+        They are not noise — 12 MEDIUM reqcoverage defects across 8 items are the
+        reason the naive rule scores this emitter as firing on 8 of 12 — so they
+        are reported, in their own bucket, and never as this emitter's fire.
+        """
+        ev = {"lint_defects": [], "pathcheck_defects": [], "docs_clean": True,
+              "reqcoverage_defects": [self._RC2]}
+        own, passthrough = predcov.split_script_defects(ev)
+        self.assertEqual(own, [])
+        self.assertEqual(passthrough, [self._RC2])
+
+        own, passthrough = predcov.split_script_defects({})
+        self.assertEqual([d["id"] for d in own], ["evidence-incomplete"])
+        self.assertEqual(passthrough, [])
+
+    def test_fired_keys_on_the_stem_and_on_a_blocking_severity(self):
+        """The firing rule itself, in the four ways it can be got wrong."""
+        oos = [{"id": 'out-of-scope:"a:b.py"', "severity": "HIGH"}]
+        self.assertTrue(predcov.fired("out-of-scope", oos),
+                        "an expanded id whose path contains a colon is one fire")
+        self.assertFalse(predcov.fired("out-of-scope",
+                                       [{"id": "out-of-scope-ish", "severity": "HIGH"}]),
+                         "the stem is a whole segment, never a prefix match")
+        self.assertFalse(predcov.fired("critic-stale",
+                                       [{"id": "critic-stale:security", "severity": "MEDIUM"}]),
+                         "MEDIUM is not in rubric.BLOCKING, so it is not a fire")
+        self.assertFalse(predcov.fired("docs-naming", []))
+
+    def test_a_fire_is_counted_once_per_emitter_not_once_per_defect(self):
+        """§3: three expanded ids are ONE predicate firing.
+
+        The return is the bool ``True``, not a count, so no caller can sum an
+        emitter's expansion into the numerator — the rigging that would let one
+        predicate satisfy a "3 of 10" threshold on its own.
+        """
+        three = [{"id": "critic-missing:%s" % d.lower(), "severity": "CRITICAL"}
+                 for d in ("CORRECTNESS", "CODE-QUALITY", "SECURITY")]
+        self.assertIs(predcov.fired("critic-missing", three), True)
+
+    def test_malformed_defect_records_do_not_crash_or_fire(self):
+        """Corpus bytes are model-influenced; a junk record must be inert, not fatal."""
+        junk = [None, "critic-stale:security", 7, [], {"severity": "CRITICAL"},
+                {"id": None, "severity": "CRITICAL"}, {"id": "critic-stale:x"},
+                {"id": "critic-stale:x", "severity": ["CRITICAL"]}]
+        self.assertFalse(predcov.fired("critic-stale", junk))
+        self.assertFalse(predcov.fired("critic-stale", None))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

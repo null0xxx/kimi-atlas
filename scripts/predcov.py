@@ -117,6 +117,106 @@ def _stem_of(defect_id) -> str:
     return str(defect_id).split(":", 1)[0]
 
 
+def fired(stem: str, defects) -> bool:
+    """THE FIRING RULE, and the whole of it.
+
+    An emitter FIRES on a corpus item iff, called with that item's real inputs, it
+    yields at least one defect whose id STEM equals that emitter's own stem AND
+    whose ``severity`` is a member of ``rubric.BLOCKING``.
+
+    Returns a bool and never a count, deliberately. Three predicates expand ×3
+    over ``floorsynth.CRITIC_ARTIFACTS`` and ``out-of-scope`` expands per path, so
+    a caller summing defects would let ONE predicate — three undispatched critics
+    — satisfy a "3 of 10" threshold by itself. That is the exact rigging the
+    roadmap's prediction already had to be rewritten once to remove.
+
+    The stem is a whole segment, never a prefix: ``out-of-scope-ish`` is a
+    different predicate from ``out-of-scope``.
+
+    Every field is defended, because corpus bytes are model-influenced (``.atlas/``
+    was coder-writable during recording): a non-dict record, a null id, a missing
+    severity and an UNHASHABLE severity (a JSON array deserialises to a ``list``,
+    and ``[] in frozenset(...)`` raises ``TypeError``) are all inert, never fatal.
+    An instrument that dies on one malformed record would report every later
+    emitter on that item as silent.
+    """
+    for defect in defects or ():
+        if not isinstance(defect, dict):
+            continue
+        if _stem_of(defect.get("id")) != stem:
+            continue
+        severity = defect.get("severity")
+        if isinstance(severity, str) and severity in _BLOCKING_SEV:
+            return True
+    return False
+
+
+def split_script_defects(evidence) -> tuple[list[dict], list[dict]]:
+    """``(this emitter's own defects, the upstream pass-throughs)`` — adapter 1 of 2.
+
+    ``floorsynth.script_defects_from`` is NOT a predicate that returns its own
+    verdict: it first passes through the six upstream deterministic lens defect
+    lists (``scripts/floorsynth.py``:80-81) and only then considers
+    ``evidence-incomplete``. Measured on the twelve real ledgers, it returns a
+    NON-EMPTY list on 8 of 12 items while ``evidence-incomplete`` fires on ZERO —
+    the content is MEDIUM ``RC2``/``RC3``/``RC4`` reqcoverage pass-throughs, none
+    of them blocking. Scored on ``len()``, this emitter alone contributes a fire on
+    two thirds of the corpus and helps flip the reported verdict from FALSIFIED to
+    SUPPORTED.
+
+    The pass-throughs are kept, not discarded: they are reported in their own
+    non-counting bucket, because "8 of 12 items carry a MEDIUM advisory" is a real
+    fact about the corpus and hiding it would be its own kind of dishonesty.
+
+    Honest note on what this adapter does and does not add: no upstream lens emits
+    the id ``evidence-incomplete``, so on today's sources :func:`fired` alone would
+    reach the same answer. The adapter exists for the SEPARATION — the bucket has
+    to be a named output, not an implicit one — and to keep the count immune to a
+    future lens that borrows the id.
+    """
+    from scripts import floorsynth
+
+    produced = floorsynth.script_defects_from(evidence)
+    own = [d for d in produced
+           if isinstance(d, dict) and d.get("id") == "evidence-incomplete"]
+    passthrough = [d for d in produced
+                   if not (isinstance(d, dict) and d.get("id") == "evidence-incomplete")]
+    return own, passthrough
+
+
+def emit_evidence_incomplete(evidence) -> bool:
+    """Did ``evidence-incomplete`` fire on this item? See :func:`split_script_defects`."""
+    own, _passthrough = split_script_defects(evidence)
+    return fired("evidence-incomplete", own)
+
+
+def emit_critic_schema(critics, script_defects) -> bool:
+    """Did ``critic-schema`` fire on this item? — adapter 2 of 2.
+
+    ``floorsynth.merge_and_validate`` does not return a defect list at all. Its
+    signature is ``(critics, script_defects) -> tuple[dict, list[str]]``, so
+    ``bool(...)`` is True and ``len(...)`` is 2 UNCONDITIONALLY, on every item ever
+    — measured, ``merge_and_validate([], [])`` returns a 2-tuple. Any rule reading
+    the return value scores this emitter as firing on 12 of 12 honest items where
+    it truly fires on none.
+
+    It fires iff ``schema_errors`` is non-empty, and NOT iff the merged defect list
+    contains a ``critic-schema`` id. Those differ by exactly one thing, and it is
+    the thing that matters here: ``merged["defects"]`` carries the CRITICS' own
+    defects verbatim, and the corpus's critic artifacts are model-influenced, so a
+    critic forging ``id="critic-schema"`` would inflate this instrument's numerator
+    with a fire ``floorsynth`` never emitted. ``schema_errors`` is computed by
+    ``quality.enforce_critic_schema`` and cannot be authored by the reviewed target.
+    """
+    from scripts import floorsynth
+
+    _merged, schema_errors = floorsynth.merge_and_validate(
+        critics if isinstance(critics, list) else [],
+        script_defects if isinstance(script_defects, list) else [],
+    )
+    return bool(schema_errors)
+
+
 def _dict_fields(node) -> tuple[dict[str, ast.AST], bool] | None:
     """``({literal key: value node}, unknown_keys)`` for a dict expression, else None.
 
