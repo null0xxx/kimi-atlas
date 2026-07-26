@@ -451,7 +451,11 @@ class TestEveryHeredocParses(unittest.TestCase):
         bodies = _heredoc_bodies(text)
         self.assertEqual(len(bodies), text.count("<<'PY'"),
                          "a heredoc lost its PY terminator")
-        self.assertEqual(len(bodies), 12)       # 11 at plan time; 12 with the Step-3.4 validate-and-persist block
+        # 11 at plan time; 12 with the Step-3.4 validate-and-persist block;
+        # 13 with the v1.5.2.1 plan-preview persist block (C1: a multi-line
+        # preview cannot live in a one-line Python literal, so it is now read
+        # from a path in argv like every other foreign-text sink).
+        self.assertEqual(len(bodies), 13)
         for i, b in enumerate(bodies):
             with self.subTest(block=i):
                 ast.parse(b.replace("${KIMI_SESSION_ID}", "SID")

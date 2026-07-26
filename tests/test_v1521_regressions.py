@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -96,20 +97,12 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
         """
         block = self._persistence_block()
         self.assertIsNotNone(block, "could not locate the critic-persistence block in the SKILL")
-        honest = json.dumps({
-            "dimensions": {}, "defects": [{
-                "id": "C1", "severity": "LOW", "category": "CORRECTNESS",
-                "location": "m.py:3", "message": "the docstring ''' is unterminated",
-                "fix": "close it",
-            }], "verdict": "OK",
-        })
-        with tempfile.TemporaryDirectory() as d:
-            payload = pathlib.Path(d) / "critic.json"
-            payload.write_text(honest, encoding="utf-8")
-            proc = subprocess.run([sys.executable, "-c", block, str(payload)],
-                                  cwd=d, capture_output=True, text=True, timeout=60)
-            self.assertEqual(proc.returncode, 0,
-                             "an honest critic quoting ''' must persist: %s" % proc.stderr)
+        honest = json.dumps(self._honest_critic("the docstring ''' is unterminated"))
+        proc, run_dir = self._drive(block, honest.encode("utf-8"))
+        self.assertEqual(proc.returncode, 0,
+                         "an honest critic quoting ''' must persist: %s" % (proc.stdout + proc.stderr))
+        self.assertTrue((run_dir / "critic_correctness.json").is_file(),
+                        "the block exited 0 without persisting the artifact: %s" % proc.stdout)
 
     def test_a_bom_prefixed_body_is_not_a_new_false_red(self):
         """FOLD (challenge F5): routing through a file introduces a sink the
@@ -120,23 +113,74 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
         """
         block = self._persistence_block()
         self.assertIsNotNone(block)
-        honest = json.dumps({"dimensions": {}, "defects": [], "verdict": "OK"})
-        with tempfile.TemporaryDirectory() as d:
-            payload = pathlib.Path(d) / "critic.json"
-            payload.write_bytes(b"\xef\xbb\xbf" + honest.encode("utf-8"))
-            proc = subprocess.run([sys.executable, "-c", block, str(payload)],
-                                  cwd=d, capture_output=True, text=True, timeout=60)
-            self.assertEqual(proc.returncode, 0,
-                             "a BOM must not manufacture a RED: %s" % proc.stderr)
+        honest = json.dumps(self._honest_critic())
+        proc, run_dir = self._drive(block, b"\xef\xbb\xbf" + honest.encode("utf-8"))
+        self.assertEqual(proc.returncode, 0,
+                         "a BOM must not manufacture a RED: %s" % (proc.stdout + proc.stderr))
+        self.assertTrue((run_dir / "critic_correctness.json").is_file(),
+                        "the block exited 0 without persisting the artifact: %s" % proc.stdout)
+
+    # -- fixture -----------------------------------------------------------
+    # The block is the SHIPPED one: it imports ``scripts`` and persists through
+    # ``ctxstore``. Driving it therefore needs the same two things the SKILL's
+    # own wrapper line supplies -- ``PYTHONSAFEPATH=1 PYTHONPATH=<plugin root>``
+    # -- plus an existing run directory, because ``ctxstore.write_artifact``
+    # writes into ``<base>/<run_id>/`` and never creates it. ``run`` inside the
+    # block is the literal ``${KIMI_SESSION_ID}`` (the shell expands it in
+    # production), so that is the directory name the fixture creates. rc == 0
+    # consequently means parsed + dup-key-checked + schema-valid + pass-stamped
+    # + persisted, not merely "compiled".
+
+    @staticmethod
+    def _honest_critic(message="all good"):
+        """A critic object that is honest in EVERY respect the schema checks."""
+        from scripts import rubric
+        return {
+            "dimensions": {d: "yes" for d in rubric.DIMENSIONS},
+            "defects": [{
+                "id": "C1", "severity": "LOW", "category": "CORRECTNESS",
+                "location": "m.py:3", "message": message, "fix": "close it",
+            }],
+            "verdict": "OK",
+        }
+
+    def _drive(self, block, payload_bytes):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+        run_dir = d / ".atlas" / "${KIMI_SESSION_ID}"
+        run_dir.mkdir(parents=True)
+        payload = d / "critic.raw.json"
+        payload.write_bytes(payload_bytes)
+        env = dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONSAFEPATH="1")
+        proc = subprocess.run([sys.executable, "-c", block, str(payload)],
+                              cwd=str(d), capture_output=True, text=True,
+                              timeout=60, env=env)
+        return proc, run_dir
 
     def _persistence_block(self):
-        """Extract the Step-3.4 critic-persistence python block from the SKILL."""
-        m = re.search(r"```python\n((?:(?!```).)*?RAW\s*=(?:(?!```).)*?)```", self.text, re.S)
-        if m:
-            return m.group(1)
-        for fence in re.findall(r"```(?:python|py)?\n(.*?)```", self.text, re.S):
-            if "RAW" in fence and "json.loads" in fence:
-                return fence
+        """Extract the Step-3.4 critic-persistence block from the SKILL.
+
+        Uses the project's own heredoc extractor (the one
+        ``tests/test_skill_floor_contract.py`` and ``tests/test_critic_shapes_e2e.py``
+        already share), so what is driven here is byte-identical to what the
+        orchestrator actually executes: the ``<<'PY'`` body, without the shell
+        wrapper line and without the markdown indentation. A fence-level scan
+        would hand back the wrapper line too, which is shell, not Python.
+        """
+        bodies, cur = [], None
+        for line in self.text.splitlines():
+            if cur is None:
+                if line.rstrip().endswith("<<'PY'"):
+                    cur = []
+            elif line.strip() == "PY":
+                bodies.append(textwrap.dedent("\n".join(cur)))
+                cur = None
+            else:
+                cur.append(line)
+        for body in bodies:
+            if "RAW" in body and "json.loads" in body and "enforce_critic_schema" in body:
+                return body
         return None
 
 

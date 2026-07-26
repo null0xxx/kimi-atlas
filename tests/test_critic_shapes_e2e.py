@@ -122,11 +122,23 @@ class _RunDirMixin:
         return root, env
 
     def _persist(self, root, env, name, raw):
+        """Drive the real Step-3.4 block the way the SKILL now mandates.
+
+        C1 (v1.5.2.1): the critic's text is no longer interpolated into the
+        block's source — it is written verbatim to a scratch file by the native
+        ``Write`` tool and reaches the block as ``sys.argv[1]``. This driver
+        mirrors that exactly: bytes to disk, path in argv, nothing substituted
+        into the Python. The block CONSUMES the scratch file, so each call gets
+        a fresh one.
+        """
         body = _VALIDATE_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
         body = body.replace('NAME = "critic_correctness.json"', 'NAME = "%s"' % name)
-        body = body.replace("r'''<the critic's returned JSON text>'''", "r'''" + raw + "'''")
-        return subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
-                              capture_output=True, text=True)
+        self.assertNotIn("<the critic's returned JSON text>", body,
+                         "the Step-3.4 block still interpolates model text (C1)")
+        src = pathlib.Path(root) / ("%s.raw.json" % name)
+        src.write_text(raw, encoding="utf-8")
+        return subprocess.run([sys.executable, "-c", body, str(src)],
+                              cwd=root, env=env, capture_output=True, text=True)
 
     def _gate(self, root, env):
         body = _STEP45_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
