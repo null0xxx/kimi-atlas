@@ -374,6 +374,20 @@ class TestOutOfScopeDefects(unittest.TestCase):
         d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
         self.assertNotIn(d["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
 
+    def test_high_blocks_merge_and_drives_refine(self):
+        ds = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
+        merged = verdict.merge([], ds)
+        self.assertEqual(merged["verdict"], "FAIL")
+        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
+        self.assertTrue(verdict.should_refine(merged, 0))
+        # ... and a legitimate edit the coder must not revert ends UNVERIFIED at
+        # the human gate (fold T2-F6), never silently cleared.
+        self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
+
+    def test_defect_shape_is_canonical(self):
+        d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
+        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
+
 
 class TestOutOfScopeTargetBytesAreQuoted(unittest.TestCase):
     """H1 (v1.5.2.1): the path is TARGET-CONTROLLED and the `fix` is a TRUSTED
@@ -459,13 +473,21 @@ class TestOutOfScopeTargetBytesAreQuoted(unittest.TestCase):
                                         "new_tests_collected": False}, "make test"),
              floorsynth.synth_runcheck({"ok": False, "test_count": 0,
                                         "new_tests_collected": False}, hostile)),
-            (floorsynth.synth_docs(False), floorsynth.synth_docs(False)),
             (floorsynth.empty_diff_defect(""), floorsynth.empty_diff_defect("   ")),
         ]
         for benign, evil in pairs:
             with self.subTest(id=benign[0]["id"]):
                 self.assertNotIn(benign[0]["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
                 self.assertEqual(benign[0]["fix"], evil[0]["fix"])
+        # `synth_docs` takes NO target-derived argument, so there is no second
+        # call to vary against — comparing it with itself would pin nothing.
+        # The constancy claim is therefore asserted the only way it can be: the
+        # `fix` is pinned to its literal bytes, which no interpolation survives.
+        docs = floorsynth.synth_docs(False)[0]
+        self.assertNotIn(docs["id"], floorsynth.ORCHESTRATOR_DEFECT_IDS)
+        self.assertEqual(
+            docs["fix"],
+            "fix artifact naming / inventory-drift so check_artifact_naming passes")
 
     def test_pathcheck_sast_astlens_ids_stay_coder_actionable(self):
         """Fold F8, stated plainly: `P*` / `rules.*` / `AST*` DO interpolate target
@@ -477,20 +499,6 @@ class TestOutOfScopeTargetBytesAreQuoted(unittest.TestCase):
                     "AST1", "AST2"):
             with self.subTest(id=did):
                 self.assertNotIn(did, floorsynth.ORCHESTRATOR_DEFECT_IDS)
-
-    def test_high_blocks_merge_and_drives_refine(self):
-        ds = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])
-        merged = verdict.merge([], ds)
-        self.assertEqual(merged["verdict"], "FAIL")
-        self.assertEqual(merged["dimensions"]["CORRECTNESS"], "no")
-        self.assertTrue(verdict.should_refine(merged, 0))
-        # ... and a legitimate edit the coder must not revert ends UNVERIFIED at
-        # the human gate (fold T2-F6), never silently cleared.
-        self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
-
-    def test_defect_shape_is_canonical(self):
-        d = floorsynth.out_of_scope_defects(["lib/x.py"], ["src"])[0]
-        self.assertEqual(set(d), {"id", "category", "severity", "location", "fix"})
 
 
 def _critic(dim_no=(), verdict="OK", defects=()):
