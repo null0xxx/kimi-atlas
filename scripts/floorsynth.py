@@ -510,7 +510,7 @@ def stale_verdict_defects(log_records) -> list[dict]:
     (c) is H6 (v1.5.2.1), and it is deliberately a TRAILING-SHAPE test rather
     than the pairwise "the record after a REFINE is not CODED" it is tempting to
     write. This function is called by ``skills/atlas/SKILL.md``'s OUTPUT block
-    **29 lines before** that block's own ``advance(..., "OUTPUT")``, so at the
+    **36 lines before** that block's own ``advance(..., "OUTPUT")``, so at the
     real evaluation point a run that crashed after ``advance(REFINE)`` presents a
     ledger ENDING at ``REFINE``, with no successor record at all — a pairwise
     condition has no pair to look at and can never fire, while an

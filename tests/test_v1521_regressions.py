@@ -267,6 +267,15 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
         "REFINE", "CODED", "VERIFIED",
     ]
 
+    PACKET = {"intent": "i", "success_criteria": ["c"], "verify_cmd": "make test",
+              "scope_paths": ["src"], "baseline_sha": "a"}
+
+    # The refine-loop region: every advance the SKILL shows between the REFINE?
+    # decision and OUTPUT, i.e. the whole area in which a checkpoint could be
+    # invited to ride an advance of its own.
+    REGION_START = "### REFINE?"
+    REGION_END = "### OUTPUT"
+
     def _skill(self):
         return _SKILL.read_text(encoding="utf-8")
 
@@ -275,50 +284,120 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
         return [ln.strip() for ln in self._skill().splitlines()
                 if "ctxstore.advance(" in ln and '"checkpoints"' in ln]
 
+    def _refine_loop_region(self):
+        """The SKILL lines from the REFINE? heading up to the OUTPUT heading."""
+        lines = self._skill().splitlines()
+        starts = [i for i, ln in enumerate(lines) if ln.startswith(self.REGION_START)]
+        ends = [i for i, ln in enumerate(lines) if ln.startswith(self.REGION_END)]
+        self.assertEqual(len(starts), 1, "the REFINE? heading moved or duplicated")
+        self.assertEqual(len(ends), 1, "the OUTPUT heading moved or duplicated")
+        self.assertLess(starts[0], ends[0], "REFINE? no longer precedes OUTPUT")
+        return lines[starts[0]:ends[0]]
+
+    def _region_advance_stages(self):
+        """Every stage named by a ``ctxstore.advance`` in the refine-loop region."""
+        return [m.group(1)
+                for ln in self._refine_loop_region()
+                for m in re.finditer(r'ctxstore\.advance\([^)]*?"([A-Z_]+)"', ln)]
+
+    def _checkpoint_calls(self):
+        """The checkpoint ``advance`` calls as SOURCE, extracted from the SKILL.
+
+        Keyed by the stage each one rides. Nothing here is retyped: the tests
+        below EXECUTE the exact text the orchestrator is told to run, so an edit
+        that still satisfies every substring pin but breaks the call's meaning
+        (e.g. ``or {}`` → ``and {} or {}``, which always yields the empty map and
+        so always erases the previously recorded green ref) is caught by
+        execution rather than by review.
+        """
+        calls = {}
+        for ln in self._checkpoint_advances():
+            m = re.search(r"`(ctxstore\.advance\(.*\))`", ln)
+            self.assertIsNotNone(m, "a checkpoint line is not one backticked call: %s" % ln)
+            src = m.group(1)
+            stage = re.search(r'ctxstore\.advance\([^)]*?"([A-Z_]+)"', src).group(1)
+            calls[stage] = src
+        self.assertEqual(sorted(calls), ["REFINE", "VERIFIED"],
+                         "the SKILL no longer shows exactly the two checkpoint carriers")
+        return calls
+
+    def _exec_checkpoint(self, calls, stage, base, rid, sha, status="OK"):
+        """Run one extracted call, with only the run-local values substituted."""
+        src = (calls[stage]
+               .replace('".atlas"', repr(base))
+               .replace('"${KIMI_SESSION_ID}"', repr(rid))
+               .replace('"<sha>"', repr(sha))
+               .replace('"<provisional_status>"', repr(status)))
+        self.assertNotIn("<", src, "a placeholder survived substitution: %s" % src)
+        eval(compile(src, "<SKILL.md checkpoint prose>", "eval"), {"ctxstore": ctxstore})
+
     def test_the_checkpoint_shape_is_silent(self):
-        """The ledger the FIXED prose produces — driven through the real ctxstore,
-        using the two calls the SKILL now shows, and read at the point the OUTPUT
-        block reads it (before its own ``advance(..., "OUTPUT")``)."""
+        """The ledger the FIXED prose produces — driven through the real ctxstore
+        by EXECUTING the two calls the SKILL shows, and read at the point the
+        OUTPUT block reads it (before its own ``advance(..., "OUTPUT")``)."""
+        calls = self._checkpoint_calls()
         with tempfile.TemporaryDirectory() as tmp:
             base, rid = str(pathlib.Path(tmp) / ".atlas"), "RUN"
-            ctxstore.init_run(base, rid, {"intent": "i", "success_criteria": ["c"],
-                                          "verify_cmd": "make test",
-                                          "scope_paths": ["src"], "baseline_sha": "a"})
+            ctxstore.init_run(base, rid, dict(self.PACKET))
             for stage in ("INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED"):
                 ctxstore.advance(base, rid, stage)
+            # pass 1's VERIFIED is RED, so it carries no checkpoint (the prose
+            # rides the VERIFIED advance "only when that status is OK").
             ctxstore.advance(base, rid, "VERIFIED", verdict="UNVERIFIED")
-            prior = ctxstore.get_state(base, rid).get("checkpoints") or {}
-            ctxstore.advance(base, rid, "REFINE",
-                             updates={"checkpoints": dict(prior, CODED="cafe123")})
+            self._exec_checkpoint(calls, "REFINE", base, rid, "cafe123")
             ctxstore.advance(base, rid, "CODED")
-            prior = ctxstore.get_state(base, rid).get("checkpoints") or {}
-            ctxstore.advance(base, rid, "VERIFIED", verdict="OK",
-                             updates={"checkpoints": dict(prior, VERIFIED="deadbee")})
+            self._exec_checkpoint(calls, "VERIFIED", base, rid, "deadbee", status="OK")
             recs = list(ctxstore._iter_log_records(base, rid))
+            st = ctxstore.get_state(base, rid)
         self.assertEqual([r["stage"] for r in recs], self.HONEST_2PASS_WITH_CHECKPOINT,
                          "a checkpoint added a ledger record of its own")
         self.assertEqual(floorsynth.stale_verdict_defects(recs), [],
                          "an honest 2-pass run with a checkpoint is RED for bookkeeping")
+        self.assertEqual(st.get("checkpoints"), {"CODED": "cafe123", "VERIFIED": "deadbee"},
+                         "the SKILL's own calls did not accumulate both checkpoints")
+        self.assertEqual(ctxstore.last_green_stage(st), "VERIFIED")
 
     def test_a_verified_checkpoint_survives_a_later_coded_one(self):
         """FOLD (challenge H-2): ``advance``'s ``updates`` REPLACES the top-level
         key (``st.update(updates)``), so a bare ``{"CODED": sha}`` erases the
         genuinely-green VERIFIED ref and ``last_green_stage`` then hands a
         rollback a tree that no lens ever passed. The SKILL must show a
-        read-modify-write, and it must actually work."""
+        read-modify-write, and it must actually work — so the calls executed here
+        are the SKILL's own text, never a retyped stand-in of it."""
+        calls = self._checkpoint_calls()
         with tempfile.TemporaryDirectory() as tmp:
             base, rid = str(pathlib.Path(tmp) / ".atlas"), "RUN"
-            ctxstore.init_run(base, rid, {"intent": "i", "success_criteria": ["c"],
-                                          "verify_cmd": "make test",
-                                          "scope_paths": ["src"], "baseline_sha": "a"})
+            ctxstore.init_run(base, rid, dict(self.PACKET))
             ctxstore.advance(base, rid, "INIT")
-            ctxstore.advance(base, rid, "VERIFIED", updates={"checkpoints": dict(
-                ctxstore.get_state(base, rid).get("checkpoints") or {}, VERIFIED="green1")})
-            ctxstore.advance(base, rid, "REFINE", updates={"checkpoints": dict(
-                ctxstore.get_state(base, rid).get("checkpoints") or {}, CODED="c1")})
+            self._exec_checkpoint(calls, "VERIFIED", base, rid, "green1", status="OK")
+            self._exec_checkpoint(calls, "REFINE", base, rid, "c1")
             st = ctxstore.get_state(base, rid)
         self.assertEqual(st.get("checkpoints"), {"VERIFIED": "green1", "CODED": "c1"})
         self.assertEqual(ctxstore.last_green_stage(st), "VERIFIED")
+
+    def test_no_advance_in_the_refine_loop_region_re_records_a_stage(self):
+        """The DEFECT CLASS, not the token that carried it (review IMPORTANT-1).
+
+        ``test_the_skill_records_no_checkpoint_of_its_own`` selects lines by
+        ``'"checkpoints"' in ln``, so it constrains only checkpoint-CARRYING
+        advances — a bullet reading "also re-mark the coded stage before
+        re-dispatch: ``advance(..., "CODED", updates={"audited": True})``" slips
+        straight past it and reopens H3 verbatim (measured: the ledger becomes
+        ``[…, CODED, VERIFIED, CODED, REFINE, CODED, VERIFIED]`` and the OUTPUT
+        block prints UNVERIFIED for an honest 2-pass run that fixed everything).
+
+        H3's real class is wider: **between REFINE? and OUTPUT, no advance may
+        name a stage the machine has already recorded.** The only two transitions
+        the machine makes there are REFINE and the re-entered loop's VERIFIED, so
+        every advance in that region must name one of those two — whatever else
+        it carries.
+        """
+        stages = self._region_advance_stages()
+        self.assertTrue(stages, "no advance found between REFINE? and OUTPUT — "
+                                "the extractor went blind, so this pin is free")
+        self.assertEqual(sorted(set(stages)), ["REFINE", "VERIFIED"],
+                         "an advance in the refine-loop region re-records a stage "
+                         "the machine has already recorded: %s" % sorted(set(stages)))
 
     def test_the_skill_records_no_checkpoint_of_its_own(self):
         """The remedy, pinned structurally: every checkpoint ``updates=`` rides an
@@ -369,7 +448,7 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
 
     def test_the_plain_2pass_shape_stays_silent_at_the_evaluation_point(self):
         """FOLD (challenge C-1): the same shape truncated where ``SKILL.md``
-        actually calls ``stale_verdict_defects`` — 29 lines before that block's
+        actually calls ``stale_verdict_defects`` — 36 lines before that block's
         own ``advance(..., "OUTPUT")``, so no OUTPUT record exists yet."""
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
                "VERIFIED", "REFINE", "CODED", "VERIFIED"]
@@ -403,7 +482,7 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
     FOLD (challenge C-1) — **the first draft of this class was the worst kind of
     wrong: it would have gone green while the defect stayed open.** It fed
     ``[…, REFINE, OUTPUT]``, but ``stale_verdict_defects`` is called at
-    ``SKILL.md:871`` and ``advance(…, "OUTPUT")`` runs at ``:900`` — 29 lines
+    ``SKILL.md:996`` and ``advance(…, "OUTPUT")`` runs at ``:1032`` — 36 lines
     later, in the same heredoc. **At the real evaluation point the ledger ends
     at REFINE with no successor**, so a pairwise "next record is not CODED"
     condition can never fire, and an OUTPUT-terminated fixture tests a shape the
@@ -416,7 +495,7 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
     """
 
     def test_trailing_refine_fires_at_the_real_evaluation_point(self):
-        """The ledger AS SEEN at SKILL.md:871 — no OUTPUT record yet."""
+        """The ledger AS SEEN at SKILL.md:996 — no OUTPUT record yet."""
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
                "VERIFIED", "REFINE"]
         self.assertTrue(floorsynth.stale_verdict_defects([_rec(s) for s in seq]),
@@ -451,13 +530,25 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
                     "Interruption / compaction")
 
     def _resume_paragraphs(self):
-        """The two resume sites, each as the block of lines following its anchor."""
+        """The two resume sites, each read to the END OF ITS BULLET.
+
+        FOLD (review MINOR-5): this was a fixed 12-line window, so a sentence
+        contradicting the rule could be appended just past line 12 with the whole
+        suite still green. It never reopened the false green — the deterministic
+        condition above still prints UNVERIFIED, which is why the design is two
+        layers — but prose layer (a) could be contradicted invisibly. The bullet's
+        own end (the next top-level ``- **``) is the real boundary, so anything
+        added anywhere in the site now falls inside the pin.
+        """
         lines = _SKILL.read_text(encoding="utf-8").splitlines()
         out = []
         for anchor in self.RESUME_SITES:
             idx = [i for i, ln in enumerate(lines) if anchor in ln]
             self.assertEqual(len(idx), 1, "resume site moved or duplicated: %s" % anchor)
-            out.append(" ".join(lines[idx[0]:idx[0] + 12]))
+            start = idx[0]
+            end = next((j for j in range(start + 1, len(lines))
+                        if lines[j].startswith("- **")), len(lines))
+            out.append(" ".join(lines[start:end]))
         return out
 
     def test_both_resume_sites_send_a_trailing_refine_back_to_coded(self):
@@ -490,7 +581,7 @@ class TestH4FloorNamespaceIsReserved(unittest.TestCase):
 
     FOLD (challenge F7) — the original rationale was REFUTED by execution. A
     critic's ``fix`` is *already* a trusted coder instruction by design
-    (``SKILL.md:803-805``), so forging ``runcheck`` buys byte-identical
+    (``SKILL.md:910-913``), so forging ``runcheck`` buys byte-identical
     behaviour to an honest ``C1``: measured, both give
     ``forwarded_to_coder=True should_refine=True final=UNVERIFIED``.
 
@@ -505,7 +596,7 @@ class TestH4FloorNamespaceIsReserved(unittest.TestCase):
     format** (verified — ``C1``/``Q1``/``S1`` appear only inside a JSON example,
     and ``references/schemas.json``'s ``critic`` shape constrains no ``id``),
     while the correctness critic is handed ``runcheck`` evidence by name at
-    ``SKILL.md:596`` — making ``{"id": "runcheck"}`` a plausible honest emission.
+    ``SKILL.md:687-688`` — making ``{"id": "runcheck"}`` a plausible honest emission.
     """
 
     RESERVED = tuple(sorted(floorsynth.ORCHESTRATOR_DEFECT_IDS))
@@ -542,7 +633,7 @@ class TestH4FloorNamespaceIsReserved(unittest.TestCase):
         No role file instructs an id format (verified: ``C1``/``Q1``/``S1``
         appear only inside a JSON example, and ``references/schemas.json``'s
         ``critic`` shape constrains no ``id``), while the correctness critic is
-        handed ``runcheck`` evidence *by name* at ``SKILL.md:596``. So
+        handed ``runcheck`` evidence *by name* at ``SKILL.md:687-688``. So
         ``{"id": "runcheck"}`` is a plausible HONEST emission, and reserving it
         would burn the one sanctioned re-dispatch on a green tree — for zero
         security value, since a critic's ``fix`` is already trusted by design.

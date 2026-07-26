@@ -405,6 +405,21 @@ class TestStageOrderE2E(_RunDirMixin, unittest.TestCase):
         self.assertIn("stale-verdict", [d["id"] for d in merged["defects"]])
         self.assertEqual(merged["verdict"], "FAIL")
 
+    def test_a_crash_after_refine_turns_output_red(self):
+        # H6 (review MINOR-6): the ledger ENDS at REFINE when this block runs —
+        # the forced refine never re-entered CODED, so nothing verified the tree
+        # as it now stands. The unit pins assert the fold; this is the only place
+        # the real OUTPUT heredoc executes, so it is the only place that shows
+        # the printed status.
+        root, env = self._make_run()
+        self._green_merged(root, env)
+        self._advance(root, env, "REFINE")
+        out = self._output(root, env)
+        self.assertEqual(out["status"], "UNVERIFIED")
+        merged = json.loads((root / ".atlas" / "RUN" / "merged_critic.json").read_text())
+        self.assertIn("stale-verdict", [d["id"] for d in merged["defects"]])
+        self.assertEqual(merged["verdict"], "FAIL")
+
     def test_clean_ledger_stays_green_at_output(self):
         root, env = self._make_run()
         self._green_merged(root, env)

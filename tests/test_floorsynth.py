@@ -465,7 +465,7 @@ class TestOutOfScopeFixDefaultsToDoNotTouch(unittest.TestCase):
 
 class TestOutOfScopeTargetBytesAreQuoted(unittest.TestCase):
     """H1 (v1.5.2.1): the path is TARGET-CONTROLLED and the `fix` is a TRUSTED
-    coder instruction (skills/atlas/SKILL.md:803-805), so every occurrence of the
+    coder instruction (skills/atlas/SKILL.md:910-913), so every occurrence of the
     path is rendered with `json.dumps`.
 
     Not `safewrap._sanitize_source` (challenge fold F9): it leaves TAB/ESC/VT/FF/BS
@@ -900,7 +900,7 @@ class TestStaleVerdictAtTheRealEvaluationPoint(unittest.TestCase):
     hid it.
 
     Every fixture in ``TestStaleVerdictDefects`` above is OUTPUT-terminated, but
-    ``skills/atlas/SKILL.md``'s OUTPUT block calls ``stale_verdict_defects`` 29
+    ``skills/atlas/SKILL.md``'s OUTPUT block calls ``stale_verdict_defects`` 36
     lines BEFORE its own ``advance(..., "OUTPUT")``. So the ledger the function is
     really handed never carries an OUTPUT record (the one exception being the
     sanctioned ``cancelled=True`` cancel, which is recorded by a different block
@@ -1003,15 +1003,35 @@ class TestStaleVerdictAtTheRealEvaluationPoint(unittest.TestCase):
                                floorsynth.stale_verdict_defects(recs))
         self.assertEqual(verdict.final_status(merged, False), "UNVERIFIED")
 
+    @staticmethod
+    def _pairwise_would_fire(records):
+        """The tempting rewrite, spelled out: "the record AFTER a REFINE is not
+        CODED". It needs a successor record to look at."""
+        stages = [r.get("stage") for r in records]
+        return any(a == "REFINE" and b != "CODED" for a, b in zip(stages, stages[1:]))
+
     def test_a_pairwise_condition_could_not_have_fired(self):
-        """The C-1 non-vacuity control: at the real evaluation point the REFINE
-        record has NO successor, so anything that inspected ``the next record``
-        would have been inert. Pins the shape, so a future rewrite back to a
-        pairwise test is caught by construction rather than by review."""
+        """The C-1 non-vacuity control, itself made non-vacuous (review MINOR-3).
+
+        Its earlier form asserted only properties of its own fixture — measured
+        under exactly the rewrite its docstring claimed to catch, it PASSED, so
+        it killed nothing. The pairwise predicate is therefore DEFINED here and
+        RUN: at the real evaluation point the trailing REFINE has no successor,
+        so it is inert (``False``) while the shipped trailing-shape condition
+        returns the defect. The last assertion keeps the predicate honest — it
+        does fire on the OUTPUT-terminated fixture that hid H6 — so this cannot
+        pass because the predicate was written to be dead.
+        """
         recs = self._drive(["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED",
                             "CODED", "VERIFIED", "REFINE"])
         self.assertEqual(recs[-1]["stage"], "REFINE")
         self.assertNotIn("OUTPUT", [r["stage"] for r in recs])
+        self.assertFalse(self._pairwise_would_fire(recs),
+                         "a pairwise condition CAN fire here — re-derive H6's shape")
+        self.assertTrue(floorsynth.stale_verdict_defects(recs),
+                        "the trailing-shape condition went silent on the H6 ledger")
+        self.assertTrue(self._pairwise_would_fire(recs + [{"stage": "OUTPUT"}]),
+                        "the pairwise predicate is dead code — this control proves nothing")
 
     # ---- the reasons are per-condition, not one blanket accusation (M-1) ----
     def _fix(self, *stages):
