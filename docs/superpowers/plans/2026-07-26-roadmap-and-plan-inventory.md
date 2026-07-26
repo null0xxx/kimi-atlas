@@ -17,33 +17,56 @@ A whole-system graphify (14 agents, three rival root-cause hypotheses tested aga
 
 Measured, and re-verified by hand:
 
-```
-floorsynth predicate functions per release:  0 → 6 → 6 → 12 → 12
-injected-and-shipped defects per release:    0 → 0 → 4 →  0
-```
+**CORRECTED 2026-07-26 — the first version of this table was wrong twice, and the correction weakens the claim. Both errors are recorded rather than quietly fixed.**
 
-Attribution is near 1:1 — `out_of_scope_defects` (`d344aab`) → H1 and H2; `dimension_dissent_defects` (`53f97d6`) → C1's ingestion path; `stale_verdict_defects` (`3b64414`) → H3. **Three of the four new predicates each injected a defect. Zero predicates, zero injections — twice.**
+Re-counted from the tags by execution:
+
+| release | `floorsynth` predicates | new that release | injected a defect? |
+|---|---|---|---|
+| v1.4.0 | 0 | — | — |
+| v1.5.0 | 6 | **+6** | **yes** — the `docs_clean` fail-open, repaired later by `a062d9a` |
+| v1.5.1 | 6 | 0 | no (its false-RED leak was caught by the plan-challenge *before* build) |
+| v1.5.2 | **10** | **+4** | yes — 7 defects |
+| v1.5.2.1 | 10 | 0 | **unaudited** |
+
+The first version said `12` where the tree says `10`, and showed v1.5.0 as zero injections **while this same document cites v1.5.0's `docs_clean` fail-open as its decisive evidence two sections below.** Corrected, the picture is: **two releases added predicates and both injected; two added none, one was clean and one has not been audited.**
+
+Attribution within v1.5.2 is still near 1:1 — `out_of_scope_defects` (`d344aab`) → H1 and H2; `dimension_dissent_defects` (`53f97d6`) → C1's ingestion path; `stale_verdict_defects` (`3b64414`) → H3.
+
+**But n = 4 releases, and there is an unseparated confounder: v1.5.2 had by far the largest scope of any release, so "predicate count" and "amount changed" are entangled.** This is a *direction supported by the record*, not a demonstrated cause. Phase 1 exists to test it, and the plan must not spend more than Phase 1 on the strength of it.
 
 Two control cases make the point sharper:
 
 - **`scripts/verdict.py`** — blob `57062e71`, **byte-identical at v1.4.0, v1.5.0, v1.5.1, v1.5.2 and v1.5.2.1**, and **58% natural language**. Zero defects, ever. So *language* is not the discriminating variable, and neither is *importability*: two of the four v1.5.2 injections lived in `floorsynth.py`, driven by 112 tests, and shipped anyway.
 - **`scripts/lintlens.py`** — runs the untrusted repo's own linter and **by construction never blocks**. Across the whole security programme: **zero false greens, zero false reds.** The one lane permitted to be incomplete is the one lane that has never hurt us.
 
-### The insight
+### The one concrete finding — stated without the framing
 
-THE ONE GUARANTEE is currently an **open-world claim**: *"green means nobody objected"* is sound only if the objection set is complete. It provably is not — verified at HEAD in one command:
+**CORRECTED.** The first version of this section argued that THE ONE GUARANTEE is an "open-world claim"
+that should be "inverted" into a "closed-world coverage certificate", and offered that as the product
+story. **That was framing presented as a finding, and reading the source refuted half of it.**
+
+What is actually there, verified at HEAD:
 
 ```
 MANDATORY: lint_defects, reqcoverage_defects, pathcheck_defects
-OPTIONAL : sast_defects, astlens_defects, syntaxlens_defects   ← fail OPEN on omission
-script_defects_from(evidence without those three) → []  →  merged verdict → OK
+OPTIONAL : sast_defects, astlens_defects, syntaxlens_defects
+script_defects_from(evidence without the optional three) → []  →  merged verdict → OK
 ```
 
-**Three of nine deterministic lenses silently open the gate today if absent.** Adding members cannot make an open-world claim sound; it only adds ways to manufacture a RED. That is not a diligence failure — it is what an open-world soundness claim costs, paid in instalments.
+But `scripts/floorsynth.py`'s own comments show the MANDATORY/OPTIONAL split is a **deliberate trade, not
+an oversight**: those three lenses depend on external tools (`semgrep` above all) that may be legitimately
+absent, and making them mandatory would fail CLOSED on every machine without the toolchain — a manufactured
+RED, which this project's governing rule ranks as worse than the bug. The design is defensible and was
+reasoned about.
 
-**So invert the polarity.** Make green a **closed-world coverage certificate**: *"here are the checks that ran, against this exact tree, with these results."* Completeness stops being a soundness requirement and becomes a reported quantity the human reads. A missing lens no longer makes the green **wrong** — it makes the green **smaller**. And the consequence that matters: **a new check no longer has to be a new way to say NO.** It enters as coverage, and coverage cannot false-RED because it does not block.
+**The real, small residue is this:** a lens that *did not run* is today **indistinguishable from a lens
+that ran and passed**. Both contribute `[]`. Nothing in the output tells the human which happened.
 
-This is also the product answer. Today the output is a binary ✅ that looks identical to every other tool's. Under coverage it becomes *"9 of 9 checks ran on this exact tree — here they are"*: the difference between *trust me* and *here is the evidence*.
+That is a one-line-per-lens fix — record and print which lenses ran — and it needs no new blocking
+predicate, no new architecture, and no re-framing of the guarantee. It is worth doing on its own merits.
+Whether it generalises into "every future check enters as coverage first" is a **hypothesis for Phase 1 to
+test**, not a premise this roadmap is built on.
 
 ### The correction this document records
 
@@ -102,7 +125,7 @@ Ordered by **risk retired per unit of work**. Every phase ships working software
 | Phase | Release | Effort | Content | Acceptance — falsifiable |
 |---|---|---|---|---|
 | **0** | `v1.5.3` | **2 days** | **Cost only. ~5 lines of prose, zero new trusted code.** Packet by reference (31,216 B of role bodies, read at 3.4× *and* emitted at 4×); explicit batching; forbid uninstructed `TodoList` turns. | cost-weighted tokens fall **≥12%** across 3 dogfood targets vs the same 3 at `6c3734f`, with **byte-identical `merged_critic.json`**. *Falsified if* <8% or any verdict changes. |
-| **1** | `v1.5.4` | 3 days | **Additive, cannot regress.** `scripts/coverage.py`, `coverage.json`, the STOP-block coverage line, `tests/corpus/honest/` (this repo at all five tags + recorded dogfood ledgers). All 12 `floorsynth` predicates run against the corpus in **report-only** mode. R1/R2 from the shelved v1.5.3 plan enter **here, as coverage rows**. | `make ci` prints a per-predicate honest-corpus fire count. **Committed prediction:** `out_of_scope_defects` fires (already verified: 3 HIGHs on an honest tree at HEAD) and `stale_verdict_defects`'s adjacency clause fires on ≥1 recorded resume ledger. *If neither fires, the diagnosis is weakened and Phase 2 buys less than claimed.* |
+| **1** | `v1.5.4` | 3 days | **Additive, cannot regress.** `scripts/coverage.py`, `coverage.json`, the STOP-block coverage line, `tests/corpus/honest/` (this repo at all five tags + recorded dogfood ledgers). All 12 `floorsynth` predicates run against the corpus in **report-only** mode. R1/R2 from the shelved v1.5.3 plan enter **here, as coverage rows**. | `make ci` prints a per-predicate honest-corpus fire count. **Committed prediction — REWRITTEN, the first one was rigged.** The original said "if neither fires the diagnosis is weakened", but `out_of_scope_defects` firing was *already verified* before it was written, so the test was pre-satisfied and could not fail. The real test: **at least 3 of the 10 predicates fire on the honest corpus.** *Falsified if fewer than 3 do* — one predicate misfiring is an ordinary bug, not a structural pattern, and in that case Phase 2 is not justified and the effort belongs in Phase 0's cost work plus conventional hardening. Second, independent measure: plot injected defects against **diff bytes** per release, not against predicate count, and report whether predicate count still explains anything once volume is controlled for. |
 | **2** | `v1.5.5` | 3 days | **The structural fix.** `scripts/blocking.py::BLOCKING_CHECKS`; `merge_and_validate` rejects unlisted ids; `tests/test_promotion.py`. Seeded with exactly today's ids so behaviour is unchanged on day one — **except** any predicate the corpus shows firing on honest input is demoted to coverage in the same commit. **That closes H2 as a false-RED source without the fix the shelved branch was written for.** | write a commit adding a new id without a shadow record and a two-directional probe → `make ci` goes red. |
 | **3** | `v1.5.6` | 1 week | `scripts/atlasrun.py` for the 114 lines no test executes; `lensreg.REGISTRY` iteration; `DEGRADED` on tool absence. **Pre-execution toolchain copy + digest-as-coverage lands HERE — S6's first real answer** — before the driver is load-bearing, because an on-disk driver is strictly worse than a retyped heredoc against S6 until it does. | all 8 known survivors die (forged `runcheck`, `review_root→"."` ×2, emptied astlens/sast/pathcheck/lintlens, `docs_clean=True`), driven through the imported function; and the sast/astlens/syntaxlens-absent case yields a printed `coverage: 6/9` — **not `[]`, and not a new blocking defect.** |
 | **4** | `v1.5.7` | — | Remaining stages, **one heredoc per commit, each revertible**. `advance` driver-internal; `fsm` wired as coverage. Absorbs D1–D7 and the supply-chain set (S15–S17). | structural (not `grep`) invariant: every executable region is a call with paths in argv and no substituted literal, asserted on the extracted AST. |
@@ -140,6 +163,6 @@ The process rule from v1.5.2 stands: **any new template that interpolates model-
 
 ## 6. WHAT WOULD MAKE THIS ROADMAP WRONG
 
-Phase 1 is the experiment, and it is cheap — 3 days, additive, cannot regress. **If the honest corpus shows the 12 predicates firing on honest input essentially never, the diagnosis is wrong**: the injections would then be ordinary bugs rather than a structural consequence of predicate growth, Phase 2 buys little, and the effort should move to Phase 0's cost work plus conventional hardening.
+Phase 1 is the experiment, and it is cheap — 3 days, additive, cannot regress. **If fewer than 3 of the 10 predicates fire on honest input, the diagnosis is wrong**: the injections would then be ordinary bugs rather than a structural consequence of predicate growth, Phase 2 buys little, and the effort should move to Phase 0's cost work plus conventional hardening.
 
 That is the falsification test, it runs before the expensive phases, and the prediction is committed in writing above.
