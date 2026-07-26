@@ -88,20 +88,56 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
         ``agents/*-critic.md`` instruct critics to quote the reviewed code. 26 of
         167 stdlib top-level ``.py`` files contain ``'''``; a critic quoting one
         breaks the block on a GREEN tree, burning the sanctioned re-dispatch.
+
+        FOLD (challenge F11): the first draft of this test built the literal
+        **in-test**, so no change to the SKILL could ever turn it green — it
+        pinned Python, not the product. It now extracts the shipped block and
+        drives it the way the fixed block must work: text on disk, path in argv.
         """
+        block = self._persistence_block()
+        self.assertIsNotNone(block, "could not locate the critic-persistence block in the SKILL")
         honest = json.dumps({
             "dimensions": {}, "defects": [{
-                "id": "c1", "severity": "LOW", "category": "CORRECTNESS",
+                "id": "C1", "severity": "LOW", "category": "CORRECTNESS",
                 "location": "m.py:3", "message": "the docstring ''' is unterminated",
                 "fix": "close it",
             }], "verdict": "OK",
         })
-        src = "RAW = r'''" + honest + "'''\nimport json; json.loads(RAW); print('PERSISTED')\n"
         with tempfile.TemporaryDirectory() as d:
-            proc = subprocess.run([sys.executable, "-c", src], cwd=d,
-                                  capture_output=True, text=True, timeout=60)
+            payload = pathlib.Path(d) / "critic.json"
+            payload.write_text(honest, encoding="utf-8")
+            proc = subprocess.run([sys.executable, "-c", block, str(payload)],
+                                  cwd=d, capture_output=True, text=True, timeout=60)
             self.assertEqual(proc.returncode, 0,
-                             "an honest critic quoting ''' must not break the block: %s" % proc.stderr)
+                             "an honest critic quoting ''' must persist: %s" % proc.stderr)
+
+    def test_a_bom_prefixed_body_is_not_a_new_false_red(self):
+        """FOLD (challenge F5): routing through a file introduces a sink the
+        literal never had. A BOM-emitting writer would burn the one sanctioned
+        re-dispatch on a green tree. The project already ruled on this class —
+        ``scripts/syntaxlens.py`` carries ``_loads_json_bom`` because a valid
+        BOM-prefixed ``package.json`` must never be blocked.
+        """
+        block = self._persistence_block()
+        self.assertIsNotNone(block)
+        honest = json.dumps({"dimensions": {}, "defects": [], "verdict": "OK"})
+        with tempfile.TemporaryDirectory() as d:
+            payload = pathlib.Path(d) / "critic.json"
+            payload.write_bytes(b"\xef\xbb\xbf" + honest.encode("utf-8"))
+            proc = subprocess.run([sys.executable, "-c", block, str(payload)],
+                                  cwd=d, capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0,
+                             "a BOM must not manufacture a RED: %s" % proc.stderr)
+
+    def _persistence_block(self):
+        """Extract the Step-3.4 critic-persistence python block from the SKILL."""
+        m = re.search(r"```python\n((?:(?!```).)*?RAW\s*=(?:(?!```).)*?)```", self.text, re.S)
+        if m:
+            return m.group(1)
+        for fence in re.findall(r"```(?:python|py)?\n(.*?)```", self.text, re.S):
+            if "RAW" in fence and "json.loads" in fence:
+                return fence
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -176,18 +212,47 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
     The resume prose says "the stage after its last recorded ledger entry";
     read in STAGES order that is OUTPUT. The V7-forced refine never runs and the
     run prints a green. THE ONE GUARANTEE, on an honest crash.
+
+    FOLD (challenge C-1) — **the first draft of this class was the worst kind of
+    wrong: it would have gone green while the defect stayed open.** It fed
+    ``[…, REFINE, OUTPUT]``, but ``stale_verdict_defects`` is called at
+    ``SKILL.md:871`` and ``advance(…, "OUTPUT")`` runs at ``:900`` — 29 lines
+    later, in the same heredoc. **At the real evaluation point the ledger ends
+    at REFINE with no successor**, so a pairwise "next record is not CODED"
+    condition can never fire, and an OUTPUT-terminated fixture tests a shape the
+    SKILL never presents. The condition must therefore be a TRAILING-shape test
+    (``last_refine > last_coded``), and every fixture here is truncated exactly
+    where the SKILL evaluates it.
+
+    The same fidelity gap runs through the whole 26-row matrix in
+    ``tests/test_floorsynth.py`` — every fixture there is OUTPUT-terminated.
     """
 
-    def test_refine_then_output_without_coded_fires(self):
+    def test_trailing_refine_fires_at_the_real_evaluation_point(self):
+        """The ledger AS SEEN at SKILL.md:871 — no OUTPUT record yet."""
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
-               "VERIFIED", "REFINE", "OUTPUT"]
+               "VERIFIED", "REFINE"]
         self.assertTrue(floorsynth.stale_verdict_defects([_rec(s) for s in seq]),
                         "a refine that never re-entered CODED prints a green")
 
-    def test_a_resumed_refine_that_did_re_enter_coded_is_silent(self):
-        """Honest control: the legitimate crash-and-resume path must stay green."""
+    def test_the_message_names_the_real_condition(self):
+        """FOLD (challenge M-1): two honest shapes (ROLLBACK-after-REFINE and the
+        coder-timeout budget-exhausted path) also fire. Both are already
+        UNVERIFIED by design, so no deserved green is lost — but they must not be
+        handed the stale-verdict diagnosis ("the tree may have mutated after
+        verification"), which is false for them. The plan demands an accurate
+        message for the OUTPUT->INIT adjacency; the same rule applies here.
+        """
         seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
-               "VERIFIED", "REFINE", "CODED", "VERIFIED", "OUTPUT"]
+               "VERIFIED", "REFINE"]
+        for d in floorsynth.stale_verdict_defects([_rec(s) for s in seq]):
+            self.assertNotIn("may have mutated after verification", d["fix"],
+                             "a refine-without-CODED is given the stale-verdict diagnosis")
+
+    def test_a_resumed_refine_that_did_re_enter_coded_is_silent(self):
+        """Honest control, also truncated at the real evaluation point."""
+        seq = ["INIT", "INTENT_CAPTURED", "TRIAGED", "GROUNDED", "CODED",
+               "VERIFIED", "REFINE", "CODED", "VERIFIED"]
         self.assertEqual(floorsynth.stale_verdict_defects([_rec(s) for s in seq]), [])
 
 
@@ -197,12 +262,28 @@ class TestH6CrashAfterRefineIsNotAFalseGreen(unittest.TestCase):
 class TestH4FloorNamespaceIsReserved(unittest.TestCase):
     """``enforce_critic_schema`` checks that ``id`` is present, never its VALUE.
 
-    So a prompt-injected critic emits ``{"id": "runcheck"}`` and its ``fix`` is
-    classified plugin-authored — the provenance mechanism forged by exactly the
-    actor the deterministic layer exists to catch.
+    FOLD (challenge F7) — the original rationale was REFUTED by execution. A
+    critic's ``fix`` is *already* a trusted coder instruction by design
+    (``SKILL.md:803-805``), so forging ``runcheck`` buys byte-identical
+    behaviour to an honest ``C1``: measured, both give
+    ``forwarded_to_coder=True should_refine=True final=UNVERIFIED``.
+
+    The real, reachable hole is the REVERSE direction: taking an
+    **ORCHESTRATOR** id lets a critic **delete its own CRITICAL from the refine
+    loop** — measured, ``id=stale-verdict`` gives
+    ``forwarded=False should_refine=False v7=False``.
+
+    So the reserved set is exactly ``ORCHESTRATOR_DEFECT_IDS`` and nothing
+    more. Reserving ``runcheck``/``docs-naming``/``empty-diff`` would have been
+    the release's fourth manufactured RED: **no role file instructs any id
+    format** (verified — ``C1``/``Q1``/``S1`` appear only inside a JSON example,
+    and ``references/schemas.json``'s ``critic`` shape constrains no ``id``),
+    while the correctness critic is handed ``runcheck`` evidence by name at
+    ``SKILL.md:596`` — making ``{"id": "runcheck"}`` a plausible honest emission.
     """
 
-    RESERVED = ("runcheck", "docs-naming", "empty-diff", "evidence-incomplete")
+    RESERVED = tuple(sorted(floorsynth.ORCHESTRATOR_DEFECT_IDS))
+    NOT_RESERVED = ("runcheck", "docs-naming", "empty-diff", "out-of-scope:x.py")
 
     def _critic(self, defect_id):
         from scripts import rubric
@@ -214,16 +295,38 @@ class TestH4FloorNamespaceIsReserved(unittest.TestCase):
             "verdict": "OK",
         }
 
-    def test_a_critic_using_a_reserved_id_is_a_schema_error(self):
+    def test_a_critic_taking_an_orchestrator_id_is_a_schema_error(self):
+        """An ORCHESTRATOR id lets a critic delete its own CRITICAL from the
+        refine loop — measured: ``id=stale-verdict`` gives
+        ``forwarded=False should_refine=False v7=False``."""
         for rid in self.RESERVED:
             with self.subTest(id=rid):
-                errs = quality.enforce_critic_schema(self._critic(rid), reserved_ids=frozenset(self.RESERVED))
-                self.assertTrue(errs, "a critic forged the floor id %r and was accepted" % rid)
+                errs = quality.enforce_critic_schema(self._critic(rid),
+                                                     reserved_ids=frozenset(self.RESERVED))
+                self.assertTrue(errs, "a critic took the orchestrator id %r and was accepted" % rid)
 
     def test_an_honest_critic_id_is_accepted(self):
-        """Honest control: reserving the namespace must not reject real critics."""
+        """Honest control: reserving must not reject real critics."""
         self.assertEqual(
             quality.enforce_critic_schema(self._critic("C1"), reserved_ids=frozenset(self.RESERVED)), [])
+
+    def test_floor_ids_outside_the_orchestrator_set_are_NOT_reserved(self):
+        """FOLD (challenge F7) — the fourth manufactured RED, avoided.
+
+        No role file instructs an id format (verified: ``C1``/``Q1``/``S1``
+        appear only inside a JSON example, and ``references/schemas.json``'s
+        ``critic`` shape constrains no ``id``), while the correctness critic is
+        handed ``runcheck`` evidence *by name* at ``SKILL.md:596``. So
+        ``{"id": "runcheck"}`` is a plausible HONEST emission, and reserving it
+        would burn the one sanctioned re-dispatch on a green tree — for zero
+        security value, since a critic's ``fix`` is already trusted by design.
+        """
+        for rid in self.NOT_RESERVED:
+            with self.subTest(id=rid):
+                self.assertEqual(
+                    quality.enforce_critic_schema(self._critic(rid),
+                                                  reserved_ids=frozenset(self.RESERVED)), [],
+                    "reserving %r manufactures a RED on an honest critic" % rid)
 
     def test_merged_shape_validation_is_untouched(self):
         """The merged object legitimately carries floor ids — it must still validate."""
