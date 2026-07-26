@@ -270,11 +270,26 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
     PACKET = {"intent": "i", "success_criteria": ["c"], "verify_cmd": "make test",
               "scope_paths": ["src"], "baseline_sha": "a"}
 
-    # The refine-loop region: every advance the SKILL shows between the REFINE?
-    # decision and OUTPUT, i.e. the whole area in which a checkpoint could be
-    # invited to ride an advance of its own.
-    REGION_START = "### REFINE?"
-    REGION_END = "### OUTPUT"
+    # The refine-loop region: every advance the SKILL shows in the window where a
+    # standalone checkpoint advance could be invited.
+    #
+    # FOLD (whole-branch review MUT-2): the first version anchored on the `###`
+    # HEADINGS, which left two live placements outside the region — a bullet two
+    # lines ABOVE `### REFINE?`, and one inside the OUTPUT section before the
+    # fold is evaluated. Both reopened H3 with the whole suite green (measured:
+    # the real OUTPUT block printed UNVERIFIED on an honest 2-pass run). The
+    # window is therefore anchored on the two points that actually bound the
+    # danger — the VERIFIED advance that opens it, and the `stale_verdict_defects`
+    # CALL SITE that closes it, not the heading above that call.
+    #
+    # The obvious wider fix — walking every advance in the whole SKILL — was
+    # measured and REJECTED: it splices mutually exclusive branches and the
+    # sanctioned-cancel OUTPUT, and `stale_verdict_defects` returns a defect on
+    # that spliced sequence, i.e. a manufactured RED on the pristine repository.
+    REGION_START_RE = re.compile(r'ctxstore\.advance\([^)]*?"VERIFIED"[^)]*?verdict=')
+    REGION_END_RE = re.compile(r"stale\s*=\s*floorsynth\.stale_verdict_defects\(")
+    # Newline-tolerant: a call wrapped across two lines defeated the line-local form.
+    ADVANCE_STAGE_RE = re.compile(r'ctxstore\.advance\((?:[^()]|\n)*?"([A-Z_]+)"')
 
     def _skill(self):
         return _SKILL.read_text(encoding="utf-8")
@@ -285,20 +300,22 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
                 if "ctxstore.advance(" in ln and '"checkpoints"' in ln]
 
     def _refine_loop_region(self):
-        """The SKILL lines from the REFINE? heading up to the OUTPUT heading."""
+        """The SKILL text from the VERIFIED advance to the stale-fold CALL SITE.
+
+        Returned as ONE string, not a line list, so a call wrapped across lines
+        is still seen — that was the second of the two placements MUT-2 found.
+        """
         lines = self._skill().splitlines()
-        starts = [i for i, ln in enumerate(lines) if ln.startswith(self.REGION_START)]
-        ends = [i for i, ln in enumerate(lines) if ln.startswith(self.REGION_END)]
-        self.assertEqual(len(starts), 1, "the REFINE? heading moved or duplicated")
-        self.assertEqual(len(ends), 1, "the OUTPUT heading moved or duplicated")
-        self.assertLess(starts[0], ends[0], "REFINE? no longer precedes OUTPUT")
-        return lines[starts[0]:ends[0]]
+        starts = [i for i, ln in enumerate(lines) if self.REGION_START_RE.search(ln)]
+        ends = [i for i, ln in enumerate(lines) if self.REGION_END_RE.search(ln)]
+        self.assertTrue(starts, "the VERIFIED advance that opens the window is gone")
+        self.assertEqual(len(ends), 1, "the stale_verdict_defects call site moved or duplicated")
+        self.assertLess(starts[0], ends[0], "the VERIFIED advance no longer precedes the fold")
+        return "\n".join(lines[starts[0]:ends[0]])
 
     def _region_advance_stages(self):
-        """Every stage named by a ``ctxstore.advance`` in the refine-loop region."""
-        return [m.group(1)
-                for ln in self._refine_loop_region()
-                for m in re.finditer(r'ctxstore\.advance\([^)]*?"([A-Z_]+)"', ln)]
+        """Every stage named by a ``ctxstore.advance`` in the refine-loop window."""
+        return self.ADVANCE_STAGE_RE.findall(self._refine_loop_region())
 
     def _checkpoint_calls(self):
         """The checkpoint ``advance`` calls as SOURCE, extracted from the SKILL.
