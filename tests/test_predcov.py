@@ -47,7 +47,9 @@ passes every positive control and dies only to the negative one.
 No test in this module asserts a fire count, a threshold or a verdict.
 """
 import ast
+import contextlib
 import inspect
+import io
 import json
 import os
 import pathlib
@@ -1176,6 +1178,281 @@ class TestFailOpenArm(unittest.TestCase):
         self.assertEqual([], [it for it in manifest["items"] if it["arm"] == "failopen"])
         self.assertEqual([], [it for it in manifest["items"]
                               if it["id"].startswith("failopen/")])
+
+
+class TestInstrumentGuarantees(unittest.TestCase):
+    """Task 10: what the instrument promises about ITSELF. Not one of these asserts a
+    fire count, a threshold or a verdict.
+
+    Folds CQ4, CQ6, TA-H2/CQ15, RC-11, RC-02. The through-line is that a measuring
+    device which can fail a build is a gate wearing a lab coat, and every one of
+    these properties was, in one of the candidate designs, a promise with no test:
+
+      * CQ6 — the exit-0 guarantee had zero tests in one design and was implemented
+        with ``except BaseException`` in the other, which swallows ``SystemExit``
+        (so a typo'd flag reports success) and ``KeyboardInterrupt``.
+      * RC-11 — the Phase 1 acceptance criterion is that ``make ci`` PRINTS a
+        per-predicate count, and three independent suppressions make its silent
+        absence invisible. So the form is pinned, and only the form.
+      * TA-H2/CQ15 — a determinism test that calls a pure function twice in one
+        process is near-vacuous; this one runs two SUBPROCESSES under different
+        ``PYTHONHASHSEED`` values and compares BYTES.
+      * CQ4 — a tamper pin that iterates a deleted corpus passes on zero files.
+      * RC-02 — ``make ci`` must WRITE NOTHING: a repo-root artifact would fire
+        ``out-of-scope`` on this project's own next self-review, because
+        ``floorsynth._is_residue`` does not cover it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._tmp.cleanup)
+        donor = _CORPUS / "honest" / "after-t1-a"
+
+        cls.malformed_json_corpus = os.path.join(cls._tmp.name, "malformed")
+        dest = os.path.join(cls.malformed_json_corpus, "honest", "after-t1-a")
+        shutil.copytree(str(donor), dest)
+        with open(os.path.join(dest, "det_evidence.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json at all,,,")
+
+        cls.no_tree_paths_corpus = os.path.join(cls._tmp.name, "no-tree-paths")
+        dest = os.path.join(cls.no_tree_paths_corpus, "honest", "after-t1-a")
+        shutil.copytree(str(donor), dest)
+        os.remove(os.path.join(dest, "tree.paths"))
+
+    def _run_cli(self, env_seed):
+        """The CLI in a SUBPROCESS, returning the printed report AND the record, as BYTES.
+
+        MEASURED GAP IN THE PLAN'S VERSION, and the reason the record is included:
+        comparing stdout alone leaves every field the human report does not print
+        unprotected, which is most of the record. Verified by mutation —
+        ``list(set(...))`` in place of ``sorted(set(...))`` for a row's distinct
+        dimension values survives a stdout-only comparison, and set-iteration order
+        leaking into a serialized list is precisely what this test exists to kill.
+        """
+        env = dict(os.environ, PYTHONHASHSEED=env_seed, PYTHONDONTWRITEBYTECODE="1")
+        with tempfile.TemporaryDirectory() as td:
+            record = os.path.join(td, "predcov.json")
+            proc = subprocess.run(
+                ["python3", "-m", "scripts.predcov", "--corpus", "tests/corpus",
+                 "--json", record],
+                cwd=str(_ROOT), capture_output=True, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+            with open(record, "rb") as fh:
+                written = fh.read()
+        # The record's own path is the one thing that legitimately differs.
+        return proc.stdout.replace(record.encode("utf-8"), b"<record>") + written
+
+    def test_exit_zero_on_three_failure_inputs_and_still_prints(self):
+        for args in (["--corpus", "/nonexistent"],
+                     ["--corpus", self.malformed_json_corpus],
+                     ["--corpus", self.no_tree_paths_corpus]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(predcov.main(args), 0)
+            self.assertTrue(out.getvalue().strip())
+
+    def test_a_failure_input_says_so_instead_of_printing_a_number(self):
+        """Exit 0 is half the promise; the other half is that it is not silent.
+
+        ``rc == 0`` with a plausible-looking table is the worst outcome available to
+        this instrument, so each failure input must also leave a visible marker. The
+        corpus that does not exist reports zero items; the corpus whose evidence will
+        not parse reports ADAPTER DEGRADED and withholds the verdict.
+        """
+        for args, marker in ((["--corpus", "/nonexistent"], "0 items"),
+                             (["--corpus", self.malformed_json_corpus], "DEGRADED")):
+            with self.subTest(args=args):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    predcov.main(args)
+                self.assertIn(marker, out.getvalue())
+
+        # "DEGRADED" alone is satisfied by the withheld-verdict string, so the
+        # degraded report must also NAME what failed -- otherwise a reader is told
+        # the instrument is broken and given nothing to fix.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            predcov.main(["--corpus", self.malformed_json_corpus])
+        self.assertIn("det_evidence.json", out.getvalue())
+        self.assertIn("after-t1-a", out.getvalue())
+
+    def test_argparse_systemexit_is_not_swallowed(self):
+        """CQ6, the half ``except BaseException`` gets wrong.
+
+        A typo'd flag must FAIL LOUDLY. Catching ``BaseException`` around the parse
+        turns ``--corupus`` into a clean exit and a report about the default corpus,
+        which is the same class of silent-wrong-answer the whole phase is about.
+        """
+        with self.assertRaises(SystemExit) as caught:
+            with contextlib.redirect_stderr(io.StringIO()):
+                predcov.main(["--no-such-flag"])
+        self.assertNotEqual(caught.exception.code, 0)
+        # Checked over the HANDLERS, not the text, so the docstrings may keep naming
+        # BaseException -- which is where the reason for this rule is written down.
+        tree = ast.parse((_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8"))
+        caught_types = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler):
+                kinds = (node.type.elts if isinstance(node.type, ast.Tuple)
+                         else [node.type] if node.type is not None else [])
+                caught_types.update(ast.unparse(k) for k in kinds)
+        self.assertTrue(caught_types, "this walk must be able to see a real handler")
+        self.assertNotIn("BaseException", caught_types)
+        self.assertNotIn("SystemExit", caught_types)
+        self.assertNotIn("KeyboardInterrupt", caught_types)
+
+    def test_no_return_path_of_main_is_non_zero(self):
+        """The exit-0 guarantee, checked structurally rather than by sampling inputs.
+
+        Three failure inputs are three samples; this reads every ``return`` in
+        ``main`` and requires each to be the literal 0. A future branch returning 1
+        would pass every test above until someone hit that branch in ``make ci``.
+        """
+        tree = ast.parse((_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8"))
+        main = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef) and n.name == "main")
+        returns = [n for n in ast.walk(main) if isinstance(n, ast.Return)]
+        self.assertTrue(returns)
+        for node in returns:
+            with self.subTest(line=node.lineno):
+                self.assertIsInstance(node.value, ast.Constant)
+                self.assertEqual(node.value.value, 0)
+
+    def test_report_form_is_stable_whatever_the_numbers(self):
+        text = predcov.render(predcov.evaluate_corpus("tests/corpus"))
+        self.assertEqual(text.count("\n  "), len(predcov.EMITTERS))   # one row per emitter
+        self.assertIn("PREDICTION", text)
+        self.assertIn("OBSERVED:", text)
+
+    def test_the_report_form_survives_a_corpus_that_answers_nothing(self):
+        """"Whatever the numbers" means the ABSENT ones too.
+
+        The test above runs on the shipped corpus, where every row has something to
+        say. RC-11's failure mode is the opposite one: a report that silently drops
+        the rows it cannot fill, so a blinded predicate leaves no line at all and the
+        table reads complete. Indentation is load-bearing here and stated as such —
+        the emitter rows are the ONLY lines this report indents, which is what makes
+        the count above a count of rows.
+        """
+        for corpus in ("/nonexistent", self.malformed_json_corpus, self.no_tree_paths_corpus):
+            with self.subTest(corpus=corpus):
+                text = predcov.render(predcov.evaluate_corpus(corpus))
+                self.assertEqual(text.count("\n  "), len(predcov.EMITTERS))
+                self.assertIn("PREDICTION", text)
+                self.assertIn("OBSERVED:", text)
+                for stem in predcov.EMITTERS:
+                    self.assertIn("\n  %s" % stem, text)
+
+    def test_determinism_across_processes_and_hash_seeds(self):
+        a = self._run_cli(env_seed="0"); b = self._run_cli(env_seed="12345")
+        self.assertEqual(a, b)                                        # BYTES, two subprocesses
+
+    def test_the_determinism_check_is_reading_a_real_report(self):
+        """The pairing that stops the test above passing on two empty strings."""
+        out = self._run_cli(env_seed="0")
+        self.assertTrue(len(out) > 500, "the CLI printed almost nothing")
+        for stem in predcov.EMITTERS:
+            self.assertIn(stem.encode("utf-8"), out)
+
+    def test_manifest_pins_existence_and_count_not_only_hashes(self):
+        m = json.loads(pathlib.Path("tests/corpus/manifest.json").read_text())
+        self.assertEqual(len(m["items"]), 17)
+        for it in m["items"]:
+            self.assertTrue(pathlib.Path(it["path"]).exists())
+            self.assertTrue(it["source"])                             # TA-H1: provenance required
+
+    def test_corpus_is_inert_under_unittest_discovery(self):
+        self.assertEqual(list(pathlib.Path("tests/corpus").rglob("*.py")), [])
+        self.assertEqual(list(pathlib.Path("tests/corpus").rglob("__init__.py")), [])
+
+    def test_ci_recipe_writes_nothing(self):
+        before = subprocess.run(["git", "status", "--porcelain"], cwd=str(_ROOT),
+                                capture_output=True, text=True).stdout
+        target = _ROOT / predcov.DEFAULT_JSON_TARGET
+        stat_before = target.stat().st_mtime_ns if target.exists() else None
+        subprocess.run(["python3", "-m", "scripts.predcov", "--corpus", "tests/corpus"],
+                       cwd=str(_ROOT), capture_output=True)
+        after = subprocess.run(["git", "status", "--porcelain"], cwd=str(_ROOT),
+                               capture_output=True, text=True).stdout
+        self.assertEqual(before, after)
+        # MEASURED GAP in the porcelain comparison alone: once the default target
+        # exists -- which the mutation itself creates on its first run -- before and
+        # after agree again and the write becomes invisible. So the target's own
+        # mtime is pinned too, which stays valid after Task 12 commits that file.
+        self.assertEqual(stat_before,
+                         target.stat().st_mtime_ns if target.exists() else None)
+
+    def test_the_only_write_in_the_module_is_behind_the_json_flag(self):
+        """The structural half, and the half that actually kills the mutation.
+
+        A runtime comparison can only observe a write it happens to catch; this reads
+        every filesystem-mutating call in the module and requires each to sit inside
+        the ``if args.json:`` branch. Nothing else in this instrument may touch the
+        disk, because a file it drops in the repository root fires ``out-of-scope``
+        on the next self-review.
+        """
+        tree = ast.parse((_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8"))
+        guarded = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and ast.unparse(node.test) == "args.json":
+                guarded.update(id(n) for n in ast.walk(node))
+        self.assertTrue(guarded, "the args.json branch is gone; this rule needs re-deciding")
+        writers = {"write_text", "write_bytes", "mkdir", "makedirs", "writelines",
+                   "rmtree", "remove", "unlink", "rename", "touch"}
+        found = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (node.func.attr if isinstance(node.func, ast.Attribute)
+                    else node.func.id if isinstance(node.func, ast.Name) else "")
+            if name in writers or name == "open":
+                found.append((name, node.lineno, id(node) in guarded))
+        self.assertTrue(found, "this walk must be able to see a real write call")
+        for name, line, is_guarded in found:
+            with self.subTest(call="%s:%d" % (name, line)):
+                self.assertTrue(is_guarded,
+                                "%s at line %d writes outside the --json branch" % (name, line))
+
+    def test_the_write_target_is_the_only_thing_that_writes_and_not_to_the_repo_root(self):
+        """RC-02: the read-only default is what keeps this out of the next self-review.
+
+        A repo-root ``coverage.json`` is NOT residue — ``floorsynth._is_residue``
+        returns False for it, verified — so a generated file there fires
+        ``out-of-scope`` as a HIGH on any self-review with a scope narrower than
+        ``.``. The instrument would then manufacture a RED on this honest repository,
+        which is the one thing the whole programme forbids. So the write is opt-in,
+        and its default destination is under ``references/``.
+        """
+        self.assertFalse(floorsynth._is_residue("predcov.json"),
+                         "a repo-root artifact is still not residue; the rule stands")
+        with tempfile.TemporaryDirectory() as td:
+            target = os.path.join(td, "sub", "predcov.json")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(predcov.main(["--corpus", "tests/corpus",
+                                               "--json", target]), 0)
+            self.assertTrue(os.path.isfile(target))
+            written = json.loads(pathlib.Path(target).read_text(encoding="utf-8"))
+            self.assertEqual(written["denominator"]["n"],
+                             len(predcov.discover_emitters()))
+        self.assertIn("references/", predcov.DEFAULT_JSON_TARGET)
+
+    def test_the_instrument_adds_no_gate_key_and_names_no_blocking_id(self):
+        """GLOBAL CONSTRAINT 2, checked over the rendered bytes rather than promised.
+
+        The report is the only thing this phase emits into a human's view of a run.
+        It must never look like a verdict: no ``gate_results`` key, and — since the
+        table necessarily NAMES all ten blocking ids — no line that presents one as
+        this run's own defect.
+        """
+        text = predcov.render(predcov.evaluate_corpus("tests/corpus"))
+        self.assertIn("REPORT ONLY", text)
+        self.assertNotIn("gate_results", text)
+        self.assertNotIn("VERIFIED", text)
+        self.assertNotIn("UNVERIFIED", text)
+        source = (_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8")
+        self.assertNotIn("sys.exit(1)", source)
 
 
 if __name__ == "__main__":  # pragma: no cover

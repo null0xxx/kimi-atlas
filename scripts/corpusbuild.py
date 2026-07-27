@@ -216,6 +216,12 @@ DIRTY_SCOPE: tuple[str, ...] = ("src",)
 # The namespaces are the SKILL's Step 4+5 variable names, so ``predcov`` replays
 # them through the SKILL's OWN argument expressions — defaults included, because a
 # fail-open IS the default being taken.
+#
+# NOTE for anyone pointing the denominator walk at this file: the H4 fixture below
+# holds a defect-shaped dict with a blocking severity, authored at module scope.
+# ``predcov.discover_emitters`` would raise DiscoveryFailure on it — "a blocking
+# literal outside any top-level def" — and that is the rule working, not a defect:
+# this is a capture tool, it emits nothing, and no denominator counts it.
 FAILOPEN_ITEMS: tuple[dict, ...] = (
     {
         "id": "docs-naming",

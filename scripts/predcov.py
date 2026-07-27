@@ -57,6 +57,35 @@ THE FIRING RULE and its two bespoke adapters live in :func:`fired`,
 ("the emitter returned a non-empty list") is measurably wrong on exactly those
 two and INVERTS the experiment's answer; each carries its own note.
 
+THE RECORD IS ``rows: {row_id: {"kind": ...}}``, and the widening is load-bearing.
+Roadmap §4 names R1 (the ``.atlas-owner`` ownership nonce) and R2
+(recompute-at-print) as Phase 1 coverage rows — re-scoped there from
+``fix/security-audit-v153``, where both shipped as new BLOCKING PREDICATES, i.e.
+as more of the thing this phase is measuring. A schema keyed only on the ten
+emitter stems has nowhere to put them, which is exactly why both candidate
+designs dropped them. Only ``floorsynth-emitter`` rows are the denominator; the
+two ``runtime-observation`` rows block on nothing and count toward nothing.
+
+THE INSTRUMENT'S OWN GUARANTEES, and each has a test rather than a promise:
+  * ``main`` has NO non-zero return path, and every ``return`` in it is checked to
+    be the literal ``0``. ``argparse``'s ``SystemExit`` is deliberately NOT caught
+    — a typo'd flag must fail loudly instead of silently reporting on the default
+    corpus — and nothing here catches ``BaseException``, which would swallow that
+    and ``KeyboardInterrupt`` too.
+  * The default run is READ-ONLY. ``--json`` is the only thing that writes, it is
+    never passed by ``make ci``, and its default destination is under
+    ``references/`` — measured, not stylistic: a generated file at the repository
+    ROOT is not tool residue (``floorsynth._is_residue`` returns False for it), so
+    it fires ``out-of-scope`` as a blocking HIGH on this project's own next
+    self-review. An instrument that manufactures a RED on an honest repository is
+    worse than the bug it closes, and that includes one about itself.
+  * The report is FORM-STABLE: exactly one line per member of :data:`EMITTERS`,
+    whatever the corpus says, so a blinded predicate leaves a visible ``- (blind)``
+    instead of vanishing from a table that then reads complete. The emitter rows
+    are the only INDENTED lines in the report, which is what makes that countable.
+  * The record is BYTE-DETERMINISTIC across processes and ``PYTHONHASHSEED``
+    values: everything is sorted, and nothing carries a clock.
+
 THE ADAPTERS ARE A REPLICA, and :data:`ADAPTER_ARGUMENTS` is what keeps them one.
 The argument marshalling below is a THIRD hand-copy of the SKILL's Step 4+5 fold
 (``skills/atlas/SKILL.md``), after the fold itself and
@@ -72,9 +101,13 @@ fail-open runtime behaviour and would be manufactured measurements here.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import hashlib
 import json
+import os
 import pathlib
+import sys
 
 from scripts.rubric import BLOCKING as _BLOCKING_SEV
 
@@ -1635,8 +1668,21 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
 
         item["supplies"] = list(ARM_SUPPLIES.get(arm, ()))
         item["scope_paths"] = list(meta.get("scope_paths") or [])
+        # A WHITELIST, not the whole item.json: ``source_session_dir`` is an absolute
+        # scratchpad path carrying a session id, and a record that embeds it is a
+        # record only one machine can reproduce.
+        item["meta"] = {k: meta[k] for k in
+                        ("pre_existing", "coder_authored", "changed_md", "range",
+                         "refine_passes", "rc", "final_stage", "tree_paths_state",
+                         "n_evaluations_performed", "n_evaluations_replayed")
+                        if k in meta}
         item["emitters"] = replay_item(inputs, ARM_SUPPLIES.get(arm, ()))
         item_errors += [r["error"] for r in item["emitters"].values() if r["error"]]
+        if "ev" in inputs and "evidence-incomplete" in ARM_SUPPLIES.get(arm, ()):
+            try:
+                _own, item["passthrough"] = split_script_defects(inputs["ev"])
+            except AdapterInputError as exc:                 # pragma: no cover - defensive
+                item_errors.append("passthrough: %s" % exc)
 
         if item["kind"] == "recorded-run":
             try:
@@ -1704,6 +1750,8 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
                         "item, never once per defect"),
         "rows": rows,
         "arms": _arm_blocks(items),
+        "mechanisms": attribute_fires(items),
+        "passthrough": passthrough_bucket(items),
         "prediction": _prediction(rows, derived, bool(errors)),
         "items": items,
         "errors": sorted(errors),
@@ -1719,8 +1767,6 @@ def _source_sha256() -> str:
     (TA-H2/CQ15 runs the CLI in two subprocesses and compares), so a timestamp is
     not available to say *which* floorsynth this is.
     """
-    import hashlib
-
     try:
         data = (_ROOT / "scripts" / "floorsynth.py").read_bytes()
     except OSError:
@@ -1883,3 +1929,264 @@ def _emitter_rows(items: list[dict], derived: list[str], pairs) -> dict:
             "prior": stem in PRIORS,
         }
     return rows
+
+
+# ===========================================================================
+# MECHANISM ATTRIBUTION, THE PASS-THROUGH BUCKET, AND THE RENDERED REPORT.
+# ===========================================================================
+
+#: Where ``--json`` writes when it is not told otherwise. Under ``references/``,
+#: and that is a measured requirement rather than a convention (RC-02): a generated
+#: file at the repository ROOT is not tool residue — ``floorsynth._is_residue``
+#: returns False for it, verified — so it fires ``out-of-scope`` as a blocking HIGH
+#: on this project's own next self-review with a scope narrower than ``.``. An
+#: instrument that manufactures a RED on an honest repository is worse than the bug
+#: it closes, and that includes manufacturing one about itself.
+DEFAULT_JSON_TARGET = "references/predcov.json"
+
+
+def _mechanism_out_of_scope(item: dict, meta: dict) -> dict:
+    """``over-wide-match`` iff every out-of-scope path is one the ITEM records as
+    pre-existing — i.e. a file the coder did not write this run."""
+    fired_paths = sorted(set(meta.get("pre_existing") or ()))
+    authored = meta.get("coder_authored")
+    if fired_paths and authored not in fired_paths:
+        return {
+            "mechanism": "over-wide-match",
+            "derivation": ("every path this emitter flagged is recorded by the item as "
+                           "PRE-EXISTING (%s); the file the coder actually wrote (%s) is "
+                           "not among them, so the match is wider than the change"
+                           % (", ".join(fired_paths), authored)),
+            "counter_argument": ("an unreviewed file inside the executed tree is real "
+                                 "unverified surface; out_of_scope_defects' own docstring "
+                                 "adjudicates this as the correct terminal state"),
+        }
+    return {"mechanism": "UNATTRIBUTED",
+            "derivation": "the item records no authorship split to derive it from",
+            "counter_argument": ""}
+
+
+def _mechanism_critic_stale(item: dict, meta: dict) -> dict:
+    """CONTESTED, and it stays contested: plan §7 publishes both readings.
+
+    The corpus's only unambiguous honest-arm fire, and the adjudication is genuinely
+    open on what is ON DISK. Collapsing it to one label would move a headline number
+    on the strength of a sentence.
+    """
+    return {
+        "mechanism": "CONTESTED",
+        "derivation": ("evidence-plumbing: critic_security.json is stamped pass=0 while "
+                       "the other two advanced to pass=1, and the transcript says the "
+                       "pass-1 security review ran clean and failed a bare-JSON output "
+                       "contract four times, so its judgment was never persisted"),
+        "counter_argument": ("true-positive: equally consistent with what is on disk, an "
+                             "unsigned security lens means the change genuinely was not "
+                             "verified, the CRITICAL is warranted, and the real defect is "
+                             "a brittle output contract upstream. Under this reading the "
+                             "manufactured-RED count for this corpus is 0, not 1"),
+    }
+
+
+#: emitter stem -> the rule that attributes ITS fires. Deliberately partial. An
+#: emitter with no rule reports ``UNATTRIBUTED``, never a guess: a count that cannot
+#: tell "the predicate is too wide" from "the evidence plumbing broke" is
+#: uninterpretable, and a WRONG attribution is worse than none, because those two
+#: have opposite remedies.
+MECHANISM_RULES = {
+    "out-of-scope": _mechanism_out_of_scope,
+    "critic-stale": _mechanism_critic_stale,
+}
+
+
+def attribute_fires(items: list[dict]) -> dict[str, list[dict]]:
+    """Per emitter, one mechanism record per fire. See :data:`MECHANISM_RULES`."""
+    out: dict[str, list[dict]] = {stem: [] for stem in EMITTERS}
+    for item in items:
+        if not item.get("counts"):
+            continue
+        for stem, cell in sorted((item.get("emitters") or {}).items()):
+            if not cell.get("fired"):
+                continue
+            rule = MECHANISM_RULES.get(stem)
+            record = (rule(item, item.get("meta") or {}) if rule else
+                      {"mechanism": "UNATTRIBUTED",
+                       "derivation": "no attribution rule is declared for this emitter",
+                       "counter_argument": ""})
+            out.setdefault(stem, []).append(dict(record, item=item["id"]))
+    return out
+
+
+def passthrough_bucket(items: list[dict]) -> dict:
+    """The upstream lens defects ``script_defects_from`` passes through, counted APART.
+
+    §3: they are not this emitter's fire and they are not noise either. Measured on
+    the real ledgers, ``script_defects_from`` returns a non-empty list on 8 of 12
+    items purely from MEDIUM reqcoverage pass-throughs while ``evidence-incomplete``
+    fires on zero — so a rule reading ``len()`` puts this emitter in the numerator on
+    two thirds of the corpus. Reported here, in its own bucket, and never counted.
+    """
+    total, carrying, blocking, ids = 0, 0, 0, set()
+    for item in items:
+        through = item.get("passthrough")
+        if not through:
+            continue
+        carrying += 1
+        total += len(through)
+        for defect in through:
+            ids.add(str(defect.get("id")))
+            if defect.get("severity") in _BLOCKING_SEV:
+                blocking += 1
+    return {"defects": total, "items_carrying_them": carrying, "blocking": blocking,
+            "ids": sorted(ids), "counts_toward_prediction": False,
+            "note": "NOT this emitter's fire and NOT in the denominator"}
+
+
+def _counting_cell(row: dict) -> str:
+    """The counting-arm column: never a bare ``0`` for a cell nobody could measure."""
+    if row["state"] == "BLIND":
+        return "- (blind)"
+    if row["state"] == "CONSTANT":
+        return "- (constant)"
+    return "%d/%d" % (row["fire_count"], row["counting_arm_items"])
+
+
+def render(report: dict) -> str:
+    """The human report. REPORT ONLY — it prints no verdict about any run.
+
+    INDENTATION IS PART OF THE CONTRACT, and it is why the form test can count rows
+    at all: the ten emitter rows are the ONLY lines this report indents. Everything
+    else — the header, the separators, the pass-through bucket, the two runtime
+    rows, the fail-open block and the prediction — sits at column 0. A row is
+    emitted for every member of :data:`EMITTERS` whatever the corpus says, so a
+    blinded predicate leaves a visible line reading ``- (blind)`` instead of
+    vanishing from a table that then reads complete (RC-11).
+
+    The verdict line is WITHHELD when any item carried an error: TA-C1 measured what
+    a degraded adapter reports — 4 of 10 in one failure mode and 0 of 10 in the
+    other, i.e. SUPPORTED and FALSIFIED from the same bug — so ``ADAPTER DEGRADED``
+    is printed in the verdict's place rather than a number nobody can interpret.
+    """
+    corpus = report.get("corpus", {})
+    denominator = report.get("denominator", {})
+    prediction = report.get("prediction", {})
+    rows = report.get("rows", {})
+    arms = report.get("arms", {})
+    mechanisms = report.get("mechanisms", {})
+
+    by_arm = corpus.get("by_arm") or {}
+    lines = [
+        "atlas predicate coverage -- REPORT ONLY, blocks nothing",
+        "corpus %s: %d items (%s)" % (
+            corpus.get("root", "?"), corpus.get("items", 0),
+            ", ".join("%d %s" % (n, arm) for arm, n in sorted(by_arm.items())) or "none"),
+        "floorsynth %s: %d emitters" % (
+            (denominator.get("source_sha256") or "?")[:12], denominator.get("n", 0)),
+        'rule: one top-level def emitting a dict with "id" + a constant BLOCKING "severity"',
+        "fires: >=1 defect whose id STEM is this emitter's AND whose severity is in "
+        "rubric.BLOCKING",
+        "",
+        "%-21s %-14s %-11s %s" % ("emitter", "counting-arm", "state", "mechanism"),
+    ]
+    for stem in EMITTERS:
+        row = rows.get(stem) or {"state": "BLIND", "fire_count": 0,
+                                 "counting_arm_items": 0, "prior": stem in PRIORS}
+        marks = sorted({m["mechanism"] for m in mechanisms.get(stem, ())}) or ["-"]
+        lines.append("  %-21s %-14s %-11s %s%s" % (
+            stem, _counting_cell(row), row["state"], ", ".join(marks),
+            "  [PRIOR]" if row.get("prior") else ""))
+
+    lines.append("-" * 75)
+    through = report.get("passthrough") or {}
+    lines.append(
+        "pass-through (NOT emitters, NOT in the denominator): %d defect(s) across %d "
+        "item(s), %d blocking" % (through.get("defects", 0),
+                                  through.get("items_carrying_them", 0),
+                                  through.get("blocking", 0)))
+    for row_id in ("ownership-nonce", "recompute-delta"):
+        row = rows.get(row_id) or {}
+        lines.append("%s %s (runtime observation, blocks nothing): %s"
+                     % (row.get("roadmap_id", "R?"), row_id,
+                        row.get("observation", "not evaluated")))
+    failopen = arms.get("failopen") or {}
+    lines.append(
+        "FAIL-OPEN ARM (does not move the primary denominator): %d documented input(s)"
+        " -- still open: %s | covered elsewhere: %s | closed since: %s"
+        % (failopen.get("items", 0),
+           ", ".join(failopen.get("still_open") or ["-"]),
+           ", ".join(failopen.get("covered_elsewhere") or ["-"]),
+           ", ".join(failopen.get("closed_since") or ["-"])))
+    lines.append("emitters with NO documented fail-open input: %s"
+                 % (", ".join(failopen.get("emitters_with_no_documented_fail_open")
+                              or ["-"])))
+    lines.append("")
+    lines.append('PREDICTION (roadmap Phase 1): "%s"'
+                 % prediction.get("statement", "not evaluated"))
+    lines.append("OBSERVED: %s   varying denominator: %s of %s  ->  %s"
+                 % (prediction.get("observed", "-"),
+                    prediction.get("varying_denominator", "-"),
+                    prediction.get("denominator", "-"),
+                    prediction.get("verdict", "not evaluated")))
+    lines.append("priors declared before the corpus existed: %s"
+                 % ", ".join(prediction.get("priors") or ["-"]))
+    lines.append("observed_excluding_priors: %s"
+                 % prediction.get("observed_excluding_priors", "-"))
+    lines.append("CEILING: %s" % prediction.get("ceiling", "-"))
+    lines.append("SCOPE: %s" % prediction.get("scope", "-"))
+    if report.get("errors"):
+        lines.append("ADAPTER DEGRADED -- %d error(s); the verdict above is withheld:"
+                     % len(report["errors"]))
+        for message in report["errors"][:5]:
+            lines.append("! %s" % message)
+    return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI. Report only, and it has NO non-zero return path.
+
+    ``argparse``'s own ``SystemExit`` is deliberately NOT caught: a typo'd flag must
+    fail loudly rather than silently report on the default corpus. Everything after
+    the parse catches ``Exception`` — never ``BaseException``, which swallows
+    ``SystemExit`` and ``KeyboardInterrupt`` (CQ6) — and returns 0 with a marker
+    line, because a measuring device that can fail a build is a gate wearing a lab
+    coat.
+
+    The default is READ-ONLY. ``--json`` is the only thing that writes, it is never
+    passed by ``make ci``, and its default destination is under ``references/``
+    (RC-02).
+    """
+    parser = argparse.ArgumentParser(
+        description="Phase 1 predicate coverage -- REPORT ONLY; never blocks, never gates.")
+    parser.add_argument("--corpus", default="tests/corpus",
+                        help="Corpus root to replay (default: %(default)s).")
+    parser.add_argument("--json", nargs="?", const=DEFAULT_JSON_TARGET, default="",
+                        help="ALSO write the machine record here (default when the flag "
+                             "is given without a value: %s). Not used by make ci."
+                             % DEFAULT_JSON_TARGET)
+    args = parser.parse_args(argv)
+
+    try:
+        report = evaluate_corpus(args.corpus)
+        text = render(report)
+    except Exception as exc:
+        print("predcov: INSTRUMENT FAILED -- %s: %s. Report only; nothing is blocked "
+              "and no coverage number should be believed until this is fixed."
+              % (type(exc).__name__, exc))
+        return 0
+    print(text, end="")
+
+    if args.json:
+        try:
+            target = pathlib.Path(args.json)
+            if target.parent and str(target.parent) not in ("", "."):
+                target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
+                              encoding="utf-8")
+            print("record: %s" % target)
+        except Exception as exc:
+            print("predcov: could not write %s -- %s: %s (the report above still stands)"
+                  % (args.json, type(exc).__name__, exc))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
