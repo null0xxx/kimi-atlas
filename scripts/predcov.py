@@ -1753,6 +1753,7 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
         "mechanisms": attribute_fires(items),
         "passthrough": passthrough_bucket(items),
         "prediction": _prediction(rows, derived, bool(errors)),
+        "second_measure": second_measure(items),
         "items": items,
         "errors": sorted(errors),
         "degraded": bool(errors),
@@ -2050,6 +2051,95 @@ def _counting_cell(row: dict) -> str:
     return "%d/%d" % (row["fire_count"], row["counting_arm_items"])
 
 
+# The release-level facts this instrument does NOT measure and must never appear to.
+# Predicate counts are re-derivable from source (``discover_emitters`` over
+# ``git show <tag>:scripts/floorsynth.py``); the INJECTION counts are audit findings from
+# the v1.5.2.1 record and cannot be derived from any corpus. Both are therefore carried
+# here as INHERITED and rendered with that word attached, per the plan's rule that what
+# is measured, inherited and modelled is stated every time.
+_RELEASE_LEDGER: tuple[dict, ...] = (
+    {"range": "v1.4.0..v1.5.0", "predicates": 6, "predicate_delta": 6, "injections": 1},
+    {"range": "v1.5.0..v1.5.1", "predicates": 6, "predicate_delta": 0, "injections": 0},
+    {"range": "v1.5.1..v1.5.2", "predicates": 10, "predicate_delta": 4, "injections": 7},
+    {"range": "v1.5.2..v1.5.2.1", "predicates": 10, "predicate_delta": 0, "injections": None},
+)
+
+
+def second_measure(items: list[dict]) -> list[dict]:
+    """The roadmap's SECOND, INDEPENDENT measure: injections vs diff BYTES per release.
+
+    The roadmap (Phase 1 row) requires injections to be plotted against **diff bytes**,
+    not against predicate count, so that volume is controlled for before predicate growth
+    is credited with anything. Bytes come from the committed historical corpus items and
+    are therefore MEASURED; predicate counts and injection counts are INHERITED from the
+    release record and each row says so.
+
+    A thin I/O hand, not a pure core: the byte figures live in each historical item's
+    ``item.json`` and the record's ``meta`` is a deliberately narrow projection
+    (``changed_md`` and ``range`` only), so this re-reads the item file rather than
+    widening what every arm carries. Never raises -- an unreadable item degrades that
+    interval to ``unmeasured``.
+
+    Returns one row per release interval, in release order. An interval missing from the
+    corpus yields ``bytes_state='unmeasured'`` rather than a zero -- absent is not 0, the
+    same rule the corpus applies to unreconstructible items.
+    """
+    by_range: dict[str, dict] = {}
+    for item in items or []:
+        if (item or {}).get("arm") != "historical":
+            continue
+        meta = (item or {}).get("meta") or {}
+        rng = meta.get("range")
+        item_dir = (item or {}).get("dir")
+        if not rng or not item_dir:
+            continue
+        try:
+            raw = json.loads(
+                (pathlib.Path(item_dir) / "item.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        measure = raw.get("second_measure")
+        if isinstance(measure, dict):
+            by_range[rng] = measure
+    rows: list[dict] = []
+    for entry in _RELEASE_LEDGER:
+        measure = by_range.get(entry["range"])
+        row = {
+            "range": entry["range"],
+            "predicates": entry["predicates"],
+            "predicate_delta": entry["predicate_delta"],
+            "injections": entry["injections"],
+            "injections_state": ("unaudited" if entry["injections"] is None else "inherited"),
+            "whole_diff_bytes": (measure or {}).get("whole_diff_bytes"),
+            "code_diff_bytes": (measure or {}).get("code_diff_bytes"),
+            "bytes_state": "measured" if measure else "unmeasured",
+        }
+        rows.append(row)
+    return rows
+
+
+def second_measure_reading(rows: list[dict]) -> str:
+    """One sentence on whether predicate delta survives controlling for volume.
+
+    Computed from the rows, never asserted: only intervals with BOTH an audited injection
+    count and measured bytes are ranked. Says ``underpowered`` rather than a conclusion
+    when fewer than three such intervals exist -- n=3 with two candidate variables cannot
+    separate them, and this instrument must not pretend otherwise.
+    """
+    usable = [r for r in rows or []
+              if r.get("injections") is not None and r.get("code_diff_bytes") is not None]
+    if len(usable) < 3:
+        return ("underpowered: %d audited interval(s) with measured bytes; no ranking "
+                "attempted" % len(usable))
+    by_bytes = [r["injections"] for r in sorted(usable, key=lambda r: r["code_diff_bytes"])]
+    by_delta = [r["injections"] for r in sorted(usable, key=lambda r: r["predicate_delta"])]
+    ordered = by_bytes == sorted(by_bytes)
+    delta_ordered = by_delta == sorted(by_delta)
+    return ("code diff bytes rank-order injections: %s; predicate delta rank-orders them: "
+            "%s; n=%d audited, 2 candidate variables, NOT separable -- no cause asserted"
+            % ("YES" if ordered else "NO", "YES" if delta_ordered else "NO", len(usable)))
+
+
 def render(report: dict) -> str:
     """The human report. REPORT ONLY — it prints no verdict about any run.
 
@@ -2118,6 +2208,31 @@ def render(report: dict) -> str:
     lines.append("emitters with NO documented fail-open input: %s"
                  % (", ".join(failopen.get("emitters_with_no_documented_fail_open")
                               or ["-"])))
+    measure_rows = report.get("second_measure") or []
+    if measure_rows:
+        lines.append("")
+        # NOT indented, deliberately. `test_report_form_is_stable_whatever_the_numbers`
+        # counts indented lines as a count of emitter ROWS, and states that dependency:
+        # the emitter rows are the only lines this report indents, which is what makes a
+        # silently dropped row leave no line. This section must not dilute that signal.
+        lines.append("SECOND, INDEPENDENT MEASURE -- injections vs diff BYTES per release")
+        lines.append("%-18s %10s %10s %6s %6s  %s"
+                     % ("range", "whole B", "code B", "preds", "delta", "injections"))
+        for row in measure_rows:
+            whole = row.get("whole_diff_bytes")
+            code = row.get("code_diff_bytes")
+            inj = row.get("injections")
+            lines.append(
+                "%-18s %10s %10s %6s %+6d  %s"
+                % (row.get("range", "?"),
+                   "-" if whole is None else "%d" % whole,
+                   "-" if code is None else "%d" % code,
+                   row.get("predicates", "-"),
+                   row.get("predicate_delta", 0),
+                   "UNAUDITED" if inj is None else "%d (inherited)" % inj))
+        lines.append("bytes MEASURED from the committed corpus; predicate and injection "
+                     "counts INHERITED from the release record")
+        lines.append("reading: %s" % second_measure_reading(measure_rows))
     lines.append("")
     lines.append('PREDICTION (roadmap Phase 1): "%s"'
                  % prediction.get("statement", "not evaluated"))

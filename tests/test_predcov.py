@@ -1695,5 +1695,67 @@ class TestStopBlockLine(unittest.TestCase):
         self.assertIn("NEVER a gate", bullet)
 
 
+class TestSecondMeasure(unittest.TestCase):
+    """Fold RC-08: the roadmap's SECOND measure must reach the artifact and the report.
+
+    It shipped absent the first time — the bytes were committed per interval but nothing
+    read them, so the roadmap's own required deliverable was silently missing while the
+    corpus looked complete. These pins are what make that visible if it recurs.
+    """
+
+    def test_every_release_interval_carries_measured_bytes(self):
+        """A byte figure of None here would silently become an unranked interval."""
+        report = predcov.evaluate_corpus()
+        rows = report.get("second_measure") or []
+        self.assertEqual(len(rows), 4, "one row per release interval")
+        measured = [r for r in rows if r["bytes_state"] == "measured"]
+        self.assertEqual(len(measured), 4, "all four intervals are in the corpus")
+        for row in measured:
+            self.assertIsInstance(row["code_diff_bytes"], int)
+            self.assertGreater(row["code_diff_bytes"], 0)
+            self.assertGreater(row["whole_diff_bytes"], row["code_diff_bytes"])
+
+    def test_an_unreadable_interval_is_unmeasured_never_zero(self):
+        """Absent is not 0 — a zero would rank as the smallest diff and skew the reading."""
+        items = [{"arm": "historical", "dir": "/nonexistent/does-not-exist",
+                  "meta": {"range": "v1.4.0..v1.5.0"}}]
+        rows = predcov.second_measure(items)
+        row = next(r for r in rows if r["range"] == "v1.4.0..v1.5.0")
+        self.assertEqual(row["bytes_state"], "unmeasured")
+        self.assertIsNone(row["code_diff_bytes"])
+
+    def test_the_unaudited_release_is_never_reported_as_zero_injections(self):
+        rows = predcov.second_measure(predcov.evaluate_corpus()["items"])
+        tip = next(r for r in rows if r["range"] == "v1.5.2..v1.5.2.1")
+        self.assertIsNone(tip["injections"])
+        self.assertEqual(tip["injections_state"], "unaudited")
+
+    def test_reading_refuses_to_rank_when_underpowered(self):
+        """Fewer than three audited intervals must produce no ranking at all."""
+        rows = [{"range": "a", "injections": 1, "code_diff_bytes": 10, "predicate_delta": 1},
+                {"range": "b", "injections": None, "code_diff_bytes": 20, "predicate_delta": 0}]
+        self.assertIn("underpowered", predcov.second_measure_reading(rows))
+
+    def test_reading_reports_byte_ordering_and_delta_ordering_separately(self):
+        """Constructed so the two answers DIFFER — a reading that conflated them dies here."""
+        rows = [
+            {"range": "a", "injections": 0, "code_diff_bytes": 10, "predicate_delta": 5},
+            {"range": "b", "injections": 1, "code_diff_bytes": 20, "predicate_delta": 3},
+            {"range": "c", "injections": 7, "code_diff_bytes": 30, "predicate_delta": 1},
+        ]
+        reading = predcov.second_measure_reading(rows)
+        self.assertIn("code diff bytes rank-order injections: YES", reading)
+        self.assertIn("predicate delta rank-orders them: NO", reading)
+        self.assertIn("no cause asserted", reading)
+
+    def test_the_rendered_report_prints_the_table_with_its_currency(self):
+        text = predcov.render(predcov.evaluate_corpus())
+        self.assertIn("SECOND, INDEPENDENT MEASURE", text)
+        self.assertIn("bytes MEASURED", text)
+        self.assertIn("INHERITED", text)
+        for rng in ("v1.4.0..v1.5.0", "v1.5.1..v1.5.2"):
+            self.assertIn(rng, text)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
