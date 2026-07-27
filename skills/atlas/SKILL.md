@@ -1087,6 +1087,16 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
       "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - dispatched stage(s) with no recorded tool_call marker: '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
       2>/dev/null || true    # empty/unreadable graph -> no line; the summary still ships
     ```
+  - **Predicate coverage (informational, NEVER a gate).** Add ONE line to the summary, AFTER
+    `status` is computed above, printed verbatim on every run as a **fixed literal**:
+    `predicate coverage: not measured for this run — the deterministic floor's blocking predicates
+    all execute here, but how often they fire on honest input is measured out of band, against a
+    recorded corpus, in the kimi-atlas repository itself; a silent floor is therefore not by itself
+    evidence that a predicate would have caught anything.` It reads **NO file** — not the ledger,
+    not the reviewed tree, not any record in either repository — interpolates nothing, computes
+    **NO** pass/fail, and adds **NO** key to `gate_results`. That constraint is the substance of the
+    line, not decoration: anything read here would enter the orchestrator's context on the very turn
+    it prints the verdict, which is exactly the class of defect this floor exists to close.
 - **Do NOT auto-apply** any change to a real tree.
   - **Interactive:** after the block, call `AskUserQuestion` — Apply / Refine further / Discard —
     **before any merge**. (Sanctioned pause 3.) Never merge without an explicit answer. If a

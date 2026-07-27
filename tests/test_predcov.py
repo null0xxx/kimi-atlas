@@ -1616,5 +1616,84 @@ class TestMakefileWiring(unittest.TestCase):
                              "make's `-` prefix no longer holds the status on its own")
 
 
+class TestStopBlockLine(unittest.TestCase):
+    """Task 13 — the one OUTPUT-block line, and the SEC-1 constraint that shapes it.
+
+    The line prints a FIXED LITERAL. It reads no file — not this repository's record,
+    not the reviewed target's bytes, not the ledger. That is not stylistic: a line
+    that read a file at OUTPUT would pull file bytes into the orchestrator's context
+    on the turn it prints the verdict, which is the shipped v1.5.2 CRITICAL class
+    (model text reaching a trusted position at the moment of adjudication). So the
+    forbidden-token scan the plan specifies is kept AND widened — the plan's four
+    tokens miss ``read_artifact``, ``read_bytes`` and a fenced shell command, all of
+    which this file already uses a few lines above — and the bullet is required to
+    carry no ``${...}`` interpolation at all, which is the form every real read in
+    ``skills/atlas/SKILL.md`` takes.
+
+    ANCHOR CORRECTION, recorded rather than silently applied: the plan's own snippet
+    anchors on ``src.index("## STOP")``. There is no ``## STOP`` heading in
+    ``skills/atlas/SKILL.md`` — the block is the bullet ``- **Present the labelled
+    STOP block**`` inside ``### OUTPUT`` — so the snippet as written raises
+    ``ValueError`` and can never go green. The real anchor is used here.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = (_ROOT / "skills" / "atlas" / "SKILL.md").read_text(encoding="utf-8")
+
+    _STOP_ANCHOR = "- **Present the labelled STOP block**"
+    _BULLET_ANCHOR = "  - **Predicate coverage (informational, NEVER a gate).**"
+
+    def _stop_block(self) -> str:
+        start = self.src.index(self._STOP_ANCHOR)
+        return self.src[start:self.src.index("\n## ", start)]
+
+    def _bullet(self) -> str:
+        start = self.src.index(self._BULLET_ANCHOR)
+        return self.src[start:self.src.index("\n- ", start)]
+
+    def test_stop_block_line_reads_no_file_and_gates_nothing(self):
+        block = self._stop_block()
+        self.assertIn("predicate coverage", block)
+        for forbidden in ("predcov.json", "read_text", "json.load", "open("):
+            self.assertNotIn(forbidden, block.split("predicate coverage")[1][:400])
+
+    def test_the_line_cannot_read_anything_at_all(self):
+        """The widened scan, over the WHOLE bullet rather than 400 characters."""
+        bullet = self._bullet()
+        for forbidden in ("read_artifact", "read_bytes", "read_text", "json.load",
+                          "open(", "subprocess", "python3", "```", "${"):
+            with self.subTest(token=forbidden):
+                self.assertNotIn(forbidden, bullet,
+                                 "the OUTPUT line acquired a way to read something")
+        self.assertNotIn("predcov", self.src)
+
+    def test_the_literal_is_added_in_exactly_one_place(self):
+        self.assertEqual(self.src.count("predicate coverage"), 1)
+        self.assertEqual(self.src.count(self._BULLET_ANCHOR), 1)
+        self.assertIn(self._BULLET_ANCHOR, self._stop_block())
+
+    def test_the_line_is_printed_after_the_status_is_computed(self):
+        """It cannot influence the label it is printed beside."""
+        self.assertLess(self.src.index("status = verdict.final_status("),
+                        self.src.index(self._BULLET_ANCHOR))
+
+    def test_gate_results_keys_are_unchanged(self):
+        self.assertEqual(self.src.count("gate_results = {"), 1)
+        self.assertNotIn("predcov", self.src)
+
+    def test_the_line_says_it_is_not_a_per_run_measurement(self):
+        """The one claim the line MUST make, because the alternative is a false green.
+
+        A reader who takes a silent floor as evidence that the predicates were
+        exercised has read the opposite of what the corpus measured: eight of the ten
+        were handed a constant non-firing input, so silence there was the constant
+        handed back. The line has to say the coverage figure is not this run's.
+        """
+        bullet = self._bullet()
+        self.assertIn("not measured for this run", bullet)
+        self.assertIn("NEVER a gate", bullet)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
