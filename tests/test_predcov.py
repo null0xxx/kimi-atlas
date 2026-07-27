@@ -1029,5 +1029,154 @@ class TestRecordShapeAndRuntimeRows(unittest.TestCase):
                     self.assertEqual(0, tampered["rows"][stem]["counting_arm_items"])
 
 
+class TestFailOpenArm(unittest.TestCase):
+    """Task 9 (the C1 fold): the side of the dial a fire count structurally cannot see.
+
+    The diagnosis is two-sided — *too narrow and it fails open; too wide and it
+    fires on honest input* — and the primary metric measures one side. Of the eight
+    injections the record counts, THREE are fail-opens: silences, which no fire count
+    can ever see. So "2 of 10 fired" must never be read as a complete account of
+    predicate error, and this arm is what stops it being read that way.
+
+    The arm evaluates through the SKILL's OWN marshalling, defaults included, and
+    NOT through the adapters. That is not a shortcut, it is the point: the adapters
+    refuse an absent key precisely so a read failure is never reported as a
+    measurement, while a fail-open IS the default being taken. Routed through the
+    adapter, ``docs-naming``'s documented fail-open raises instead of being observed.
+
+    Nothing here asserts a fire count, a threshold or a verdict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rep = predcov.evaluate_corpus(str(_CORPUS))
+
+    def test_failopen_arm_does_not_move_the_primary_denominator(self):
+        rep = predcov.evaluate_corpus("tests/corpus")
+        self.assertEqual(rep["prediction"]["denominator"], 10)
+        self.assertIn("failopen", rep["arms"])
+        self.assertNotIn("failopen", rep["prediction"]["counting_arms"])
+
+    def test_no_failopen_item_reaches_a_counting_arm_or_an_emitter_row(self):
+        """The other half, and the one the plan's test cannot see.
+
+        Its assertions hold unchanged for a report that evaluated the arm and then
+        folded every result straight into the emitter rows — the arm would still be
+        listed, and the denominator would still read 10, while the numerator quietly
+        grew by whatever the arm contains.
+        """
+        failopen = [it for it in self.rep["items"] if it["arm"] == "failopen"]
+        self.assertTrue(failopen, "the fail-open arm is empty")
+        for item in failopen:
+            with self.subTest(item=item["id"]):
+                self.assertFalse(item["counts"])
+        arm_ids = {it["id"] for it in failopen}
+        for stem in predcov.EMITTERS:
+            with self.subTest(stem=stem):
+                row = self.rep["rows"][stem]
+                self.assertEqual(set(), arm_ids & set(row["fires"]))
+                self.assertEqual(set(), arm_ids & set(row["unmeasured_items"]))
+        self.assertEqual(len(failopen), self.rep["arms"]["failopen"]["items"])
+        self.assertFalse(self.rep["arms"]["failopen"]["counts"])
+
+    def test_the_probe_can_report_a_fire_and_a_silence(self):
+        """The arm's non-vacuity control, and it borrows nothing from the corpus.
+
+        A probe hard-coded to ``silent_at_head=True`` would report every documented
+        fail-open as still open — the most flattering possible reading of the
+        instrument's own subject matter, and invisible against a corpus whose items
+        are chosen for being silent. Rather than pin what ``floorsynth`` does to any
+        corpus item (this suite pins no outcome), the probe is driven with the Task 5
+        control fixtures, which already carry a FIRING and a SILENT namespace bound
+        to a branch line in the emitter's own body.
+        """
+        for stem in predcov.EMITTERS:
+            control = predcov.load_control(stem)
+            function = control["function"]
+            with self.subTest(stem=stem):
+                fires = predcov.probe_failopen(function, stem, control["fires"])
+                silent = predcov.probe_failopen(function, stem, control["silent"])
+                self.assertFalse(fires["silent_at_head"],
+                                 "the probe cannot see a fire it was handed")
+                self.assertTrue(silent["silent_at_head"],
+                                "the probe reports a fire on a silent input")
+
+    def test_the_probe_takes_the_skill_default_where_the_adapter_refuses(self):
+        """The structural claim of this arm, checked in both directions.
+
+        ``docs-naming``'s documented fail-open is an evidence dict with no
+        ``docs_clean`` key. Through the adapter that is an ``AdapterInputError`` —
+        correctly, because a corpus item missing that key is a read failure and the
+        SKILL's ``True`` default would report a blinded predicate as restraint.
+        Through the SKILL's own marshalling it is the fail-open itself. Both are
+        required: a probe that had quietly reused the adapter would raise here
+        instead of observing anything.
+        """
+        with self.assertRaises(predcov.AdapterInputError):
+            predcov.emit_docs_naming({"runcheck": {}})
+        probe = predcov.probe_failopen("synth_docs", "docs-naming", {"ev": {"runcheck": {}}})
+        self.assertTrue(probe["silent_at_head"])
+        self.assertEqual(probe["arguments"], [True], "the SKILL's default is what fails open")
+        self.assertEqual([False],
+                         predcov.probe_failopen("synth_docs", "docs-naming",
+                                                {"ev": {"docs_clean": False}})["arguments"])
+
+    def test_the_marshaller_refuses_an_expression_it_cannot_read(self):
+        """It replays the SKILL's fold; it is not a general evaluator.
+
+        Three shapes are supported because the fold contains three. Anything else —
+        a call, an attribute chain, arithmetic — must raise rather than be silently
+        skipped, because a skipped argument becomes a positional shift and the
+        emitter is then called with the wrong value in the right slot.
+        """
+        ns = {"ev": {"docs_clean": False}, "st": {"scope_paths": ["src"]}}
+        self.assertIs(predcov.marshal_skill_argument("ev", ns), ns["ev"])
+        self.assertEqual(predcov.marshal_skill_argument("ev.get('docs_clean', True)", ns), False)
+        self.assertEqual(predcov.marshal_skill_argument("st['scope_paths']", ns), ["src"])
+        for expr in ("open('x')", "ev.keys()", "ev.get(k, True)", "st[0]", "1 + 1",
+                     "missing", "ev.get('a', 'b', 'c')"):
+            with self.subTest(expr=expr):
+                with self.assertRaises(predcov.ControlFailure):
+                    predcov.marshal_skill_argument(expr, ns)
+
+    def test_every_failopen_item_cites_a_source_outside_the_fixture(self):
+        """CQ4/TA-H1 for an arm that is deliberately NOT in ``manifest.json``.
+
+        These items are authored inputs, not captured bytes, so they carry no
+        capture-time hash and must not pretend to. What they must carry is the
+        citation that makes them non-vacuous: the record that says this input SHOULD
+        fire is documented somewhere other than the file asserting it.
+        """
+        items = sorted(p for p in (_CORPUS / "failopen").iterdir() if p.is_dir())
+        self.assertTrue(items, "the fail-open arm is not on disk")
+        index = json.loads((_CORPUS / "failopen" / "index.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(index["items"]), len(items),
+                         "the arm's own index must list every item on disk")
+        tracked = set(subprocess.run(["git", "ls-files"], cwd=str(_ROOT),
+                                     capture_output=True, text=True).stdout.split())
+        for item_dir in items:
+            with self.subTest(item=item_dir.name):
+                meta = json.loads((item_dir / "item.json").read_text(encoding="utf-8"))
+                self.assertIn(meta["emitter"], predcov.EMITTERS)
+                self.assertIn(meta["function"], predcov.ADAPTER_ARGUMENTS)
+                self.assertTrue(meta["should_fire_because"])
+                self.assertTrue(meta["expectation_sources"])
+                for citation in meta["expectation_sources"]:
+                    self.assertIn(citation.split(":")[0].split("::")[0], tracked,
+                                  "%s cites a file that is not in the repository" % item_dir.name)
+
+    def test_the_failopen_arm_is_outside_the_seventeen_manifest_items(self):
+        """The arm is authored, so it is excluded from the capture manifest by design.
+
+        Stated as a checked invariant rather than left as an accident: TA-H1 forbids
+        a manifest entry for bytes an invocation did not copy, and these were never
+        copied from anywhere.
+        """
+        manifest = json.loads((_CORPUS / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual([], [it for it in manifest["items"] if it["arm"] == "failopen"])
+        self.assertEqual([], [it for it in manifest["items"]
+                              if it["id"].startswith("failopen/")])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

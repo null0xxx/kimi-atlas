@@ -1,0 +1,32 @@
+{
+  "arm": "failopen",
+  "counts_toward_prediction": false,
+  "emitter": "stale-verdict",
+  "expectation_sources": [
+    "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:120",
+    "scripts/floorsynth.py::stale_verdict_defects docstring (condition (c))"
+  ],
+  "function": "stale_verdict_defects",
+  "injection": "H6 \u2014 an honest crash after advance(REFINE) resumes at OUTPUT and prints a green",
+  "kind": "documented-fail-open",
+  "marshalling": "skill-default",
+  "marshalling_note": "replayed through skills/atlas/SKILL.md's own Step 4+5 argument expressions, defaults INCLUDED \u2014 the adapters refuse an absent key, and a fail-open is that default being taken",
+  "namespace": {
+    "log_records": [
+      {
+        "stage": "GROUNDED"
+      },
+      {
+        "stage": "CODED"
+      },
+      {
+        "stage": "VERIFIED"
+      },
+      {
+        "stage": "REFINE"
+      }
+    ]
+  },
+  "should_fire_because": "the V7-forced refine never re-entered CODED, so no verification covers the tree as it stands; at v1.5.1 this ledger was SILENT and final_status printed OK",
+  "source": "authored from the cited record; NOT captured bytes"
+}

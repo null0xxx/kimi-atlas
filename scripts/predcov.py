@@ -1375,6 +1375,173 @@ def ownership_observation(items: list[dict], source_path=None) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# THE FAIL-OPEN ARM (the C1 fold) — the side of the dial a fire count cannot see.
+#
+# The diagnosis is two-sided: too narrow and a predicate fails OPEN; too wide and
+# it fires on honest input. A fire count measures one side. Of the eight injections
+# the record counts, THREE are fail-opens — silences — so this metric can see at
+# most 3 of 8, and that ceiling is printed on the verdict line. This arm records
+# the other side: per documented fail-open, an input the predicate SHOULD have
+# fired on, replayed against HEAD, with what actually happened.
+#
+# IT EVALUATES THROUGH THE SKILL'S MARSHALLING, NOT THROUGH THE ADAPTERS, and the
+# distinction is the whole mechanism. The adapters REFUSE an absent key, correctly:
+# for a corpus item an absent key is a read failure, and the SKILL's ``.get``
+# default would report a blinded predicate as restraint. But a fail-open IS that
+# default being taken — the v1.5.0 hole is exactly ``ev.get("docs_clean", True)``
+# on evidence that never carried the key. Routed through the adapter it raises;
+# routed through the SKILL's own expression it is observable. So the argument
+# expressions are replayed from :data:`ADAPTER_ARGUMENTS`, which Task 7 binds to
+# ``skills/atlas/SKILL.md`` itself — the defaults are the SKILL's, not this
+# module's opinion of them.
+# ---------------------------------------------------------------------------
+
+
+def marshal_skill_argument(expr: str, namespace: dict):
+    """Evaluate ONE Step 4+5 argument expression against a namespace. Never ``eval``.
+
+    Exactly three shapes, because the fold contains exactly three: a bare name
+    (``diff``), a subscript with a literal key (``st['scope_paths']``), and a
+    ``.get`` with a literal key and a literal default (``ev.get('docs_clean',
+    True)``). Anything else is a :class:`ControlFailure` rather than a skip: a
+    skipped argument becomes a POSITIONAL SHIFT, and this codebase has already
+    measured what that costs — ``git_tree_has_baseline(cwd, sha)`` and
+    ``change_paths(sha, cwd)`` take the same two strings in opposite positions and
+    a swap degrades silently to an empty result.
+    """
+    try:
+        node = ast.parse(expr, mode="eval").body
+    except SyntaxError as exc:
+        raise ControlFailure("%r: not an expression (%s)" % (expr, exc)) from exc
+
+    if isinstance(node, ast.Name):
+        if node.id not in namespace:
+            raise ControlFailure("%r: the namespace supplies no %s" % (expr, node.id))
+        return namespace[node.id]
+
+    if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+            and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str)):
+        base = marshal_skill_argument(node.value.id, namespace)
+        if not isinstance(base, dict) or node.slice.value not in base:
+            raise ControlFailure("%r: %s has no key %r"
+                                 % (expr, node.value.id, node.slice.value))
+        return base[node.slice.value]
+
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get" and isinstance(node.func.value, ast.Name)
+            and not node.keywords and len(node.args) == 2
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)):
+        base = marshal_skill_argument(node.func.value.id, namespace)
+        if not isinstance(base, dict):
+            raise ControlFailure("%r: %s is not a mapping" % (expr, node.func.value.id))
+        try:
+            default = ast.literal_eval(node.args[1])
+        except ValueError as exc:
+            raise ControlFailure("%r: the default is not a literal (%s)" % (expr, exc)) from exc
+        return base.get(node.args[0].value, default)
+
+    raise ControlFailure(
+        "%r: not one of the three Step 4+5 argument shapes (name, name['key'], "
+        "name.get('key', literal)) — refused rather than guessed, because a "
+        "mis-marshalled argument is a positional shift, not a missing value" % expr
+    )
+
+
+def probe_failopen(function: str, stem: str, namespace: dict) -> dict:
+    """Replay ONE emitter on an authored should-fire namespace. Report only.
+
+    ``silent_at_head`` is the finding, and it is genuinely two-valued: a documented
+    fail-open that HEAD now catches reports ``False``, which is the arm's own
+    non-vacuity control — without at least one such case, an evaluator hard-coded to
+    "still silent" would print the most flattering possible reading of this
+    instrument's own subject matter and nothing in the corpus could contradict it.
+    """
+    from scripts import floorsynth
+
+    if function not in ADAPTER_ARGUMENTS:
+        raise ControlFailure("%s: no Step 4+5 marshalling is declared for %r"
+                             % (stem, function))
+    if not isinstance(namespace, dict):
+        raise ControlFailure("%s: the namespace is not an object of named inputs" % stem)
+    arguments = [marshal_skill_argument(expr, namespace)
+                 for expr in ADAPTER_ARGUMENTS[function]]
+
+    if function == "merge_and_validate":
+        _merged, schema_errors = merge_fold(*arguments)
+        return {"function": function, "emitter": stem, "arguments": arguments,
+                "silent_at_head": not schema_errors, "defect_ids": [],
+                "schema_errors": list(schema_errors)}
+
+    produced = getattr(floorsynth, function)(*arguments)
+    return {
+        "function": function,
+        "emitter": stem,
+        "arguments": arguments,
+        "silent_at_head": not fired(stem, produced),
+        "defect_ids": sorted(str(d.get("id")) for d in produced or ()
+                             if isinstance(d, dict)),
+        "schema_errors": [],
+    }
+
+
+def evaluate_failopen_item(item_dir: pathlib.Path, meta: dict) -> dict:
+    """One fail-open item: the named emitter's silence, and who else caught it.
+
+    ``covered_by`` is the honest completion of the row and it changes the answer.
+    Measured on the v1.5.0 ``docs_clean`` fail-open: ``synth_docs`` is STILL silent
+    at HEAD — the ``True`` default is unchanged — but ``script_defects_from`` fires
+    ``evidence-incomplete`` on the same evidence, because ``docs_clean`` was added
+    to ``MANDATORY_FLAG_KEYS``. Reporting only the named emitter would print that
+    hole as open when a different predicate closed it, which is precisely the
+    "predicate too narrow" conclusion this arm exists to keep honest.
+    """
+    namespace = meta.get("namespace")
+    probe = probe_failopen(meta["function"], meta["emitter"], namespace)
+    functions = function_of_stem()
+    covered_by = []
+    for stem in EMITTERS:
+        if stem == meta["emitter"] or stem not in functions:
+            continue
+        try:
+            other = probe_failopen(functions[stem], stem, namespace)
+        except ControlFailure:
+            continue                      # this namespace cannot feed that emitter
+        if not other["silent_at_head"]:
+            covered_by.append(stem)
+    return {
+        "emitter": meta["emitter"],
+        "function": meta["function"],
+        "injection": meta.get("injection", ""),
+        "should_fire_because": meta.get("should_fire_because", ""),
+        "expectation_sources": list(meta.get("expectation_sources") or []),
+        "silent_at_head": probe["silent_at_head"],
+        "defect_ids": probe["defect_ids"],
+        "schema_errors": probe["schema_errors"],
+        "covered_by": sorted(covered_by),
+        "status": ("STILL OPEN" if probe["silent_at_head"] and not covered_by
+                   else "COVERED BY ANOTHER PREDICATE" if probe["silent_at_head"]
+                   else "CLOSED SINCE"),
+    }
+
+
+def function_of_stem() -> dict[str, str]:
+    """id stem -> the floorsynth function that emits it.
+
+    DERIVED, and computed on call rather than at import. Derived because a
+    hand-maintained second copy of the pairing is the CQ3 failure — rename the id
+    and the copy stays green while the row reads 0 forever. On call because this
+    module must import even when the denominator cannot be counted: a
+    :class:`DiscoveryFailure` at import time would make the instrument unable to
+    report that it broke, which is the one thing it must always be able to do.
+    """
+    try:
+        return {stem: func for func, stem in discover_emitters()}
+    except DiscoveryFailure:
+        return {}
+
+
 def _corpus_items(corpus_root: pathlib.Path) -> list[tuple[str, str, pathlib.Path]]:
     """``(arm, item_id, dir)`` for every item directory, in sorted order.
 
@@ -1437,6 +1604,20 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
         token_file = item_dir / OWNERSHIP_TOKEN_NAME.lstrip(".")
         item["ownership_token"] = (token_file.read_text(encoding="utf-8").strip()
                                    if token_file.is_file() else None)
+
+        if arm == "failopen":
+            # §5.4. Evaluated through the SKILL's marshalling, reported as its own
+            # block, and structurally unable to reach the emitter rows: it carries
+            # no ``emitters`` mapping at all, so ``_emitter_rows`` never sees it.
+            try:
+                item["failopen"] = evaluate_failopen_item(item_dir, meta)
+            except (ControlFailure, KeyError, TypeError) as exc:
+                item_errors.append("failopen: %s: %s" % (type(exc).__name__, exc))
+                errors.append("%s: %s" % (item_id, item_errors[-1]))
+            item.update({"errors": item_errors, "emitters": {}, "counts": False,
+                         "replay_divergent": False})
+            items.append(item)
+            continue
 
         builder = ARM_INPUT_BUILDERS.get(arm)
         if builder is None:
@@ -1522,6 +1703,8 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
                         "whose severity is in rubric.BLOCKING; once per emitter per "
                         "item, never once per defect"),
         "rows": rows,
+        "arms": _arm_blocks(items),
+        "prediction": _prediction(rows, derived, bool(errors)),
         "items": items,
         "errors": sorted(errors),
         "degraded": bool(errors),
@@ -1543,6 +1726,115 @@ def _source_sha256() -> str:
     except OSError:
         return ""
     return hashlib.sha256(data).hexdigest()
+
+
+#: What each arm is FOR, and whether it counts. Written down because "counts" is
+#: the single most riggable property of this experiment: plan §5.1 makes arm
+#: membership a DIRECTORY so that widening the numerator requires a visible file
+#: move in a diff, and this table is the other half of that — the role is stated
+#: next to the flag, so a silent change to either reads as a contradiction.
+ARM_ROLES: dict[str, str] = {
+    "honest": "recorded runs, rc=0 and a ledger ending at OUTPUT — the counting arm",
+    "interrupted": "the non-vacuity control, and nothing else; never counts",
+    "historical": "release intervals from this repo's own tags — real changed .md, "
+                  "and a whole-tree scope nobody authored",
+    "dirty": "the one shape the record documents as an honest false RED",
+    "failopen": "§5.4: inputs a predicate SHOULD fire on. Reported alone; it does "
+                "not move the primary denominator, because a fire count cannot "
+                "see a silence and this arm is made of silences",
+}
+
+
+def _arm_blocks(items: list[dict]) -> dict:
+    """Per-arm summary, with the fail-open arm's findings carried inside its own block."""
+    blocks: dict[str, dict] = {}
+    for arm in sorted(set(COUNTING_ARMS + NON_COUNTING_ARMS)):
+        members = [it for it in items if it["arm"] == arm]
+        if not members:
+            continue
+        block = {
+            "items": len(members),
+            "counts": arm in COUNTING_ARMS,
+            "role": ARM_ROLES.get(arm, ""),
+            "item_ids": sorted(it["id"] for it in members),
+        }
+        if arm == "failopen":
+            findings = [it["failopen"] for it in members if it.get("failopen")]
+            block["observations"] = sorted(findings, key=lambda f: f["emitter"])
+            block["still_open"] = sorted(f["emitter"] for f in findings
+                                         if f["status"] == "STILL OPEN")
+            block["covered_elsewhere"] = sorted(
+                f["emitter"] for f in findings
+                if f["status"] == "COVERED BY ANOTHER PREDICATE")
+            block["closed_since"] = sorted(f["emitter"] for f in findings
+                                           if f["status"] == "CLOSED SINCE")
+            block["emitters_with_no_documented_fail_open"] = sorted(
+                set(EMITTERS) - {f["emitter"] for f in findings})
+            block["caveat"] = (
+                "an emitter with no item here has NO DOCUMENTED fail-open input; it "
+                "is rendered '— (none documented)' and never as zero fail-opens. "
+                "Authoring a should-fire input for the other emitters would be "
+                "authoring the finding, which is the failure mode this phase exists "
+                "to expose"
+            )
+        blocks[arm] = block
+    return blocks
+
+
+def _prediction(rows: dict, derived: list[str], degraded: bool) -> dict:
+    """The roadmap's committed prediction, evaluated verbatim, with its guards.
+
+    The prediction is NOT rewritten here. Design C replaced it with one authored by
+    the party being tested, which would have been the third rewrite; the ledger's
+    version is carried word for word and the priors are subtracted only in a
+    labelled SECONDARY figure.
+
+    Three things can stop a verdict being printed, and each is a different sentence:
+
+      * ``ADAPTER DEGRADED`` — any item carried an error. A coverage number computed
+        while part of the instrument was refusing its input is not a measurement,
+        and TA-C1 measured what a degraded adapter reports: 4 of 10 in one failure
+        mode and 0 of 10 in the other, i.e. SUPPORTED and FALSIFIED from the same
+        bug.
+      * ``VOID`` — fewer than three emitters were supplied two or more distinct
+        decision-variable values, so the corpus cannot answer. VOID means the corpus
+        cannot answer; it never means the diagnosis is wrong. It permits exactly ONE
+        rebuild, and a second is VOID-EXHAUSTED.
+      * otherwise the arithmetic, which can come out either way.
+    """
+    emitter_rows = {stem: rows[stem] for stem in EMITTERS if stem in rows}
+    fired_stems = sorted(s for s, r in emitter_rows.items() if r["fire_count"])
+    varying = sorted(s for s, r in emitter_rows.items() if r["supply"] >= 2)
+    observed = len(fired_stems)
+    if degraded:
+        verdict = "ADAPTER DEGRADED — no verdict"
+    elif len(varying) < VOID_BELOW_VARYING:
+        verdict = "VOID"
+    elif observed >= THRESHOLD:
+        verdict = "SUPPORTED"
+    else:
+        verdict = "FALSIFIED"
+    return {
+        "statement": "at least 3 of the 10 predicates fire on the honest corpus",
+        "source": "roadmap Phase 1, carried verbatim and evaluated verbatim",
+        "denominator": len(derived),
+        "threshold": THRESHOLD,
+        "counting_arms": list(COUNTING_ARMS),
+        "observed": observed,
+        "fired": fired_stems,
+        "varying_denominator": len(varying),
+        "varying_emitters": varying,
+        "void_below_varying": VOID_BELOW_VARYING,
+        "verdict": verdict,
+        "priors": list(PRIORS),
+        "observed_excluding_priors": len([s for s in fired_stems if s not in PRIORS]),
+        "ceiling": ("this metric can see at most 3 of the 8 recorded injections — 3 "
+                    "are fail-opens (silences) and 2 are template-payload defects; "
+                    "see the failopen arm"),
+        "scope": ("3 independent tasks, 1 repository, 1 orchestrator, 1 model, 1 day; "
+                  "twelve items is not twelve observations, and this cannot produce a "
+                  "false-RED rate"),
+    }
 
 
 def _emitter_rows(items: list[dict], derived: list[str], pairs) -> dict:

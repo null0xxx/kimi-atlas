@@ -202,6 +202,101 @@ DIRTY_PRE_EXISTING: tuple[str, ...] = ("NOTES.md", "data/download.csv", "docs/no
 DIRTY_CODER_PATH = "src/calc.py"
 DIRTY_SCOPE: tuple[str, ...] = ("src",)
 
+# The FAIL-OPEN arm (plan §5.4). Three items, and exactly three: these are the
+# three fail-opens the record actually documents, and each names where. Authoring a
+# should-fire input for the other seven emitters would be authoring the finding —
+# the failure mode this phase exists to expose — so those emitters are rendered
+# "— (none documented)" and never as "zero fail-opens".
+#
+# The plan's Task 9 asks for one per emitter and predicts all three record SILENCE.
+# Neither survives execution. H6's ledger FIRES at HEAD (v1.5.2.1 added the
+# trailing-REFINE condition), so the arm is two-valued and its status is measured
+# per item, not asserted; that item is also the arm's own non-vacuity control.
+#
+# The namespaces are the SKILL's Step 4+5 variable names, so ``predcov`` replays
+# them through the SKILL's OWN argument expressions — defaults included, because a
+# fail-open IS the default being taken.
+FAILOPEN_ITEMS: tuple[dict, ...] = (
+    {
+        "id": "docs-naming",
+        "emitter": "docs-naming",
+        "function": "synth_docs",
+        "injection": "v1.5.0 — a dropped docs_clean key failed OPEN on the docs floor",
+        "should_fire_because": (
+            "the evidence carries no docs_clean at all, so the docs floor was never "
+            "evaluated; the SKILL reads ev.get('docs_clean', True) and the default IS "
+            "the answer"
+        ),
+        "expectation_sources": [
+            "CHANGELOG.md:356",
+            "scripts/floorsynth.py::script_defects_from docstring (MANDATORY_FLAG_KEYS)",
+        ],
+        "namespace": {
+            "ev": {
+                "lint_defects": [],
+                "pathcheck_defects": [],
+                "reqcoverage_defects": [],
+                "runcheck": {"ok": True, "returncode": 0, "test_count": 3,
+                             "new_tests_collected": True, "revert_red": False},
+                "verify_cmd": "python3 -m unittest discover -s .",
+            },
+        },
+    },
+    {
+        "id": "critic-schema",
+        "emitter": "critic-schema",
+        "function": "merge_and_validate",
+        "injection": "H4 — a critic forges a floor-namespace id and is classified "
+                     "plugin-authored",
+        "should_fire_because": (
+            "enforce_critic_schema checks that id is PRESENT, never its VALUE, so a "
+            "prompt-injected critic takes a floor id and its fix travels as a trusted "
+            "instruction; the schema floor is the only predicate positioned to see it"
+        ),
+        "expectation_sources": [
+            "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:97",
+            "scripts/quality.py::enforce_critic_schema",
+        ],
+        "namespace": {
+            "critics": [{
+                "dimensions": {"CORRECTNESS": "yes", "CODE-QUALITY": "yes",
+                               "SECURITY": "yes", "DOES-IT-RUN": "yes",
+                               "REQUIREMENTS-COVERAGE": "yes", "MAINTAINABILITY": "yes"},
+                "defects": [{
+                    "id": "runcheck",
+                    "category": "DOES-IT-RUN",
+                    "severity": "CRITICAL",
+                    "location": "verify_cmd",
+                    "fix": "<a floor id forged by the reviewed target; the payload "
+                           "itself is deliberately inert in this fixture>",
+                }],
+                "verdict": "FAIL",
+            }],
+            "script_defects": [],
+        },
+    },
+    {
+        "id": "stale-verdict",
+        "emitter": "stale-verdict",
+        "function": "stale_verdict_defects",
+        "injection": "H6 — an honest crash after advance(REFINE) resumes at OUTPUT "
+                     "and prints a green",
+        "should_fire_because": (
+            "the V7-forced refine never re-entered CODED, so no verification covers "
+            "the tree as it stands; at v1.5.1 this ledger was SILENT and final_status "
+            "printed OK"
+        ),
+        "expectation_sources": [
+            "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:120",
+            "scripts/floorsynth.py::stale_verdict_defects docstring (condition (c))",
+        ],
+        "namespace": {
+            "log_records": [{"stage": s} for s in
+                            ("GROUNDED", "CODED", "VERIFIED", "REFINE")],
+        },
+    },
+)
+
 
 def frozen_tree_paths(review_root: str, baseline_sha: str) -> tuple[list[str] | None, str]:
     """Return (paths, state). state is 'measured' | 'unmeasured'. NEVER raises, NEVER
@@ -631,6 +726,86 @@ def plan_dirty_item() -> tuple[dict, list, list[str]]:
     return {"id": item_id, "arm": "dirty", "source": source, "files": files}, writes, []
 
 
+def build_failopen(corpus_root: str) -> tuple[dict | None, list[str]]:
+    """Write the fail-open arm (plan §5.4). Returns (index, errors).
+
+    A SEPARATE build from :func:`build_corpus`, and separately invoked, for one
+    reason: these items are AUTHORED inputs, not captured bytes. TA-H1 forbids a
+    manifest entry for bytes an invocation did not copy, and nothing here was copied
+    from anywhere — so the arm carries its own index with its own citations, and
+    ``manifest.json`` stays at the seventeen items it really captured.
+
+    What makes the items non-vacuous is not a hash: it is that each one's
+    "this should have fired" is documented somewhere other than the file asserting
+    it, and every citation names a path in this repository.
+    """
+    errors: list[str] = []
+    writes: list[tuple[str, bytes]] = []
+    entries: list[dict] = []
+    seen: set[str] = set()
+    for spec in FAILOPEN_ITEMS:
+        item_id = "failopen/%s" % spec["id"]
+        if spec["id"] in seen:
+            errors.append("%s: duplicate fail-open item id" % item_id)
+            continue
+        seen.add(spec["id"])
+        if not spec.get("expectation_sources"):
+            errors.append("%s: no expectation source — an authored fixture that "
+                          "cites nothing derives its expectation from itself" % item_id)
+            continue
+        item = {
+            "arm": "failopen",
+            "kind": "documented-fail-open",
+            "emitter": spec["emitter"],
+            "function": spec["function"],
+            "injection": spec["injection"],
+            "should_fire_because": spec["should_fire_because"],
+            "expectation_sources": list(spec["expectation_sources"]),
+            "marshalling": "skill-default",
+            "marshalling_note": (
+                "replayed through skills/atlas/SKILL.md's own Step 4+5 argument "
+                "expressions, defaults INCLUDED — the adapters refuse an absent key, "
+                "and a fail-open is that default being taken"
+            ),
+            "counts_toward_prediction": False,
+            "namespace": spec["namespace"],
+            "source": "authored from the cited record; NOT captured bytes",
+        }
+        data = _json_bytes(item)
+        writes.append(("%s/item.json" % item_id, data))
+        entries.append(_entry("item.json", data, "; ".join(spec["expectation_sources"]),
+                              "authored:documented-fail-open"))
+    for relpath, _data in writes:
+        if relpath.endswith((".md", ".py")) or ".atlas" in relpath.split("/"):
+            errors.append("fail-open corpus path breaks the corpus rules: %s" % relpath)
+    if errors:
+        return None, errors
+
+    index = {
+        "schema": "predcov-failopen/1",
+        "built_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "build_command": "python3 -m scripts.corpusbuild --failopen --corpus %s" % corpus_root,
+        "rules": [
+            "AUTHORED inputs, never captured bytes — deliberately absent from manifest.json",
+            "every item cites its expectation in a file outside the fixture",
+            "this arm does NOT move the primary denominator",
+            "an emitter with no item here has NO DOCUMENTED fail-open; that is not zero",
+        ],
+        "items": sorted(entries, key=lambda e: e["source"]),
+    }
+    target = os.path.join(corpus_root, "failopen")
+    if os.path.isdir(target):
+        shutil.rmtree(target)
+    for relpath, data in writes:
+        dest = os.path.join(corpus_root, *relpath.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(data)
+    with open(os.path.join(target, "index.json"), "wb") as fh:
+        fh.write(_json_bytes(index))
+    return index, []
+
+
 def build_corpus(runs_root: str, repo_root: str, corpus_root: str) -> tuple[dict | None, list[str]]:
     """Build the whole corpus. Returns (manifest, errors); writes nothing on error.
 
@@ -763,6 +938,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Capture whole-tree change paths + provenance.")
     parser.add_argument("--build", action="store_true",
                         help="Write the four-arm corpus under --corpus.")
+    parser.add_argument("--failopen", action="store_true",
+                        help="Write the authored fail-open arm under --corpus.")
     parser.add_argument("--runs", default=DEFAULT_RUNS,
                         help="Directory holding the run sandboxes (default: %(default)s).")
     parser.add_argument("--out", default=DEFAULT_CAPTURE,
@@ -774,7 +951,7 @@ def main(argv: list[str] | None = None) -> int:
                              "(default: %(default)s).")
     args = parser.parse_args(argv)
 
-    if not (args.capture or args.build):
+    if not (args.capture or args.build or args.failopen):
         parser.print_help()
         return 0
 
@@ -801,6 +978,14 @@ def main(argv: list[str] | None = None) -> int:
               % (args.corpus, len(manifest["items"]),
                  ", ".join("%d %s" % (n, arm) for arm, n in sorted(counts.items()))))
         print("manifest: %s" % os.path.join(args.corpus, "manifest.json"))
+    if args.failopen:
+        index, errors = build_failopen(args.corpus)
+        if errors:
+            for err in errors:
+                print("FAIL-OPEN ARM REFUSED: %s" % err, file=sys.stderr)
+            return 1
+        print("fail-open arm %s/failopen: %d documented item(s)"
+              % (args.corpus, len(index["items"])))
     return rc
 
 

@@ -1,0 +1,31 @@
+{
+  "arm": "failopen",
+  "counts_toward_prediction": false,
+  "emitter": "docs-naming",
+  "expectation_sources": [
+    "CHANGELOG.md:356",
+    "scripts/floorsynth.py::script_defects_from docstring (MANDATORY_FLAG_KEYS)"
+  ],
+  "function": "synth_docs",
+  "injection": "v1.5.0 \u2014 a dropped docs_clean key failed OPEN on the docs floor",
+  "kind": "documented-fail-open",
+  "marshalling": "skill-default",
+  "marshalling_note": "replayed through skills/atlas/SKILL.md's own Step 4+5 argument expressions, defaults INCLUDED \u2014 the adapters refuse an absent key, and a fail-open is that default being taken",
+  "namespace": {
+    "ev": {
+      "lint_defects": [],
+      "pathcheck_defects": [],
+      "reqcoverage_defects": [],
+      "runcheck": {
+        "new_tests_collected": true,
+        "ok": true,
+        "returncode": 0,
+        "revert_red": false,
+        "test_count": 3
+      },
+      "verify_cmd": "python3 -m unittest discover -s ."
+    }
+  },
+  "should_fire_because": "the evidence carries no docs_clean at all, so the docs floor was never evaluated; the SKILL reads ev.get('docs_clean', True) and the default IS the answer",
+  "source": "authored from the cited record; NOT captured bytes"
+}

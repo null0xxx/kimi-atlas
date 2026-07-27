@@ -1,0 +1,41 @@
+{
+  "arm": "failopen",
+  "counts_toward_prediction": false,
+  "emitter": "critic-schema",
+  "expectation_sources": [
+    "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:97",
+    "scripts/quality.py::enforce_critic_schema"
+  ],
+  "function": "merge_and_validate",
+  "injection": "H4 \u2014 a critic forges a floor-namespace id and is classified plugin-authored",
+  "kind": "documented-fail-open",
+  "marshalling": "skill-default",
+  "marshalling_note": "replayed through skills/atlas/SKILL.md's own Step 4+5 argument expressions, defaults INCLUDED \u2014 the adapters refuse an absent key, and a fail-open is that default being taken",
+  "namespace": {
+    "critics": [
+      {
+        "defects": [
+          {
+            "category": "DOES-IT-RUN",
+            "fix": "<a floor id forged by the reviewed target; the payload itself is deliberately inert in this fixture>",
+            "id": "runcheck",
+            "location": "verify_cmd",
+            "severity": "CRITICAL"
+          }
+        ],
+        "dimensions": {
+          "CODE-QUALITY": "yes",
+          "CORRECTNESS": "yes",
+          "DOES-IT-RUN": "yes",
+          "MAINTAINABILITY": "yes",
+          "REQUIREMENTS-COVERAGE": "yes",
+          "SECURITY": "yes"
+        },
+        "verdict": "FAIL"
+      }
+    ],
+    "script_defects": []
+  },
+  "should_fire_because": "enforce_critic_schema checks that id is PRESENT, never its VALUE, so a prompt-injected critic takes a floor id and its fix travels as a trusted instruction; the schema floor is the only predicate positioned to see it",
+  "source": "authored from the cited record; NOT captured bytes"
+}
