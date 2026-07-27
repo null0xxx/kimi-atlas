@@ -129,6 +129,14 @@ class AdapterInputError(ValueError):
     ``empty_diff_defect("")`` fire on genuinely empty inputs and those fires are
     real; what the adapters refuse is ABSENCE — ``None``, a wrong type, or a
     missing key whose ``.get`` default would silently become the answer.
+
+    THE RESIDUAL, AND IT IS THE CALLER'S TO CLOSE. For three emitters the empty
+    value and the read-failure value are the same bytes: ``{}`` for
+    ``evidence-incomplete``, ``""`` for ``empty-diff``, ``[]`` for
+    ``critic-missing``. An adapter cannot tell those apart — it is handed a value,
+    not a file — so whoever builds the per-item inputs MUST raise on an artifact it
+    could not read and must never fall back to an empty literal. Substituting one
+    there re-opens TA-C1 underneath a guard that looks like it is closed.
     """
 
 
