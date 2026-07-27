@@ -677,5 +677,118 @@ class TestExternalCallableContracts(unittest.TestCase):
         self.assertIn("floorsynth", imported, "this walk must be able to see a real import")
 
 
+class TestAdapterIsBoundToTheSkillFold(unittest.TestCase):
+    """Task 7 (the CQ5 fold): the adapter is a THIRD hand-copy, so bind it to the fold.
+
+    The Step 4+5 marshalling now exists in three places: the SKILL block that runs
+    it, ``tests/test_skill_floor_contract.py`` which pins that block, and this
+    instrument, which replays it against recorded runs. An unbound third copy is
+    worse than a duplicate — it produces a coverage number for a call the
+    orchestrator never makes, and every reader takes it for a measurement of the
+    real fold.
+
+    Three routes, deliberately independent, because the failure they guard against
+    is drift and a drift that moves all three copies at once is not detectable by
+    any of them alone:
+
+      * the plan's own comparison against ``TestStep45Delegates.SYNTH_ARGUMENTS``
+        plus the two emitters that block covers but that table does not;
+      * those two extra entries re-derived from ``skills/atlas/SKILL.md`` itself, so
+        the literals above cannot be the only place they are written down;
+      * the table against THIS module's real calls, which is what stops
+        ``ADAPTER_ARGUMENTS`` from being a decorative constant that agrees with the
+        SKILL while the adapters call something else.
+    """
+
+    def _skill_calls(self):
+        """Every ``floorsynth.<fn>(...)`` call in the SKILL's python heredocs."""
+        from tests.test_skill_floor_contract import SKILL, _heredoc_bodies
+
+        calls: dict[str, list[tuple]] = {}
+        for body in _heredoc_bodies(SKILL.read_text(encoding="utf-8")):
+            for node in ast.walk(ast.parse(body.replace("${KIMI_SESSION_ID}", "SID"))):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "floorsynth"):
+                    calls.setdefault(node.func.attr, []).append(
+                        (tuple(ast.unparse(a) for a in node.args),
+                         [k.arg for k in node.keywords]))
+        return calls
+
+    def test_adapter_arguments_match_the_skill_fold(self):
+        # PLAN DEFECT, corrected here rather than worked around: plan Task 7 imports
+        # this table from ``TestStep45Delegates``. It does not live there. The plan's
+        # own line citation is right — tests/test_skill_floor_contract.py:188 — and
+        # that line is inside ``TestStep45FoldIsStructural`` (class at :139), which is
+        # the class that parses the heredoc and pins the argument expressions.
+        # Imported as written, this test dies with AttributeError, which is a red
+        # nothing in the instrument can fix.
+        from tests.test_skill_floor_contract import TestStep45FoldIsStructural as S
+        expected = dict(S.SYNTH_ARGUMENTS)
+        expected["stale_verdict_defects"] = ("log_records",)      # OUTPUT block, SKILL.md:1012
+        expected["merge_and_validate"] = ("critics", "script_defects")
+        self.assertEqual(predcov.ADAPTER_ARGUMENTS, expected)
+
+    def test_the_two_output_block_entries_are_the_skills_own(self):
+        """The test above hard-codes two entries; here they are re-derived from the fold.
+
+        ``TestStep45Delegates.SYNTH_ARGUMENTS`` covers the eight synthesisers that
+        fold into ``script_defects``. It does not cover ``merge_and_validate`` (which
+        that file pins separately, as the merge line) or ``stale_verdict_defects``
+        (which lives in the OUTPUT block, not the Step 4+5 one). Without this, those
+        two rows of the instrument would be bound to nothing but the plan's prose.
+        """
+        calls = self._skill_calls()
+        for fn in ("stale_verdict_defects", "merge_and_validate"):
+            with self.subTest(fn=fn):
+                self.assertEqual(len(calls.get(fn, [])), 1,
+                                 "expected exactly one %s call in the SKILL" % fn)
+                args, keywords = calls[fn][0]
+                self.assertEqual(keywords, [], "%s must be called positionally" % fn)
+                self.assertEqual(args, predcov.ADAPTER_ARGUMENTS[fn])
+
+    def test_the_adapters_really_call_what_the_table_declares(self):
+        """``ADAPTER_ARGUMENTS`` is a claim about this module; here it is checked against it.
+
+        Nothing in the two tests above reads ``scripts/predcov.py``'s code, so all of
+        them stay green while an adapter marshals its arguments some other way
+        entirely — and the measured cost of that is not hypothetical:
+        ``synth_runcheck(ev)`` instead of ``synth_runcheck(ev.get('runcheck', {}))``
+        fires on every honest item in the corpus.
+        """
+        tree = ast.parse((_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8"))
+        calls: dict[str, list[tuple]] = {}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "floorsynth"):
+                calls.setdefault(node.func.attr, []).append(
+                    (tuple(ast.unparse(a) for a in node.args),
+                     [k.arg for k in node.keywords]))
+
+        self.assertEqual(set(calls), set(predcov.ADAPTER_ARGUMENTS),
+                         "the module calls a different set of emitters than it declares")
+        for fn, expected in sorted(predcov.ADAPTER_ARGUMENTS.items()):
+            with self.subTest(fn=fn):
+                self.assertEqual(len(calls[fn]), 1,
+                                 "the marshalling must live at exactly one call site")
+                args, keywords = calls[fn][0]
+                self.assertEqual(keywords, [],
+                                 "%s takes positional args, and ORDER is the hazard" % fn)
+                self.assertEqual(args, expected)
+
+    def test_every_predicate_in_the_denominator_is_marshalled(self):
+        """Closed world, from the derived side: an eleventh predicate must land here.
+
+        ``ADAPTER_ARGUMENTS`` is keyed by FUNCTION name and ``ADAPTERS`` by id STEM,
+        and ``discover_emitters`` is the only thing that knows the pairing. A new
+        emitter in ``scripts/floorsynth.py`` therefore cannot be measured by an
+        adapter nobody wrote, nor silently omitted from the marshalling table.
+        """
+        pairs = predcov.discover_emitters()
+        self.assertEqual({func for func, _stem in pairs}, set(predcov.ADAPTER_ARGUMENTS))
+        self.assertEqual({stem for _func, stem in pairs}, set(predcov.ADAPTERS))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

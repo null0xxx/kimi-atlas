@@ -57,12 +57,18 @@ THE FIRING RULE and its two bespoke adapters live in :func:`fired`,
 ("the emitter returned a non-empty list") is measurably wrong on exactly those
 two and INVERTS the experiment's answer; each carries its own note.
 
-THE ADAPTERS ARE A REPLICA. The argument marshalling below is a third hand-copy
-of the SKILL's Step 4+5 fold (``skills/atlas/SKILL.md``), after the fold itself
-and ``tests/test_skill_floor_contract.py``. Plan Task 7 is the test that binds
-this copy to that one; until it lands the duplication is UNBOUND, and a drift
-between the SKILL's call and this module's would show up as a coverage number
-for a call the orchestrator never makes.
+THE ADAPTERS ARE A REPLICA, and :data:`ADAPTER_ARGUMENTS` is what keeps them one.
+The argument marshalling below is a THIRD hand-copy of the SKILL's Step 4+5 fold
+(``skills/atlas/SKILL.md``), after the fold itself and
+``tests/test_skill_floor_contract.py``. An unbound third copy is worse than a
+duplicate: it produces a coverage number for a call the orchestrator never makes,
+and every reader takes that for a measurement of the real fold. So the table
+below is checked against the SKILL's own calls AND against this module's own
+calls, by ``tests/test_predcov.py``, and a drift on either side is a red rather
+than a different number. The adapters ALSO refuse rather than default (see
+:class:`AdapterInputError`), which is the one place they deliberately do NOT
+replicate the fold: the SKILL's ``.get`` defaults are correct fail-closed/
+fail-open runtime behaviour and would be manufactured measurements here.
 """
 from __future__ import annotations
 
@@ -470,6 +476,28 @@ def emit_critic_missing(artifacts) -> bool:
     loaded_critics = _require_list("loaded_critics", artifacts)
     return fired("critic-missing", floorsynth.critics_missing_defects(loaded_critics))
 
+
+#: floorsynth function name -> the ARGUMENT EXPRESSIONS this module hands it, as
+#: source text. It is a claim with two halves and both are checked in
+#: ``tests/test_predcov.py``: it must equal the SKILL's Step 4+5 fold (eight rows
+#: from ``TestStep45FoldIsStructural.SYNTH_ARGUMENTS``, plus ``merge_and_validate``
+#: and the OUTPUT block's ``stale_verdict_defects``, both re-derived from
+#: ``skills/atlas/SKILL.md`` itself), and it must equal what the adapters above
+#: really call. Neither check alone is enough: the first leaves the table free to
+#: agree with the SKILL while the adapters do something else, and the second leaves
+#: the pair free to drift away from the fold together.
+ADAPTER_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "script_defects_from": ("ev",),
+    "synth_runcheck": ("ev.get('runcheck', {})", "ev.get('verify_cmd', '')"),
+    "synth_docs": ("ev.get('docs_clean', True)",),
+    "empty_diff_defect": ("diff",),
+    "critics_missing_defects": ("loaded_critics",),
+    "out_of_scope_defects": ("full_paths", "st['scope_paths']"),
+    "dimension_dissent_defects": ("loaded_map",),
+    "critics_stale_defects": ("loaded_map", "current_pass"),
+    "stale_verdict_defects": ("log_records",),
+    "merge_and_validate": ("critics", "script_defects"),
+}
 
 #: stem -> (adapter, the control-fixture input names it takes, IN CALL ORDER).
 #: The names are the SKILL fold's own variable names, so this table can be diffed
