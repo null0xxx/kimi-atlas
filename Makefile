@@ -8,7 +8,7 @@
 # green in PLAN.md P1/P3 as scripts/ and tests/ land. `help` and `check-shell`
 # work from P0.
 .DEFAULT_GOAL := help
-.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate skill-registry skills-extract clean install-hooks bench-validate
+.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate skill-registry skills-extract clean install-hooks bench-validate predcov predcov-write
 
 check: check-artifacts ## Run the artifact naming checker (alias)
 check-artifacts:
@@ -39,7 +39,13 @@ skills-extract: ## Extract the Skills/ zips into skills/ and verify the committe
 	python3 scripts/skillextract.py
 	python3 scripts/skillextract.py --verify
 
-ci: check-strict test inventory-drift check-shell ## Local pipeline; mirrors check.yml only (see header)
+predcov: ## Report-only: per-predicate honest-corpus fire count (NEVER blocks)
+	-@python3 -m scripts.predcov --corpus tests/corpus || true
+
+predcov-write: ## Regenerate the committed record (NOT run by ci)
+	python3 -m scripts.predcov --corpus tests/corpus --json references/predcov.json
+
+ci: check-strict test inventory-drift check-shell predcov ## Local pipeline; mirrors check.yml only (see header)
 
 install-hooks: ## Install the opt-in local pre-commit gate
 	./scripts/install-hooks.sh

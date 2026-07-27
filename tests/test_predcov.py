@@ -1455,5 +1455,166 @@ class TestInstrumentGuarantees(unittest.TestCase):
         self.assertNotIn("sys.exit(1)", source)
 
 
+class TestMakefileWiring(unittest.TestCase):
+    """Task 11 — the pre-registration wiring, and the three suppressions.
+
+    This is the commit that makes the instrument REACHABLE from ``make ci`` while
+    keeping it incapable of changing ``make ci``'s exit status. Both halves need a
+    test, and they fail in opposite directions:
+
+    * If the ``ci`` prerequisite is missing, the roadmap's Phase 1 acceptance
+      criterion — *``make ci`` prints a per-predicate fire count* — is silently
+      unmet while every test in this file still passes (RC-11).
+    * If any suppression is missing, a report-only instrument acquires the power to
+      fail a build, which is a new blocking predicate by another name and violates
+      GLOBAL CONSTRAINT 2.
+
+    The suppressions are pinned *individually*, by execution: each of make's ``-``
+    prefix and the shell's ``|| true`` is shown to hold the exit status at 0 on its
+    own, against a module that really does exit 3 (asserted, so the probe cannot pass
+    by being harmless). ``main()``'s own lack of a non-zero return path is the third
+    and is pinned separately by
+    :meth:`TestInstrumentGuarantees.test_no_return_path_of_main_is_non_zero`.
+
+    Nothing here asserts a fire count, a threshold or a verdict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (_ROOT / "Makefile").read_text(encoding="utf-8")
+        cls.lines = cls.text.splitlines()
+
+    def _target_line(self, target: str) -> str:
+        for line in self.lines:
+            if line.startswith(target + ":") and not line.startswith(target + "::"):
+                return line
+        raise AssertionError("no %s target in the Makefile" % target)
+
+    def _prerequisites(self, target: str) -> list[str]:
+        rhs = self._target_line(target).split(":", 1)[1].split("##", 1)[0]
+        return rhs.split()
+
+    def _recipe(self, target: str) -> list[str]:
+        start = self.lines.index(self._target_line(target))
+        body = []
+        for nxt in self.lines[start + 1:]:
+            if not nxt.startswith("\t"):
+                break
+            body.append(nxt.lstrip("\t"))
+        return body
+
+    def test_ci_reaches_the_instrument_and_reaches_it_last(self):
+        """The acceptance criterion is reachability, and order is not decorative.
+
+        ``predcov`` is listed last so that under serial make — which is how ``make
+        ci`` is run and how ``.github/workflows/check.yml`` runs it — the report is
+        printed after the gates that can actually fail have already run. Under
+        ``make -j`` no ordering is guaranteed and none is claimed here.
+        """
+        prerequisites = self._prerequisites("ci")
+        self.assertIn("predcov", prerequisites,
+                      "make ci no longer reaches the instrument; the Phase 1 "
+                      "acceptance criterion is silently unmet")
+        self.assertEqual(prerequisites[-1], "predcov")
+        for gate in ("check-strict", "test", "inventory-drift", "check-shell"):
+            self.assertIn(gate, prerequisites,
+                          "the ci target lost the %s gate while gaining predcov" % gate)
+
+    def test_the_ci_target_keeps_its_help_text(self):
+        """A DELIBERATE, RECORDED DEVIATION from the plan's Task 11 snippet.
+
+        The plan writes the amended line as ``ci: check-strict test inventory-drift
+        check-shell predcov`` with no trailing ``##`` comment. Applied literally that
+        drops ``ci`` out of ``make help``, whose recipe selects on ``/^[a-zA-Z0-9_-]+:
+        .*##/`` — and ``README.md`` sends readers to ``make help`` for "everything
+        else". The comment is kept. This test is what makes the deviation checked
+        rather than merely asserted.
+        """
+        self.assertIn("##", self._target_line("ci"))
+        self.assertIn("mirrors check.yml only", self._target_line("ci"))
+
+    def test_the_report_only_recipe_carries_both_shell_level_suppressions(self):
+        recipe = self._recipe("predcov")
+        self.assertEqual(len(recipe), 1, "the predcov recipe grew a second command")
+        line = recipe[0]
+        self.assertTrue(line.startswith("-"),
+                        "the predcov recipe lost make's ignore-errors prefix: %r" % line)
+        self.assertTrue(line.rstrip().endswith("|| true"),
+                        "the predcov recipe lost its `|| true`: %r" % line)
+        self.assertIn("-m scripts.predcov", line)
+
+    def test_the_ci_path_passes_no_write_flag(self):
+        """RC-02, at the layer the in-process write tests cannot see.
+
+        ``test_ci_recipe_writes_nothing`` runs the module directly, so a ``--json``
+        added to the *Makefile* recipe would be invisible to it. A generated file in
+        the working tree is what fires ``out-of-scope`` on the next self-review.
+        """
+        self.assertNotIn("--json", " ".join(self._recipe("predcov")))
+        self.assertNotIn("predcov-write", self._prerequisites("ci"))
+
+    def test_the_write_target_writes_only_where_the_module_defaults(self):
+        recipe = " ".join(self._recipe("predcov-write"))
+        self.assertIn("--json " + predcov.DEFAULT_JSON_TARGET, recipe)
+        self.assertTrue(predcov.DEFAULT_JSON_TARGET.startswith("references/"),
+                        "the record's destination left references/; a repo-root data "
+                        "file is not residue and manufactures a RED on self-review")
+
+    def test_both_new_targets_are_phony(self):
+        """CQ10/D9: a same-named file or directory would silently satisfy the target.
+
+        ``make`` treats an existing path as an up-to-date target and prints "Nothing
+        to be done", which for a report-only instrument is indistinguishable from a
+        clean run.
+        """
+        phony: set[str] = set()
+        for line in self.lines:
+            if line.startswith(".PHONY:"):
+                phony.update(line.split(":", 1)[1].split())
+        self.assertLessEqual({"ci", "test", "check-strict", "inventory-drift",
+                              "check-shell", "predcov", "predcov-write"}, phony)
+
+    @unittest.skipUnless(shutil.which("make"), "make is not installed")
+    def test_each_suppression_holds_the_exit_status_at_zero_on_its_own(self):
+        """Executed, not read: a module that exits 3 cannot fail `make predcov`.
+
+        The control is the point. ``self.assertEqual(direct.returncode, 3)`` proves
+        the probe module really is a failing one, so a recipe that stopped suppressing
+        anything could not pass this by accident. Then each suppression is measured
+        alone: the ``|| true`` with make's ``-`` prefix stripped from the command, and
+        the ``-`` prefix with ``|| true`` deleted from the recipe.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            (root / "scripts").mkdir()
+            (root / "scripts" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "scripts" / "predcov.py").write_text(
+                "raise SystemExit(3)\n", encoding="utf-8")
+            (root / "Makefile").write_text(self.text, encoding="utf-8")
+
+            direct = subprocess.run(["python3", "-m", "scripts.predcov"],
+                                    cwd=td, capture_output=True)
+            self.assertEqual(direct.returncode, 3,
+                             "the probe module does not fail; this test would be vacuous")
+
+            whole = subprocess.run(["make", "predcov"], cwd=td, capture_output=True)
+            self.assertEqual(whole.returncode, 0, whole.stderr[-400:])
+
+            command = self._recipe("predcov")[0].lstrip("-@")
+            shell_only = subprocess.run(["sh", "-c", command], cwd=td,
+                                        capture_output=True)
+            self.assertEqual(shell_only.returncode, 0,
+                             "`|| true` no longer holds the status on its own")
+
+            no_shell_guard = self.text.replace(
+                self._recipe("predcov")[0], self._recipe("predcov")[0].replace(
+                    " || true", ""))
+            self.assertNotEqual(no_shell_guard, self.text, "the mutation did not apply")
+            (root / "Makefile").write_text(no_shell_guard, encoding="utf-8")
+            make_only = subprocess.run(["make", "predcov"], cwd=td, capture_output=True)
+            self.assertEqual(make_only.returncode, 0,
+                             "make's `-` prefix no longer holds the status on its own")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
