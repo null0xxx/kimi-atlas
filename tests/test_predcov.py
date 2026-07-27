@@ -47,6 +47,7 @@ passes every positive control and dies only to the negative one.
 No test in this module asserts a fire count, a threshold or a verdict.
 """
 import ast
+import inspect
 import json
 import os
 import pathlib
@@ -54,7 +55,8 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts import corpusbuild, floorsynth, inventory_drift, predcov, rubric
+from scripts import check_artifact_naming as can
+from scripts import corpusbuild, ctxstore, difftool, floorsynth, inventory_drift, predcov, rubric
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CORPUS = _ROOT / "tests" / "corpus"
@@ -574,6 +576,105 @@ class TestEmitterControls(unittest.TestCase):
         named = {"%s.json" % stem for stem in predcov.EMITTERS}
         stray = sorted(str(p) for p in _CORPUS.rglob("*.json") if p.name in named)
         self.assertEqual([], stray)
+
+
+class TestExternalCallableContracts(unittest.TestCase):
+    """Task 6: the arity and the ARGUMENT ORDER every adapter assumes.
+
+    Two shape bugs of exactly this kind have already flipped this experiment's
+    answer once each, and neither raised anything:
+
+      * ``check_artifact_naming.check_file`` returns a 2-TUPLE. Both candidate
+        designs described the call without the unpack, and ``bool(("", ""))`` is
+        True — which would make ``docs_clean`` False on 5 of 5 tag items and fire
+        ``docs-naming`` on every one of them.
+      * ``floorsynth.merge_and_validate`` returns a 2-tuple too, so ``len(...)`` is
+        2 and ``bool(...)`` is True unconditionally, on every item ever.
+
+    And the order trap: ``difftool.git_tree_has_baseline(cwd, baseline_sha)`` and
+    ``difftool.change_paths(baseline_sha, cwd)`` take the same two strings in the
+    OPPOSITE positional order. A swap raises nothing, returns ``[]``, and prints as
+    "measured, nothing outside scope" — a silent zero in the one predicate with a
+    documented honest false RED.
+
+    These pin the CALLEES, which live in frozen runtime modules this phase may not
+    touch: if one of them changes shape, the instrument must go red here rather
+    than quietly report a different number.
+    """
+
+    def test_external_callable_arities_are_what_the_adapter_assumes(self):
+        self.assertEqual(len(can.check_file(pathlib.Path("."), "README.md")), 2)
+        self.assertEqual(len(floorsynth.merge_and_validate([], [])), 2)
+        self.assertIsInstance(difftool.change_paths("", "."), list)
+        self.assertIsInstance(ctxstore.get_refine_passes(".", "nope"), int)
+
+    def test_difftool_argument_order_is_not_swapped(self):
+        """git_tree_has_baseline(cwd, sha) but change_paths(sha, cwd) -- opposite order.
+        A swap degrades silently to [] and is invisible in the report."""
+        self.assertEqual(list(inspect.signature(difftool.change_paths).parameters),
+                         ["baseline_sha", "cwd"])
+        self.assertEqual(list(inspect.signature(difftool.git_tree_has_baseline).parameters),
+                         ["cwd", "baseline_sha"])
+
+    def test_the_capture_binds_those_two_calls_to_the_right_parameters(self):
+        """The pin above is only half the trap: the other half is the CALL SITE.
+
+        ``frozen_tree_paths`` is the one place in this phase that calls both, and it
+        must bind the same two values to opposite positions. The expectation is
+        derived from ``inspect.signature`` rather than hard-coded, so a change to
+        ``scripts/difftool.py`` moves the target instead of leaving this test
+        agreeing with a stale copy of it — what fails is the MIS-BINDING.
+        """
+        source = (_ROOT / "scripts" / "corpusbuild.py").read_text(encoding="utf-8")
+        bound = {}
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "difftool"):
+                continue
+            callee = getattr(difftool, node.func.attr)
+            params = list(inspect.signature(callee).parameters)
+            self.assertEqual(node.keywords, [], "%s must be called positionally" % node.func.attr)
+            self.assertEqual(len(node.args), len(params))
+            bound[node.func.attr] = dict(zip(params, [ast.unparse(a) for a in node.args]))
+
+        self.assertEqual(
+            bound,
+            {"git_tree_has_baseline": {"cwd": "review_root", "baseline_sha": "baseline_sha"},
+             "change_paths": {"baseline_sha": "baseline_sha", "cwd": "review_root"}},
+        )
+
+    def test_the_adapter_never_recomputes_the_frozen_path_list(self):
+        """CQ2: ``out-of-scope`` reads the FROZEN ``tree.paths``, never a live git call.
+
+        ``difftool.change_paths`` returns ``[]`` on a tree that is not a git
+        checkout, so an adapter that fell back to it for an unreconstructible item
+        would record "measured, nothing outside scope" — an unmeasurable cell
+        printed as a zero, in the one predicate the record documents as producing an
+        honest false RED. The refusal is structural: the instrument does not import
+        ``difftool`` at all.
+
+        Checked over the AST, not the text, so the module may keep NAMING the call
+        in its docstrings — which is where the reason for this rule is written down.
+        """
+        tree = ast.parse((_ROOT / "scripts" / "predcov.py").read_text(encoding="utf-8"))
+        called = set()
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute):
+                    called.add(func.attr)
+                elif isinstance(func, ast.Name):
+                    called.add(func.id)
+            elif isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.update(a.name for a in node.names)
+        self.assertNotIn("difftool", imported)
+        for forbidden in ("change_paths", "capture_full", "git_tree_has_baseline"):
+            self.assertNotIn(forbidden, called)
+        self.assertIn("floorsynth", imported, "this walk must be able to see a real import")
 
 
 if __name__ == "__main__":  # pragma: no cover
