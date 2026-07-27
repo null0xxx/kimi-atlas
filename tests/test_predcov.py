@@ -33,8 +33,20 @@ list") disagrees with the measured numbers on 2 of the 10 emitters and flips the
 experiment's answer from FALSIFIED to SUPPORTED, so each of those two ships with
 a companion input of IDENTICAL length and the opposite firing state.
 
+Task 5 pins the CONTROLS, and it is the same discipline applied to the instrument
+itself rather than to its inputs. A corpus replay cannot tell an honest adapter
+from a dead one — eight of the ten emitters are handed a constant non-firing
+input by the recorded arm, so a module that always returned False would print the
+same table. Every emitter therefore carries an authored FIRING input and an
+authored SILENT one, driven through the adapter entry point, with the
+``scripts/floorsynth.py`` branch line each was derived from recorded in the
+fixture and checked here. Measured, the two arms kill different mutations:
+``synth_runcheck(ev)`` in place of ``synth_runcheck(ev.get('runcheck', {}))``
+passes every positive control and dies only to the negative one.
+
 No test in this module asserts a fire count, a threshold or a verdict.
 """
+import ast
 import json
 import os
 import pathlib
@@ -432,6 +444,136 @@ class TestFiringRule(unittest.TestCase):
                 {"id": "critic-stale:x", "severity": ["CRITICAL"]}]
         self.assertFalse(predcov.fired("critic-stale", junk))
         self.assertFalse(predcov.fired("critic-stale", None))
+
+
+class TestEmitterControls(unittest.TestCase):
+    """Task 5 (the TA-C1 fold): one FIRING and one SILENT control per emitter.
+
+    Without controls, a total adapter failure is indistinguishable from the honest
+    result IN BOTH DIRECTIONS. An adapter that swallows every exception reports
+    0 of 10 and reads FALSIFIED; an adapter fed what a silent read failure produces
+    (``ev={}``, ``diff=""``, ``loaded=[]``) reports 4 of 10 and reads SUPPORTED.
+    Replaying the corpus kills neither, because the corpus hands EIGHT of the ten
+    emitters a constant non-firing input (plan §4) — on that material a dead
+    adapter and an honest one print the same table.
+
+    The two arms kill different mutations, which is why both are required:
+
+      * the POSITIVE arm dies to an adapter that never fires — a swallowed
+        exception, a dropped call, ``fired()`` pinned to ``False``;
+      * the NEGATIVE arm dies to an adapter that fires unconditionally, AND to the
+        argument mis-marshalling the positive arm cannot see: measured,
+        ``synth_runcheck(ev)`` instead of ``synth_runcheck(ev.get('runcheck', {}))``
+        fires on BOTH arms, so it passes every positive control and is caught only
+        here.
+
+    The fixtures live in ``tests/fixtures/predcov_controls/``, deliberately OUTSIDE
+    ``tests/corpus/``: a control living in the corpus would be replayed as a corpus
+    item and would rig the number this phase reports.
+    """
+
+    def test_every_emitter_has_a_working_positive_control(self):
+        for stem in predcov.EMITTERS:
+            with self.subTest(stem=stem):
+                self.assertTrue(predcov.probe_control(stem, "fires")[stem])
+
+    def test_every_emitter_has_a_working_negative_control(self):
+        for stem in predcov.EMITTERS:
+            with self.subTest(stem=stem):
+                self.assertFalse(predcov.probe_control(stem, "silent")[stem])
+
+    def test_control_provenance_lines_are_inside_their_emitter(self):
+        """Anti-circularity: each mutation cites a real branch line in its own function.
+
+        A control whose inputs were authored by reading the emitter's OUTPUT rather
+        than its branch condition proves nothing about that branch — it re-states the
+        function. So each fixture names the ``scripts/floorsynth.py`` line it was
+        derived from, and that citation is checked four ways: the function must be
+        the one ``discover_emitters`` pairs with this stem, the line must fall inside
+        that function's own span, the line's text must be what the fixture recorded,
+        and that text must be UNIQUE within the function — a citation that could
+        point at two places pins neither.
+        """
+        source = (_ROOT / "scripts" / "floorsynth.py").read_text(encoding="utf-8")
+        lines = source.splitlines()
+        spans = {n.name: (n.lineno, n.end_lineno)
+                 for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+        func_of = {stem: func for func, stem in predcov.discover_emitters()}
+
+        for stem in predcov.EMITTERS:
+            with self.subTest(stem=stem):
+                control = predcov.load_control(stem)
+                self.assertEqual(control["emitter"], stem,
+                                 "the fixture's own name for itself must match its path")
+                func = func_of[stem]
+                self.assertEqual(control["function"], func,
+                                 "the control cites a function that does not emit this id")
+                low, high = spans[func]
+                cited = control["branch_line"]
+                self.assertTrue(low <= cited <= high,
+                                "line %s is outside %s (%s-%s)" % (cited, func, low, high))
+                self.assertIn("if ", control["branch_source"],
+                              "the citation must be a BRANCH line, not any line")
+                self.assertEqual(lines[cited - 1].strip(), control["branch_source"])
+                hits = [n for n, text in enumerate(lines[low - 1:high], start=low)
+                        if text.strip() == control["branch_source"]]
+                self.assertEqual(hits, [cited],
+                                 "the cited text is not unique inside %s" % func)
+
+    def test_a_defaulted_input_is_refused_rather_than_reported(self):
+        """TA-C1's other half: the degraded shapes must ERROR, never become an answer.
+
+        What a silent read failure hands these emitters is not neutral — through
+        ``floorsynth`` itself an empty evidence dict MANUFACTURES a ``runcheck`` fire
+        and a ``docs-naming`` SILENCE, on every item at once, in opposite directions.
+        The adapters therefore refuse an input they did not get: they never
+        substitute a default whose value would be reported as either a fire or a
+        restraint. The corpus evaluator turns that refusal into a per-item error and
+        an ``ADAPTER DEGRADED`` report, which is a visible failure rather than a
+        number.
+        """
+        self.assertTrue(floorsynth.synth_runcheck({}, ""),
+                        "an absent runcheck key fires — this is the manufactured fire")
+        self.assertEqual(floorsynth.synth_docs(True), [],
+                         "an absent docs_clean key defaults CLEAN — the manufactured silence")
+
+        degraded = {
+            "runcheck: absent evidence key": lambda: predcov.emit_runcheck({}),
+            "docs-naming: absent evidence key": lambda: predcov.emit_docs_naming({}),
+            "empty-diff: no diff at all": lambda: predcov.emit_empty_diff(None),
+            "evidence-incomplete: no evidence at all": lambda: predcov.emit_evidence_incomplete(None),
+            "out-of-scope: no scope_paths": lambda: predcov.emit_out_of_scope(["a.py"], {}),
+            "out-of-scope: empty scope fails CLOSED": lambda: predcov.emit_out_of_scope(
+                ["a.py"], {"scope_paths": []}),
+            "critic-missing: no artifact list": lambda: predcov.emit_critic_missing(None),
+            "critic-stale: no pass stamp": lambda: predcov.emit_critic_stale({}, None),
+            "dimension-dissent: no critic map": lambda: predcov.emit_dimension_dissent(None),
+            "stale-verdict: no ledger": lambda: predcov.emit_stale_verdict(None),
+            "critic-schema: no critic list": lambda: predcov.emit_critic_schema(None, []),
+        }
+        for label, call in degraded.items():
+            with self.subTest(case=label):
+                with self.assertRaises(predcov.AdapterInputError):
+                    call()
+
+    def test_every_emitter_in_the_denominator_has_an_adapter(self):
+        """Closed world: a predicate with no adapter would render as a permanent 0.
+
+        ``EMITTERS`` is pinned to ``discover_emitters`` by
+        :class:`TestDenominatorDiscovery`, so an eleventh predicate added to
+        ``scripts/floorsynth.py`` reaches this assertion and fails here until it is
+        given an adapter and a control pair — instead of silently joining the
+        denominator as an emitter nothing ever calls.
+        """
+        self.assertEqual(set(predcov.ADAPTERS), set(predcov.EMITTERS))
+
+    def test_the_controls_live_outside_the_corpus(self):
+        """A control inside the corpus would be replayed as an item and rig the number."""
+        self.assertTrue(predcov.CONTROLS_DIR.is_dir())
+        self.assertNotIn(_CORPUS, predcov.CONTROLS_DIR.parents)
+        named = {"%s.json" % stem for stem in predcov.EMITTERS}
+        stray = sorted(str(p) for p in _CORPUS.rglob("*.json") if p.name in named)
+        self.assertEqual([], stray)
 
 
 if __name__ == "__main__":  # pragma: no cover

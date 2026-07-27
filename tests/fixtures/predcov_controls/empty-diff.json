@@ -1,0 +1,13 @@
+{
+  "branch_line": 169,
+  "branch_source": "if (diff or \"\").strip():",
+  "derivation": "The branch strips before testing, so whitespace is empty. Both arms are non-empty TRUTHY strings of exactly four characters and land on opposite sides: a rule reading bool(diff) or len(diff) scores them identically.",
+  "emitter": "empty-diff",
+  "fires": {
+    "diff": "   \n"
+  },
+  "function": "empty_diff_defect",
+  "silent": {
+    "diff": "+a\n"
+  }
+}

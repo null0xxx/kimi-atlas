@@ -1,0 +1,33 @@
+{
+  "branch_line": 568,
+  "branch_source": "if last_refine > last_coded:",
+  "derivation": "H6, the trailing-REFINE condition: a forced refine that never re-entered CODED. Both arms are three legal-transition records with no ROLLBACK, no duplicate and no trailing OUTPUT -- truncated where the SKILL evaluates them, per this function's own fixture-author corollary. The firing arm trips this condition ONLY: its CODED precedes its VERIFIED, so the ordering condition is quiet, and every adjacent pair is a legal edge, so the adjacency condition is quiet too.",
+  "emitter": "stale-verdict",
+  "fires": {
+    "log_records": [
+      {
+        "stage": "CODED"
+      },
+      {
+        "stage": "VERIFIED"
+      },
+      {
+        "stage": "REFINE"
+      }
+    ]
+  },
+  "function": "stale_verdict_defects",
+  "silent": {
+    "log_records": [
+      {
+        "stage": "GROUNDED"
+      },
+      {
+        "stage": "CODED"
+      },
+      {
+        "stage": "VERIFIED"
+      }
+    ]
+  }
+}

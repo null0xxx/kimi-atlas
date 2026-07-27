@@ -1,0 +1,37 @@
+{
+  "branch_line": 407,
+  "branch_source": "if dims.get(d) == \"no\" and not _corresponds(d)]",
+  "derivation": "BOTH arms dissent: dimensions.CORRECTNESS is 'no' and verdict is FAIL in each. The silent arm is silent only because the critic also FILED the corresponding blocking defect, which is the _corresponds half of the branch -- so an adapter or refactor that dropped that half fires on both.",
+  "emitter": "dimension-dissent",
+  "fires": {
+    "loaded_map": {
+      "critic_correctness.json": {
+        "defects": [],
+        "dimensions": {
+          "CORRECTNESS": "no"
+        },
+        "verdict": "FAIL"
+      }
+    }
+  },
+  "function": "dimension_dissent_defects",
+  "silent": {
+    "loaded_map": {
+      "critic_correctness.json": {
+        "defects": [
+          {
+            "category": "CORRECTNESS",
+            "fix": "handle the empty case",
+            "id": "C1",
+            "location": "scripts/seed.py:1",
+            "severity": "HIGH"
+          }
+        ],
+        "dimensions": {
+          "CORRECTNESS": "no"
+        },
+        "verdict": "FAIL"
+      }
+    }
+  }
+}

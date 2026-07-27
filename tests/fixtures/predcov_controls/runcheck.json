@@ -1,0 +1,27 @@
+{
+  "branch_line": 101,
+  "branch_source": "if runcheck.green(rc or {}):",
+  "derivation": "runcheck.green requires ok AND test_count > 0 AND new_tests_collected. Both arms carry all three keys and differ only in their values, so the silent arm is what kills the mis-marshalling synth_runcheck(ev): handed the whole evidence dict, green() finds no 'ok' key and the emitter fires on BOTH arms.",
+  "emitter": "runcheck",
+  "fires": {
+    "ev": {
+      "runcheck": {
+        "new_tests_collected": false,
+        "ok": false,
+        "test_count": 0
+      },
+      "verify_cmd": "make test"
+    }
+  },
+  "function": "synth_runcheck",
+  "silent": {
+    "ev": {
+      "runcheck": {
+        "new_tests_collected": true,
+        "ok": true,
+        "test_count": 12
+      },
+      "verify_cmd": "make test"
+    }
+  }
+}

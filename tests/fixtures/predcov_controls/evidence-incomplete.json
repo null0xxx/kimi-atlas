@@ -1,0 +1,30 @@
+{
+  "branch_line": 83,
+  "branch_source": "if missing:",
+  "derivation": "The branch tests MANDATORY_EVIDENCE_KEYS + MANDATORY_FLAG_KEYS for an absent-or-NULL key. The firing arm drops reqcoverage_defects; the silent arm supplies all four and one MEDIUM pass-through instead. Both make script_defects_from return a list of length ONE, so no length, truthiness or emptiness rule can separate them -- only the defect id can.",
+  "emitter": "evidence-incomplete",
+  "fires": {
+    "ev": {
+      "docs_clean": true,
+      "lint_defects": [],
+      "pathcheck_defects": []
+    }
+  },
+  "function": "script_defects_from",
+  "silent": {
+    "ev": {
+      "docs_clean": true,
+      "lint_defects": [],
+      "pathcheck_defects": [],
+      "reqcoverage_defects": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "cover the criterion",
+          "id": "RC2",
+          "location": "scripts/seed.py",
+          "severity": "MEDIUM"
+        }
+      ]
+    }
+  }
+}
