@@ -315,9 +315,44 @@ def emit_evidence_incomplete(evidence) -> bool:
     all and is refused, because the two are indistinguishable here and only one of
     them is a measurement.
     """
+    return fired("evidence-incomplete", defects_evidence_incomplete(evidence))
+
+
+def defects_evidence_incomplete(evidence) -> list[dict]:
+    """This emitter's OWN defects for one item — the pass-throughs dropped."""
     ev = _require_dict("ev", evidence)
     own, _passthrough = split_script_defects(ev)
-    return fired("evidence-incomplete", own)
+    return own
+
+
+def all_script_defects(evidence) -> list[dict]:
+    """``script_defects_from``'s whole output, in floorsynth's own order.
+
+    Needed by the fold replay (:func:`recompute_delta`), which must reproduce what
+    the orchestrator merged, pass-throughs included. Reassembled from
+    :func:`split_script_defects` rather than by calling ``script_defects_from`` a
+    second time, so the marshalling keeps exactly ONE call site per emitter — the
+    property ``tests/test_predcov.py`` pins for every row of
+    :data:`ADAPTER_ARGUMENTS`. Order is exact: ``evidence-incomplete`` is APPENDED
+    last by that function, so ``passthrough + own`` is the original list.
+    """
+    own, passthrough = split_script_defects(_require_dict("ev", evidence))
+    return passthrough + own
+
+
+def merge_fold(raw_critics, raw_script_defects) -> tuple[dict, list[str]]:
+    """The single ``merge_and_validate`` call site: ``(merged, schema_errors)``.
+
+    Every consumer in this module goes through here — the ``critic-schema`` adapter,
+    its dimension accessor and the R2 replay — because ``merge_and_validate`` is one
+    of the two emitters whose ARGUMENTS are pinned against the SKILL fold, and a
+    second call site would let one copy drift while the pinned one stayed honest.
+    """
+    from scripts import floorsynth
+
+    critics = _require_list("critics", raw_critics)
+    script_defects = _require_list("script_defects", raw_script_defects)
+    return floorsynth.merge_and_validate(critics, script_defects)
 
 
 def emit_critic_schema(raw_critics, raw_script_defects) -> bool:
@@ -338,11 +373,7 @@ def emit_critic_schema(raw_critics, raw_script_defects) -> bool:
     with a fire ``floorsynth`` never emitted. ``schema_errors`` is computed by
     ``quality.enforce_critic_schema`` and cannot be authored by the reviewed target.
     """
-    from scripts import floorsynth
-
-    critics = _require_list("critics", raw_critics)
-    script_defects = _require_list("script_defects", raw_script_defects)
-    _merged, schema_errors = floorsynth.merge_and_validate(critics, script_defects)
+    _merged, schema_errors = merge_fold(raw_critics, raw_script_defects)
     return bool(schema_errors)
 
 
@@ -351,11 +382,17 @@ def emit_critic_schema(raw_critics, raw_script_defects) -> bool:
 # 4+5 call, and each importing ``floorsynth`` locally rather than at module scope,
 # so that the discovery half of this module can never reach an imported object
 # where it is required to read source TEXT.
+#
+# Each is split in two: a ``defects_*`` core that performs the ONE call and returns
+# floorsynth's own list, and an ``emit_*`` hand that applies the firing rule to it.
+# The split is not cosmetic — the R2 recompute row and the dimension accessors both
+# need the LIST, and routing them through the same core is what keeps every emitter
+# at exactly one call site, which is the CQ5 pin.
 # ---------------------------------------------------------------------------
 
 
-def emit_runcheck(evidence) -> bool:
-    """Did ``runcheck`` fire on this item?
+def defects_runcheck(evidence) -> list[dict]:
+    """``synth_runcheck``'s defects for one item.
 
     The ``runcheck`` key is REQUIRED, not defaulted: ``runcheck.green({})`` is False,
     so the SKILL's own ``ev.get('runcheck', {})`` fail-CLOSED default — correct at
@@ -367,14 +404,18 @@ def emit_runcheck(evidence) -> bool:
 
     ev = _require_dict("ev", evidence)
     _require_key("ev", ev, "runcheck")
-    return fired("runcheck", floorsynth.synth_runcheck(ev.get("runcheck", {}),
-                                                       ev.get("verify_cmd", "")))
+    return floorsynth.synth_runcheck(ev.get("runcheck", {}), ev.get("verify_cmd", ""))
 
 
-def emit_docs_naming(evidence) -> bool:
-    """Did ``docs-naming`` fire on this item?
+def emit_runcheck(evidence) -> bool:
+    """Did ``runcheck`` fire on this item?"""
+    return fired("runcheck", defects_runcheck(evidence))
 
-    The mirror image of :func:`emit_runcheck`: here the SKILL's default
+
+def defects_docs_naming(evidence) -> list[dict]:
+    """``synth_docs``' defects for one item.
+
+    The mirror image of :func:`defects_runcheck`: here the SKILL's default
     (``ev.get('docs_clean', True)``) fails OPEN, so an absent key would be reported
     as a CLEAN docs floor — a blinded predicate printed as restraint. Required.
     """
@@ -382,11 +423,16 @@ def emit_docs_naming(evidence) -> bool:
 
     ev = _require_dict("ev", evidence)
     _require_key("ev", ev, "docs_clean")
-    return fired("docs-naming", floorsynth.synth_docs(ev.get("docs_clean", True)))
+    return floorsynth.synth_docs(ev.get("docs_clean", True))
 
 
-def emit_empty_diff(diff_text) -> bool:
-    """Did ``empty-diff`` fire on this item?
+def emit_docs_naming(evidence) -> bool:
+    """Did ``docs-naming`` fire on this item?"""
+    return fired("docs-naming", defects_docs_naming(evidence))
+
+
+def defects_empty_diff(diff_text) -> list[dict]:
+    """``empty_diff_defect``'s defects for one item.
 
     ``""`` is a real input and really fires. ``None`` is refused: an item whose
     ``diff.patch`` could not be read would otherwise be indistinguishable from a
@@ -395,11 +441,16 @@ def emit_empty_diff(diff_text) -> bool:
     from scripts import floorsynth
 
     diff = _require_str("diff", diff_text)
-    return fired("empty-diff", floorsynth.empty_diff_defect(diff))
+    return floorsynth.empty_diff_defect(diff)
 
 
-def emit_out_of_scope(paths, state) -> bool:
-    """Did ``out-of-scope`` fire on this item?
+def emit_empty_diff(diff_text) -> bool:
+    """Did ``empty-diff`` fire on this item?"""
+    return fired("empty-diff", defects_empty_diff(diff_text))
+
+
+def defects_out_of_scope(paths, state) -> list[dict]:
+    """``out_of_scope_defects``' defects for one item.
 
     Two refusals, both measured against ``_normalize_scopes``. An ABSENT
     ``scope_paths`` cannot be defaulted at all. An EMPTY one is worse than absent:
@@ -424,11 +475,16 @@ def emit_out_of_scope(paths, state) -> bool:
             "st['scope_paths']: expected a non-empty list of path strings, got %r — "
             "an empty scope fails CLOSED and fires one HIGH per changed path" % (scopes,)
         )
-    return fired("out-of-scope", floorsynth.out_of_scope_defects(full_paths, st["scope_paths"]))
+    return floorsynth.out_of_scope_defects(full_paths, st["scope_paths"])
 
 
-def emit_dimension_dissent(critics_map) -> bool:
-    """Did ``dimension-dissent`` fire on this item?
+def emit_out_of_scope(paths, state) -> bool:
+    """Did ``out-of-scope`` fire on this item?"""
+    return fired("out-of-scope", defects_out_of_scope(paths, state))
+
+
+def defects_dimension_dissent(critics_map) -> list[dict]:
+    """``dimension_dissent_defects``' defects for one item.
 
     Takes the SKILL's ``loaded_map`` (``{artifact_name: critic_dict}``), never the
     list of artifact names: an empty map is silent, so the wrong shape here reports
@@ -437,11 +493,16 @@ def emit_dimension_dissent(critics_map) -> bool:
     from scripts import floorsynth
 
     loaded_map = _require_dict("loaded_map", critics_map)
-    return fired("dimension-dissent", floorsynth.dimension_dissent_defects(loaded_map))
+    return floorsynth.dimension_dissent_defects(loaded_map)
 
 
-def emit_critic_stale(critics_map, pass_number) -> bool:
-    """Did ``critic-stale`` fire on this item?
+def emit_dimension_dissent(critics_map) -> bool:
+    """Did ``dimension-dissent`` fire on this item?"""
+    return fired("dimension-dissent", defects_dimension_dissent(critics_map))
+
+
+def defects_critic_stale(critics_map, pass_number) -> list[dict]:
+    """``critics_stale_defects``' defects for one item.
 
     ``current_pass`` is required and must be a real int: it is the item's
     ``ctxstore.get_refine_passes`` value, and at 0 an UNSTAMPED critic counts as
@@ -452,11 +513,16 @@ def emit_critic_stale(critics_map, pass_number) -> bool:
 
     loaded_map = _require_dict("loaded_map", critics_map)
     current_pass = _require_int("current_pass", pass_number)
-    return fired("critic-stale", floorsynth.critics_stale_defects(loaded_map, current_pass))
+    return floorsynth.critics_stale_defects(loaded_map, current_pass)
 
 
-def emit_stale_verdict(records) -> bool:
-    """Did ``stale-verdict`` fire on this item?
+def emit_critic_stale(critics_map, pass_number) -> bool:
+    """Did ``critic-stale`` fire on this item?"""
+    return fired("critic-stale", defects_critic_stale(critics_map, pass_number))
+
+
+def defects_stale_verdict(records) -> list[dict]:
+    """``stale_verdict_defects``' defects for one item.
 
     The ledger handed in must be the EVAL-POINT one (``log.eval.jsonl``): the SKILL
     calls this 36 lines before the OUTPUT block's own ``advance(..., "OUTPUT")``, and
@@ -467,11 +533,16 @@ def emit_stale_verdict(records) -> bool:
     from scripts import floorsynth
 
     log_records = _require_list("log_records", records)
-    return fired("stale-verdict", floorsynth.stale_verdict_defects(log_records))
+    return floorsynth.stale_verdict_defects(log_records)
 
 
-def emit_critic_missing(artifacts) -> bool:
-    """Did ``critic-missing`` fire on this item?
+def emit_stale_verdict(records) -> bool:
+    """Did ``stale-verdict`` fire on this item?"""
+    return fired("stale-verdict", defects_stale_verdict(records))
+
+
+def defects_critic_missing(artifacts) -> list[dict]:
+    """``critics_missing_defects``' defects for one item.
 
     ``[]`` is a real input and really fires — three undispatched critics is precisely
     what this predicate is for, and it is why the firing rule returns a bool: that
@@ -482,7 +553,12 @@ def emit_critic_missing(artifacts) -> bool:
     from scripts import floorsynth
 
     loaded_critics = _require_list("loaded_critics", artifacts)
-    return fired("critic-missing", floorsynth.critics_missing_defects(loaded_critics))
+    return floorsynth.critics_missing_defects(loaded_critics)
+
+
+def emit_critic_missing(artifacts) -> bool:
+    """Did ``critic-missing`` fire on this item?"""
+    return fired("critic-missing", defects_critic_missing(artifacts))
 
 
 #: floorsynth function name -> the ARGUMENT EXPRESSIONS this module hands it, as
@@ -762,3 +838,756 @@ def discover_emitters(source_path: str = "scripts/floorsynth.py") -> tuple[tuple
     except (FileNotFoundError, NotADirectoryError):
         return ()
     return discover_emitters_from_text(text, source_label=str(path))
+
+
+# ===========================================================================
+# THE RECORD — rows{kind}, the corpus replay, and the runtime-observation rows.
+#
+# RC-05 is why ``rows`` is a mapping of ROW OBJECTS and not a mapping of stems
+# to counts. Roadmap §4 names R1 (the ``.atlas-owner`` ownership nonce) and R2
+# (recompute-at-print) as Phase 1 COVERAGE ROWS — re-scoped there from
+# ``fix/security-audit-v153``, where both shipped as NEW BLOCKING PREDICATES,
+# which is the exact generator this phase exists to measure. A schema keyed only
+# on the ten emitter stems has nowhere to put them, and both candidate designs
+# dropped them for that reason. Every row therefore carries a ``kind``, and only
+# ``floorsynth-emitter`` rows are in the denominator.
+# ===========================================================================
+
+#: Row kinds. The denominator is defined over :data:`KIND_EMITTER` rows ONLY.
+KIND_EMITTER = "floorsynth-emitter"
+KIND_RUNTIME = "runtime-observation"
+
+#: The arms the committed prediction is evaluated over (plan §5.1). Membership is
+#: the item's DIRECTORY, so widening the numerator requires a visible file move.
+COUNTING_ARMS: tuple[str, ...] = ("honest", "historical", "dirty")
+
+#: Arms that exist and never count. ``interrupted`` is the non-vacuity control;
+#: ``failopen`` is the §5.4 arm and is added by Task 9.
+NON_COUNTING_ARMS: tuple[str, ...] = ("interrupted", "failopen")
+
+#: Declared BEFORE the corpus was registered, per plan §5.2: emitters already
+#: known to fire. They stay in the PRIMARY numerator (the roadmap's prediction is
+#: evaluated verbatim) and are subtracted only in the labelled secondary.
+PRIORS: tuple[str, ...] = ("out-of-scope", "critic-stale")
+
+#: The roadmap's committed threshold, carried verbatim.
+THRESHOLD: int = 3
+
+#: The plan's VOID guard (§5.2): fewer than this many emitters supplied with two
+#: or more distinct decision-variable values means the corpus CANNOT ANSWER.
+VOID_BELOW_VARYING: int = 3
+
+#: R1's proposed runtime home. Read as TEXT from the runtime module, never
+#: imported: the row's whole content is whether that module issues a token today.
+OWNERSHIP_TOKEN_NAME = ".atlas-owner"
+OWNERSHIP_SOURCE = "scripts/ctxstore.py"
+
+
+class CorpusInputError(RuntimeError):
+    """A corpus item's recorded input could not be read, so it was NOT replayed.
+
+    The counterpart of :class:`AdapterInputError`, and the closure of the residual
+    that class names: an adapter is handed a VALUE and cannot tell an empty
+    artifact from an unreadable one, so the responsibility for that distinction
+    lives here, at the only place that touches files. A missing ``det_evidence.json``
+    raises; it never becomes ``ev = {}``, which through ``floorsynth`` itself would
+    manufacture a ``runcheck`` CRITICAL and a ``docs-naming`` silence on every item
+    at once.
+    """
+
+
+def _read_text(path: pathlib.Path) -> str:
+    """File text, or :class:`CorpusInputError`. Never an empty-string fallback."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CorpusInputError("%s: unreadable (%s)" % (path, exc)) from exc
+
+
+def _read_json(path: pathlib.Path):
+    """Parsed JSON, or :class:`CorpusInputError`. Never an empty-object fallback."""
+    text = _read_text(path)
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise CorpusInputError("%s: not JSON (%s)" % (path, exc)) from exc
+
+
+def _read_jsonl(path: pathlib.Path) -> list[dict]:
+    """Every parsable record of a ``.jsonl`` ledger, or :class:`CorpusInputError`.
+
+    An unparsable LINE is an error, not a skipped record: a ledger the instrument
+    silently shortened would change the stage shape ``stale_verdict_defects``
+    judges, which is the one emitter whose whole input is that shape.
+    """
+    out: list[dict] = []
+    for number, line in enumerate(_read_text(path).splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except ValueError as exc:
+            raise CorpusInputError("%s:%d: not JSON (%s)" % (path, number, exc)) from exc
+    return out
+
+
+def _read_paths(path: pathlib.Path) -> list[str]:
+    """A ``tree.paths`` file as a list of paths."""
+    return [line for line in _read_text(path).splitlines() if line]
+
+
+# ---------------------------------------------------------------------------
+# Per-arm input construction. Each builder returns the SKILL's Step 4+5 NAMESPACE
+# — the same variable names the fold uses — so ``ADAPTERS``' declared argument
+# names index straight into it and the marshalling has exactly one spelling.
+# ---------------------------------------------------------------------------
+
+
+def run_item_inputs(item_dir: pathlib.Path, meta: dict) -> dict:
+    """The Step 4+5 namespace rebuilt from one recorded-run item (arms A and B).
+
+    ``full_paths`` is present ONLY when the item recorded ``tree.paths``. Its
+    absence is the record that the whole-tree change list is unreconstructible
+    (CQ2), and this builder must never substitute ``[]`` — that value is what a
+    live ``difftool.change_paths`` returns on a non-git tree, and it renders as
+    "measured, nothing outside scope".
+    """
+    from scripts import floorsynth
+
+    critics: list[dict] = []
+    loaded_critics: list[str] = []
+    for name, _dim in floorsynth.CRITIC_ARTIFACTS:
+        critics.append(_read_json(item_dir / name))
+        loaded_critics.append(name)
+
+    current_pass = meta.get("refine_passes")
+    inputs = {
+        "ev": _read_json(item_dir / "det_evidence.json"),
+        "diff": _read_text(item_dir / "diff.patch"),
+        "st": _read_json(item_dir / "state.json"),
+        "critics": critics,
+        "loaded_critics": loaded_critics,
+        "loaded_map": dict(zip(loaded_critics, critics)),
+        "log_records": _read_jsonl(item_dir / "log.eval.jsonl"),
+    }
+    if isinstance(current_pass, int) and not isinstance(current_pass, bool):
+        inputs["current_pass"] = current_pass
+    if (item_dir / "tree.paths").is_file():
+        inputs["full_paths"] = _read_paths(item_dir / "tree.paths")
+    return inputs
+
+
+def historical_item_inputs(item_dir: pathlib.Path, meta: dict) -> dict:
+    """The namespace one release interval supplies (arm C).
+
+    Two emitters and no more. ``out-of-scope`` gets the tag range's real changed
+    path list against a whole-tree scope — the second value of that decision
+    variable, and one nobody authored. ``docs-naming`` gets a ``docs_clean``
+    DERIVED by running the repo's own ``check_artifact_naming.check_file`` over the
+    interval's changed ``.md`` files, unpacked as ``errs, _warns`` (H5: that call
+    returns a 2-TUPLE, and reading it as a truth value would make ``docs_clean``
+    False on every interval and fire ``docs-naming`` five times out of five).
+
+    ``empty-diff`` is deliberately NOT supplied. The arm stores a ``--numstat``
+    summary and the command that regenerates the patch, not ~1.2 MB of vendored
+    release diff, so the emitter's own argument is not on disk; the cell is
+    reported ``unmeasured``, never as a non-empty diff inferred from a byte count.
+    """
+    from scripts import check_artifact_naming as can
+
+    changed_md = [p for p in meta.get("changed_md") or [] if isinstance(p, str)]
+    docs_errors: list[str] = []
+    for rel in changed_md:
+        errs, _warns = can.check_file(_ROOT, rel)
+        docs_errors += list(errs)
+    return {
+        "full_paths": _read_paths(item_dir / "tree.paths"),
+        "st": {"scope_paths": list(meta.get("scope_paths") or [])},
+        "ev": {"docs_clean": not docs_errors},
+        "docs_checked": len(changed_md),
+        "docs_errors": docs_errors,
+    }
+
+
+def dirty_item_inputs(item_dir: pathlib.Path, meta: dict) -> dict:
+    """The namespace the documented dirty-tree shape supplies (arm D).
+
+    One emitter. The expectation is NOT authored here or in the fixture: it is
+    documented at ``CHANGELOG.md``:48-57 and cross-pinned by
+    ``tests/test_v1521_regressions.py``, independently of this item.
+    """
+    return {
+        "full_paths": _read_paths(item_dir / "tree.paths"),
+        "st": {"scope_paths": list(meta.get("scope_paths") or [])},
+    }
+
+
+ARM_INPUT_BUILDERS = {
+    "honest": run_item_inputs,
+    "interrupted": run_item_inputs,
+    "historical": historical_item_inputs,
+    "dirty": dirty_item_inputs,
+}
+
+#: Which emitters each arm DECLARES it supplies real inputs for. Not decoration and
+#: not an optimisation — it is a TA-C1 guard, and it was added because the corpus
+#: manufactured a fire without it.
+#:
+#: The SKILL's fold reads three emitters out of ONE ``ev`` dict, so an arm that can
+#: derive only ``docs_clean`` still presents a name called ``ev``. Measured: fed the
+#: release-history arm's two-key evidence dict, ``script_defects_from`` reports every
+#: mandatory lens key absent and ``evidence-incomplete`` FIRES on all four intervals
+#: — four fires of a predicate nobody measured, in the numerator, from a dict this
+#: module wrote. ``runcheck`` on the same dict raises instead, which is louder but
+#: no more correct: the key is not lost, it was never part of this arm.
+#:
+#: The recorded-run arms declare all ten by construction, so nothing can be hidden
+#: there. The derived arms declare only what their own source establishes, and
+#: ``tests/test_predcov.py`` pins the hazard directly rather than trusting the list.
+ARM_SUPPLIES: dict[str, tuple[str, ...]] = {
+    "honest": EMITTERS,
+    "interrupted": EMITTERS,
+    # tree.paths against the interval's recorded scope; docs_clean re-derived by
+    # running check_artifact_naming over the interval's own changed .md files.
+    "historical": ("out-of-scope", "docs-naming"),
+    # The documented dirty-tree path list against a narrow scope, and nothing else.
+    "dirty": ("out-of-scope",),
+}
+
+
+# ---------------------------------------------------------------------------
+# THE DECLARED DIMENSION ACCESSORS (the D1/TA-C2 fold).
+#
+# Design A's ``reachable`` column is DELETED, not repaired: it measured argument
+# PRESENCE, so it printed "reachable 10 of 10" for eight emitters handed one
+# constant value, converting the most important zero-supply row into apparent
+# evidence of restraint. What replaces it is a declared accessor per emitter,
+# returning that emitter's OWN DECISION VARIABLES as a hashable — plan §4's rule,
+# spelled out. Two or more distinct values across the counting arms is VARYING;
+# one is CONSTANT; none is BLIND.
+#
+# Stated because it bounds every conclusion: for several emitters the decision
+# variable IS the branch outcome (``docs_clean``; ``schema_errors``; the count of
+# out-of-scope paths). For those, "the corpus supplied two values" and "the corpus
+# contains a firing input" are the same sentence, and VARYING must not be read as
+# "the corpus exercised everything upstream of the branch" — only as "the corpus
+# presented both sides of the branch this predicate actually tests".
+# ---------------------------------------------------------------------------
+
+
+def _dim_evidence_incomplete(inputs) -> tuple:
+    """Which mandatory evidence keys are absent or NULL — the emitter's own test."""
+    from scripts import floorsynth
+
+    ev = inputs["ev"]
+    keys = floorsynth.MANDATORY_EVIDENCE_KEYS + floorsynth.MANDATORY_FLAG_KEYS
+    return tuple(sorted(k for k in keys if not isinstance(ev, dict) or ev.get(k) is None))
+
+
+def _dim_runcheck(inputs) -> tuple:
+    """``runcheck.green``'s three conjuncts, unreduced (plan §4's own triple)."""
+    rc = inputs["ev"].get("runcheck")
+    rc = rc if isinstance(rc, dict) else {}
+    return (bool(rc.get("ok")), rc.get("test_count", 0) > 0,
+            bool(rc.get("new_tests_collected")))
+
+
+def _dim_docs_naming(inputs) -> tuple:
+    """``synth_docs``' single flag. Its ONLY argument, so its only decision variable."""
+    return (bool(inputs["ev"].get("docs_clean")),)
+
+
+def _dim_empty_diff(inputs) -> tuple:
+    """``(diff or "").strip()`` as a bool — the emitter's whole branch."""
+    return (bool((inputs["diff"] or "").strip()),)
+
+
+def _dim_out_of_scope(inputs) -> tuple:
+    """How many changed paths fall outside scope.
+
+    Deliberately NOT ``(whole_tree_scope, count)``, though that pair is the more
+    informative one: establishing whole-tree-ness means calling
+    ``floorsynth._normalize_scopes``, a PRIVATE function of a frozen module, and
+    re-implementing its three whole-tree spellings here would be a fourth hand-copy
+    of runtime logic. The item's recorded ``scope_paths`` is reported beside the row
+    instead, as data rather than as a re-derivation.
+    """
+    return (len(defects_out_of_scope(inputs["full_paths"], inputs["st"])),)
+
+
+def _dim_dimension_dissent(inputs) -> tuple:
+    """Per critic: the dimensions marked ``no``, the verdict, and whether it blocks."""
+    from scripts import floorsynth
+
+    out = []
+    for name, _dim in floorsynth.CRITIC_ARTIFACTS:
+        critic = inputs["loaded_map"].get(name)
+        if not isinstance(critic, dict):
+            out.append((name, None, None, None))
+            continue
+        dims = critic.get("dimensions") if isinstance(critic.get("dimensions"), dict) else {}
+        defects = critic.get("defects") if isinstance(critic.get("defects"), list) else []
+        out.append((
+            name,
+            tuple(sorted(d for d, v in dims.items() if v == "no")),
+            critic.get("verdict"),
+            any(isinstance(d, dict) and d.get("severity") in _BLOCKING_SEV for d in defects),
+        ))
+    return tuple(out)
+
+
+def _dim_critic_stale(inputs) -> tuple:
+    """Each artifact's currency stamp against the run's current pass."""
+    from scripts import floorsynth
+
+    stamps = []
+    for name, _dim in floorsynth.CRITIC_ARTIFACTS:
+        critic = inputs["loaded_map"].get(name)
+        stamps.append((name, critic.get("pass") if isinstance(critic, dict) else None))
+    return (inputs["current_pass"], tuple(stamps))
+
+
+def _dim_stale_verdict(inputs) -> tuple:
+    """The ledger's normalized stage SEQUENCE — the only thing this emitter reads."""
+    stages = [r.get("stage") for r in inputs["log_records"] if isinstance(r, dict)]
+    stages = [s for s in stages if isinstance(s, str) and s != "ROLLBACK"]
+    return tuple(s for i, s in enumerate(stages) if i == 0 or s != stages[i - 1])
+
+
+def _dim_critic_missing(inputs) -> tuple:
+    """Which of the three judgment artifacts loaded."""
+    return tuple(sorted(inputs["loaded_critics"]))
+
+
+def _dim_critic_schema(inputs) -> tuple:
+    """``enforce_critic_schema``'s findings on the merged shape.
+
+    The frankest of the accessors: ``merge_and_validate`` has no branch of its own
+    to project onto, so its decision variable is the validator's own output. Plan
+    §4 declares it the same way (``schema_errors = []``).
+    """
+    _merged, schema_errors = merge_fold(inputs["critics"], list(inputs["script_defects"]))
+    return tuple(sorted(schema_errors))
+
+
+#: stem -> the declared accessor. Closed against :data:`EMITTERS` by a test.
+DIMENSIONS = {
+    "evidence-incomplete": _dim_evidence_incomplete,
+    "runcheck": _dim_runcheck,
+    "docs-naming": _dim_docs_naming,
+    "empty-diff": _dim_empty_diff,
+    "out-of-scope": _dim_out_of_scope,
+    "dimension-dissent": _dim_dimension_dissent,
+    "critic-stale": _dim_critic_stale,
+    "stale-verdict": _dim_stale_verdict,
+    "critic-missing": _dim_critic_missing,
+    "critic-schema": _dim_critic_schema,
+}
+
+
+def _hashable(value):
+    """A stable, hashable, JSON-renderable form of a dimension value."""
+    if isinstance(value, (list, tuple)):
+        return tuple(_hashable(v) for v in value)
+    if isinstance(value, dict):
+        return tuple(sorted((str(k), _hashable(v)) for k, v in value.items()))
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def replay_item(inputs: dict, supplies=EMITTERS) -> dict:
+    """Replay every emitter this item's arm supplies. See :data:`ARM_SUPPLIES`.
+
+    Returns ``{stem: {"state", "fired", "dimension", "error"}}``. Three states and
+    they mean three different things, which is the whole reason the report has a
+    ``— (constant)`` rendering and a ``—`` rendering and never a bare ``0``:
+
+      * ``measured``    — the emitter was called with this item's real inputs;
+      * ``unmeasured``  — this arm supplies no argument for it (a release interval
+        has no critic artifacts; a run item with no ``tree.paths`` has no
+        whole-tree path list). NOT a silence;
+      * ``error``       — the arguments were there and the adapter REFUSED them, or
+        the emitter raised. Any error anywhere suppresses the verdict line and
+        prints ``ADAPTER DEGRADED``; it is never a silence either.
+    """
+    local = dict(inputs)
+    if "ev" in local:
+        try:
+            local["script_defects"] = all_script_defects(local["ev"])
+        except Exception:                                   # pragma: no cover - defensive
+            local["script_defects"] = []
+
+    out: dict[str, dict] = {}
+    for stem in EMITTERS:
+        adapter, names = ADAPTERS[stem]
+        if stem not in supplies:
+            out[stem] = {"state": "unmeasured", "fired": None, "dimension": None,
+                         "error": "", "reason": "this arm supplies no input for it"}
+            continue
+        missing = [n for n in names if n not in local]
+        if missing:
+            out[stem] = {"state": "unmeasured", "fired": None, "dimension": None,
+                         "error": "", "reason": "no %s in this arm" % ", ".join(missing)}
+            continue
+        row = {"state": "measured", "fired": None, "dimension": None,
+               "error": "", "reason": ""}
+        try:
+            row["fired"] = bool(adapter(*[local[n] for n in names]))
+        except Exception as exc:
+            row.update({"state": "error", "fired": None,
+                        "error": "%s: %s" % (type(exc).__name__, exc)})
+            out[stem] = row
+            continue
+        try:
+            row["dimension"] = _hashable(DIMENSIONS[stem](local))
+        except Exception as exc:
+            row.update({"state": "error", "error": "dimension: %s: %s"
+                                                   % (type(exc).__name__, exc)})
+        out[stem] = row
+    return out
+
+
+def _blocking_ids(defects) -> list[str]:
+    """The sorted ids of the blocking defects in a merged critic's defect list."""
+    return sorted(str(d.get("id")) for d in defects or ()
+                  if isinstance(d, dict) and d.get("severity") in _BLOCKING_SEV)
+
+
+def recompute_delta(item_dir: pathlib.Path, inputs: dict) -> dict:
+    """R2 — recompute-at-print, as a REPORT ROW. Blocks nothing.
+
+    ``fix/security-audit-v153`` shipped this as a new blocking predicate: recompute
+    the verdict at the moment of printing and refuse to print if it differs. The
+    roadmap re-scoped it to a coverage row precisely because "a new blocking
+    predicate over an unenumerated state space" is the generator this phase is
+    measuring. So the delta is RECORDED and nothing is refused.
+
+    It is also the RC-04 fold. ``after-t3-a``'s recorded ``merged_critic.json``
+    says ``OK`` with zero blocking defects while the replay manufactures defects the
+    machine never emitted; a corpus whose non-vacuity control was itself a replay
+    artifact would certify nothing. Divergent items are excluded from every count.
+
+    ``basis`` is honest about what the comparison rests on: ``complete`` only when
+    every argument of the fold was on disk. An item with no ``tree.paths`` cannot
+    reproduce the out-of-scope contribution, and its delta is reported ``partial``
+    rather than being computed against a fabricated empty path list.
+    """
+    recorded = _read_json(item_dir / "merged_critic.json")
+    if not isinstance(recorded, dict):
+        raise CorpusInputError("%s: merged_critic.json is not an object" % item_dir)
+
+    # The SKILL's Step 4+5 fold order, through this module's single call sites.
+    script_defects = list(all_script_defects(inputs["ev"]))
+    script_defects += defects_runcheck(inputs["ev"])
+    script_defects += defects_docs_naming(inputs["ev"])
+    script_defects += defects_empty_diff(inputs["diff"])
+    script_defects += defects_critic_missing(inputs["loaded_critics"])
+    basis_missing = [n for n in ("full_paths", "current_pass") if n not in inputs]
+    if "current_pass" in inputs:
+        script_defects += defects_critic_stale(inputs["loaded_map"], inputs["current_pass"])
+    script_defects += defects_dimension_dissent(inputs["loaded_map"])
+    if "full_paths" in inputs:
+        script_defects += defects_out_of_scope(inputs["full_paths"], inputs["st"])
+    basis = "partial:%s" % ",".join(basis_missing) if basis_missing else "complete"
+    merged, schema_errors = merge_fold(inputs["critics"], script_defects)
+    # The OUTPUT block folds this one AFTER the merge and writes it back.
+    stale = defects_stale_verdict(inputs["log_records"])
+    replayed_ids = sorted(set(_blocking_ids(merged.get("defects")))
+                          | set(_blocking_ids(stale)))
+    recorded_ids = _blocking_ids(recorded.get("defects"))
+    added = sorted(set(replayed_ids) - set(recorded_ids))
+    removed = sorted(set(recorded_ids) - set(replayed_ids))
+    return {
+        "basis": basis,
+        "recorded_verdict": recorded.get("verdict"),
+        "replayed_verdict": "FAIL" if (replayed_ids or stale) else merged.get("verdict"),
+        "recorded_blocking_ids": recorded_ids,
+        "replayed_blocking_ids": replayed_ids,
+        "added_blocking_ids": added,
+        "removed_blocking_ids": removed,
+        "schema_errors": list(schema_errors),
+        "divergent": bool(added or removed),
+    }
+
+
+def ownership_observation(items: list[dict], source_path=None) -> dict:
+    """R1 — the ``.atlas-owner`` ownership nonce, as a REPORT ROW. Blocks nothing.
+
+    Two independent halves, and neither is an opinion of this module's.
+
+    RUNTIME: does ``scripts/ctxstore.py`` issue an ownership token at all? Read as
+    TEXT from the runtime module this instrument may not modify. Measured at HEAD it
+    does not — ``ctxstore.init_run`` writes no ``.atlas-owner`` — so the token is
+    not merely absent from these runs, it does not exist. The row flips to
+    ``implemented`` on the day R1 ships, without anyone editing this function.
+
+    CORPUS: how many recorded items carry a token. Zero, necessarily, since none was
+    ever issued.
+
+    THE HONEST CAVEAT, and it is the whole meaning of the row: these runs PRE-DATE
+    the proposal, so ``0 of 12 owned`` is a BASELINE, not R1's false-RED rate. What
+    it does establish is the thing the re-scope was for: promoted to a blocking
+    predicate today, R1 refuses every run in this corpus, and the corpus contains no
+    honest run it would accept. That is a fact about the promotion, measured before
+    it happens, which is exactly what a coverage row is for.
+
+    ``source_path`` exists so the row has a POSITIVE control. Today both the row and
+    any test of it read ``False``, so a hard-coded ``implemented=False`` is
+    indistinguishable from a reading of the runtime — the vacuity this project has
+    been bitten by five times. Pointed at a source that DOES issue a token, this
+    function must report ``implemented=True``, and only a real read does that.
+    """
+    source = pathlib.Path(source_path) if source_path is not None else _ROOT / OWNERSHIP_SOURCE
+    try:
+        text = source.read_text(encoding="utf-8")
+        readable = True
+    except OSError:
+        text, readable = "", False
+    owned = sum(1 for it in items if it.get("ownership_token") not in (None, ""))
+    replayable = [it for it in items if it.get("kind") == "recorded-run"]
+    return {
+        "kind": KIND_RUNTIME,
+        "roadmap_id": "R1",
+        "title": "ownership nonce (%s)" % OWNERSHIP_TOKEN_NAME,
+        "blocks": False,
+        "counts_toward_prediction": False,
+        "source": "%s (text) + the recorded-run items' own directories" % OWNERSHIP_SOURCE,
+        "runtime_source": str(source.relative_to(_ROOT)) if _ROOT in source.parents
+                          else str(source),
+        "runtime_source_readable": readable,
+        "implemented": OWNERSHIP_TOKEN_NAME in text,
+        "runs_examined": len(replayable),
+        "runs_carrying_a_token": owned,
+        "observation": (
+            "%s issues no %s at HEAD, so every recorded run is unowned"
+            % (OWNERSHIP_SOURCE, OWNERSHIP_TOKEN_NAME)
+            if OWNERSHIP_TOKEN_NAME not in text else
+            "%s issues %s; %d of %d recorded runs carry one"
+            % (OWNERSHIP_SOURCE, OWNERSHIP_TOKEN_NAME, owned, len(replayable))
+        ),
+        "caveat": (
+            "these runs pre-date the R1 proposal, so this is a BASELINE and not a "
+            "false-RED rate; what it does establish is that R1 promoted to a "
+            "blocking predicate today would refuse every item in this corpus"
+        ),
+    }
+
+
+def _corpus_items(corpus_root: pathlib.Path) -> list[tuple[str, str, pathlib.Path]]:
+    """``(arm, item_id, dir)`` for every item directory, in sorted order.
+
+    Sorted at every level, and derived from the FILESYSTEM rather than from
+    ``manifest.json``: arm membership is a directory (plan §5.1), so a manifest that
+    disagreed with the tree could not quietly widen the counting arms.
+    """
+    found: list[tuple[str, str, pathlib.Path]] = []
+    for arm in sorted(COUNTING_ARMS + NON_COUNTING_ARMS):
+        arm_dir = corpus_root / arm
+        if not arm_dir.is_dir():
+            continue
+        for item_dir in sorted(p for p in arm_dir.iterdir() if p.is_dir()):
+            found.append((arm, "%s/%s" % (arm, item_dir.name), item_dir))
+    return found
+
+
+def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
+    """Replay the whole corpus and return the RECORD. Report only; blocks nothing.
+
+    The record's shape is the RC-05 fold: ``rows`` is keyed by row id and every row
+    declares a ``kind``, so the ten ``floorsynth-emitter`` rows and the two
+    ``runtime-observation`` rows (R1, R2) live in one table while only the former
+    are the denominator. ``denominator.emitters`` is DERIVED by
+    :func:`discover_emitters`, never listed by hand, so an eleventh predicate cannot
+    join the table without joining the denominator.
+    """
+    root = pathlib.Path(corpus_root)
+    if not root.is_absolute():
+        root = _ROOT / root
+    errors: list[str] = []
+
+    try:
+        pairs = discover_emitters()
+        derived = sorted({stem for _f, stem in pairs})
+        discovery_error = ""
+    except DiscoveryFailure as exc:
+        pairs, derived, discovery_error = (), sorted(EMITTERS), str(exc)
+        errors.append("DISCOVERY FAILURE: %s" % exc)
+
+    items: list[dict] = []
+    for arm, item_id, item_dir in _corpus_items(root):
+        item = {"id": item_id, "arm": arm, "dir": str(item_dir.relative_to(_ROOT))
+                if _ROOT in item_dir.parents else str(item_dir)}
+        try:
+            meta = _read_json(item_dir / "item.json")
+            if not isinstance(meta, dict):
+                raise CorpusInputError("%s: item.json is not an object" % item_dir)
+        except CorpusInputError as exc:
+            item.update({"kind": "", "errors": [str(exc)], "emitters": {}, "counts": False})
+            items.append(item)
+            errors.append(str(exc))
+            continue
+
+        item["kind"] = meta.get("kind", "")
+        item["label"] = meta.get("label", item_dir.name)
+        item_errors: list[str] = []
+        # R1's corpus half. No run ever wrote one; the file is looked for anyway,
+        # so the day one is captured the row moves without a code change.
+        token_file = item_dir / OWNERSHIP_TOKEN_NAME.lstrip(".")
+        item["ownership_token"] = (token_file.read_text(encoding="utf-8").strip()
+                                   if token_file.is_file() else None)
+
+        builder = ARM_INPUT_BUILDERS.get(arm)
+        if builder is None:
+            item.update({"errors": ["no input builder for arm %r" % arm],
+                         "emitters": {}, "counts": False})
+            items.append(item)
+            continue
+        try:
+            inputs = builder(item_dir, meta)
+        except CorpusInputError as exc:
+            item.update({"errors": [str(exc)], "emitters": {}, "counts": False})
+            items.append(item)
+            errors.append(str(exc))
+            continue
+
+        item["supplies"] = list(ARM_SUPPLIES.get(arm, ()))
+        item["scope_paths"] = list(meta.get("scope_paths") or [])
+        item["emitters"] = replay_item(inputs, ARM_SUPPLIES.get(arm, ()))
+        item_errors += [r["error"] for r in item["emitters"].values() if r["error"]]
+
+        if item["kind"] == "recorded-run":
+            try:
+                item["recompute"] = recompute_delta(item_dir, inputs)
+            except Exception as exc:                        # pragma: no cover - defensive
+                item_errors.append("recompute: %s: %s" % (type(exc).__name__, exc))
+        item["errors"] = item_errors
+        errors += ["%s: %s" % (item_id, e) for e in item_errors]
+        item["replay_divergent"] = bool(item.get("recompute", {}).get("divergent"))
+        item["counts"] = (arm in COUNTING_ARMS and not item["replay_divergent"]
+                          and not item_errors)
+        items.append(item)
+
+    rows = _emitter_rows(items, derived, pairs)
+    replayed = [it for it in items if "recompute" in it]
+    rows["ownership-nonce"] = ownership_observation(items)
+    rows["recompute-delta"] = {
+        "kind": KIND_RUNTIME,
+        "roadmap_id": "R2",
+        "title": "recompute-at-print delta",
+        "blocks": False,
+        "counts_toward_prediction": False,
+        "source": "each item's recorded merged_critic.json vs the replayed fold",
+        "items_compared": len(replayed),
+        "divergent_items": sorted(it["id"] for it in replayed
+                                  if it["recompute"]["divergent"]),
+        "partial_basis_items": sorted(it["id"] for it in replayed
+                                      if it["recompute"]["basis"] != "complete"),
+        "observation": ("%d of %d replayed items disagree with their recorded verdict"
+                        % (sum(1 for it in replayed if it["recompute"]["divergent"]),
+                           len(replayed))),
+        "caveat": ("a divergence is not proof the run was wrong: the replay evaluates "
+                   "the TERMINAL pass only, and the pass-1 evaluations that forced a "
+                   "refine were overwritten in place"),
+    }
+
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["arm"]] = counts.get(item["arm"], 0) + 1
+
+    report = {
+        "schema": "predcov-report/1",
+        "report_only": True,
+        "corpus": {
+            "root": str(root.relative_to(_ROOT)) if _ROOT in root.parents else str(root),
+            "items": len(items),
+            "by_arm": dict(sorted(counts.items())),
+            "counting_arms": list(COUNTING_ARMS),
+            "provenance_warning": (
+                ".atlas/ was coder-writable during recording; the recorded-run "
+                "artifacts are model-influenced, not machine-attested"
+            ),
+        },
+        "denominator": {
+            "n": len(derived),
+            "emitters": derived,
+            "source": "scripts/floorsynth.py",
+            "source_sha256": _source_sha256(),
+            "rule": ("one top-level def emitting a dict with \"id\" + a CONSTANT "
+                     "\"severity\" in rubric.BLOCKING"),
+            "discovery_error": discovery_error,
+        },
+        "firing_rule": ("at least one defect whose id STEM is this emitter's own AND "
+                        "whose severity is in rubric.BLOCKING; once per emitter per "
+                        "item, never once per defect"),
+        "rows": rows,
+        "items": items,
+        "errors": sorted(errors),
+        "degraded": bool(errors),
+    }
+    return report
+
+
+def _source_sha256() -> str:
+    """The sha256 of the floorsynth source the denominator was derived from.
+
+    Provenance without a clock: the record must be byte-identical across two runs
+    (TA-H2/CQ15 runs the CLI in two subprocesses and compares), so a timestamp is
+    not available to say *which* floorsynth this is.
+    """
+    import hashlib
+
+    try:
+        data = (_ROOT / "scripts" / "floorsynth.py").read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _emitter_rows(items: list[dict], derived: list[str], pairs) -> dict:
+    """One row per emitter, aggregated over the COUNTING arms only."""
+    func_of = {stem: func for func, stem in pairs}
+    rows: dict[str, dict] = {}
+    for stem in EMITTERS:
+        measured, fires, dims, errs, unmeasured = [], [], [], [], []
+        for item in items:
+            cell = (item.get("emitters") or {}).get(stem)
+            if cell is None:
+                continue
+            if cell["state"] == "error":
+                errs.append("%s: %s" % (item["id"], cell["error"]))
+                continue
+            if item["arm"] not in COUNTING_ARMS or not item["counts"]:
+                continue
+            if cell["state"] != "measured":
+                unmeasured.append(item["id"])
+                continue
+            measured.append(item["id"])
+            dims.append(json.dumps(cell["dimension"], sort_keys=True))
+            if cell["fired"]:
+                fires.append(item["id"])
+        supply = len(set(dims))
+        if not measured:
+            state = "BLIND"
+        elif supply < 2:
+            state = "CONSTANT"
+        elif fires:
+            state = "SILENT+%d" % len(fires)
+        else:
+            state = "SILENT"
+        rows[stem] = {
+            "kind": KIND_EMITTER,
+            "function": func_of.get(stem, ""),
+            "in_denominator": stem in derived,
+            "counting_arm_items": len(measured),
+            "fires": sorted(fires),
+            "fire_count": len(fires),
+            "supply": supply,
+            "distinct_dimension_values": sorted(set(dims)),
+            "state": state,
+            "unmeasured_items": sorted(unmeasured),
+            "errors": sorted(errs),
+            "prior": stem in PRIORS,
+        }
+    return rows

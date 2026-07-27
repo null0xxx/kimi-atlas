@@ -51,6 +51,7 @@ import inspect
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -788,6 +789,244 @@ class TestAdapterIsBoundToTheSkillFold(unittest.TestCase):
         pairs = predcov.discover_emitters()
         self.assertEqual({func for func, _stem in pairs}, set(predcov.ADAPTER_ARGUMENTS))
         self.assertEqual({stem for _func, stem in pairs}, set(predcov.ADAPTERS))
+
+
+class TestRecordShapeAndRuntimeRows(unittest.TestCase):
+    """Task 8 (the RC-05 fold): the record is ``rows{kind}``, so R1/R2 have a home.
+
+    Roadmap §4 names R1 (the ``.atlas-owner`` ownership nonce) and R2
+    (recompute-at-print) as **Phase 1 coverage rows** — the whole point of the
+    re-scope being that neither ships as a blocking predicate. Both candidate
+    designs dropped them, and both had a coverage schema keyed exclusively on the
+    ten emitter stems, with no slot a non-emitter row could occupy. Widening the
+    record to ``{row_id: {"kind": ...}}`` is what makes the drop impossible: a
+    runtime observation now has a place to live that is visibly NOT the
+    denominator.
+
+    Nothing here asserts a fire count, a threshold or a verdict (plan §9.4).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rep = predcov.evaluate_corpus(str(_CORPUS))
+
+    def test_runtime_rows_are_outside_the_denominator(self):
+        rep = predcov.evaluate_corpus("tests/corpus")
+        self.assertEqual(rep["denominator"]["n"], 10)
+        self.assertEqual({"ownership-nonce", "recompute-delta"},
+                         {k for k, v in rep["rows"].items()
+                          if v["kind"] == "runtime-observation"})
+        for k in ("ownership-nonce", "recompute-delta"):
+            self.assertNotIn(k, rep["denominator"]["emitters"])
+
+    def test_the_emitter_rows_are_still_all_ten(self):
+        """The other half of the widening, and the one the test above cannot see.
+
+        A record that lost every emitter row — or that quietly re-labelled one as a
+        runtime observation to keep a blind cell out of the table — satisfies the
+        plan's own test above unchanged: it only asserts that the two runtime rows
+        are the ONLY runtime rows. So the emitter half is pinned here, against the
+        DERIVED denominator rather than against a literal.
+        """
+        emitter_rows = {k for k, v in self.rep["rows"].items()
+                        if v["kind"] == predcov.KIND_EMITTER}
+        self.assertEqual(emitter_rows, set(predcov.EMITTERS))
+        self.assertEqual(sorted(self.rep["denominator"]["emitters"]),
+                         sorted({stem for _f, stem in predcov.discover_emitters()}))
+        self.assertEqual(set(self.rep["rows"]),
+                         emitter_rows | {"ownership-nonce", "recompute-delta"})
+
+    def test_neither_runtime_row_blocks_anything(self):
+        """GLOBAL CONSTRAINT 2 where RC-05 puts it at risk.
+
+        R1 and R2 arrived on ``fix/security-audit-v153`` as two NEW BLOCKING
+        PREDICATES, and the roadmap re-scoped them to report-only rows precisely so
+        Phase 1 does not ship the generator it is measuring. A row that grew a
+        blocking flag would be that injection wearing this instrument's name.
+        """
+        for row_id in ("ownership-nonce", "recompute-delta"):
+            with self.subTest(row=row_id):
+                row = self.rep["rows"][row_id]
+                self.assertIs(row["blocks"], False)
+                self.assertIs(row["counts_toward_prediction"], False)
+                self.assertTrue(row["source"], "a runtime row must name where it came from")
+
+    def test_the_ownership_row_tracks_the_runtime_and_is_not_a_hard_coded_false(self):
+        """R1's row is bound to ``scripts/ctxstore.py``, not to this module's opinion.
+
+        The observation is that HEAD issues no ownership token at all, so every
+        recorded run is unowned. Asserting that as a literal would be a test of my
+        own sentence; asserting the AGREEMENT between the row and the runtime source
+        is what dies if the row is hard-coded — and it keeps passing, correctly, on
+        the day R1 ships and the row flips to ``implemented``.
+        """
+        src = (_ROOT / "scripts" / "ctxstore.py").read_text(encoding="utf-8")
+        row = self.rep["rows"]["ownership-nonce"]
+        self.assertEqual(row["implemented"], ".atlas-owner" in src)
+        self.assertIn("scripts/ctxstore.py", row["source"])
+        # The corpus half: an item that recorded a token must be reported as owned.
+        self.assertEqual(row["runs_carrying_a_token"],
+                         sum(1 for it in self.rep["items"]
+                             if it.get("ownership_token") not in (None, "")))
+
+    def test_the_recompute_row_is_derived_per_item_not_asserted(self):
+        """R2's row is the recorded verdict against the replayed one, item by item.
+
+        RC-04 is the reason this is not decoration: ``after-t3-a``'s recorded
+        ``merged_critic.json`` says ``OK`` with zero blocking defects while replaying
+        it at the ledger's evaluation point manufactures defects the machine never
+        emitted. A record that reported a single aggregate boolean could not tell a
+        corpus with one divergent item from a corpus with eleven, and RC-04's fold
+        requires divergent items to be EXCLUDED from every count.
+        """
+        row = self.rep["rows"]["recompute-delta"]
+        replayed = [it for it in self.rep["items"] if "recompute" in it]
+        self.assertTrue(replayed, "no item was replayed at all")
+        self.assertEqual(row["items_compared"], len(replayed))
+        self.assertEqual(
+            sorted(row["divergent_items"]),
+            sorted(it["id"] for it in replayed if it["recompute"]["divergent"]),
+        )
+        for item in replayed:
+            with self.subTest(item=item["id"]):
+                rec = item["recompute"]
+                self.assertEqual(
+                    rec["divergent"],
+                    bool(rec["added_blocking_ids"] or rec["removed_blocking_ids"]),
+                    "divergence must BE the delta, not a separate opinion about it",
+                )
+
+    def test_the_ownership_row_reads_a_source_that_can_say_yes(self):
+        """The positive control the assertion above cannot be: today both sides read False.
+
+        ``implemented`` and ``".atlas-owner" in ctxstore.py`` are BOTH False at HEAD,
+        so a row hard-coding ``False`` passes the agreement test unchanged — the
+        vacuity class this project has been bitten by five times. Pointed at a source
+        that DOES issue a token, only a real read returns True.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            issuing = os.path.join(td, "ctxstore.py")
+            with open(issuing, "w", encoding="utf-8") as fh:
+                fh.write('def init_run(root, run):\n'
+                         '    (root / ".atlas-owner").write_text(nonce)\n')
+            silent = os.path.join(td, "quiet.py")
+            with open(silent, "w", encoding="utf-8") as fh:
+                fh.write("def init_run(root, run):\n    pass\n")
+            self.assertTrue(predcov.ownership_observation([], issuing)["implemented"])
+            self.assertFalse(predcov.ownership_observation([], silent)["implemented"])
+
+    def test_a_derived_arm_never_feeds_an_emitter_it_did_not_measure(self):
+        """The TA-C1 hazard the ``ARM_SUPPLIES`` declaration exists to stop, pinned live.
+
+        The SKILL's fold reads three emitters out of one ``ev`` dict, so the
+        release-history arm — which can honestly derive ``docs_clean`` and nothing
+        else — still presents a name called ``ev``. Fed to
+        ``emit_evidence_incomplete``, that two-key dict reports every mandatory lens
+        key absent and FIRES: four fires of a predicate nobody measured, in the
+        numerator, from bytes this module wrote.
+
+        So the fire is demonstrated here, and the report is required to hold the same
+        cell ``unmeasured``. Delete the declaration and this test goes red with a
+        numerator that grew — which is the failure it exists to catch.
+        """
+        historical = sorted((_CORPUS / "historical").iterdir())
+        self.assertTrue(historical, "the release-history arm is gone")
+        item_dir = historical[0]
+        meta = json.loads((item_dir / "item.json").read_text(encoding="utf-8"))
+        inputs = predcov.historical_item_inputs(item_dir, meta)
+
+        self.assertTrue(predcov.emit_evidence_incomplete(inputs["ev"]),
+                        "the hazard is gone; this guard needs re-deciding, not deleting")
+        for item in self.rep["items"]:
+            if item["arm"] != "historical":
+                continue
+            with self.subTest(item=item["id"]):
+                self.assertEqual("unmeasured",
+                                 item["emitters"]["evidence-incomplete"]["state"])
+                self.assertIsNone(item["emitters"]["evidence-incomplete"]["fired"])
+        self.assertNotIn("historical", {i.split("/")[0]
+                                        for i in self.rep["rows"]["evidence-incomplete"]["fires"]})
+
+    def test_arm_supplies_is_closed_and_hides_nothing_on_the_recorded_arms(self):
+        """The declaration may narrow a DERIVED arm; it may never narrow a recorded one.
+
+        A per-arm allow-list can suppress a real fire as easily as a manufactured
+        one, so the two recorded-run arms — the only ones that carry a full Step 4+5
+        namespace — are pinned to the whole denominator.
+        """
+        for arm, supplies in sorted(predcov.ARM_SUPPLIES.items()):
+            with self.subTest(arm=arm):
+                self.assertEqual(set(supplies) - set(predcov.EMITTERS), set())
+        for arm in ("honest", "interrupted"):
+            with self.subTest(arm=arm):
+                self.assertEqual(set(predcov.ARM_SUPPLIES[arm]), set(predcov.EMITTERS))
+        self.assertEqual(set(predcov.ARM_SUPPLIES), set(predcov.ARM_INPUT_BUILDERS))
+
+    def test_every_emitter_has_a_declared_dimension_accessor(self):
+        """D1: ``reachable`` is deleted and replaced by a declared accessor per emitter.
+
+        A missing accessor would make its row's ``supply`` unreadable, and a
+        zero-supply row printed as ``0`` reads as restraint — the exact failure that
+        column was rejected for.
+        """
+        self.assertEqual(set(predcov.DIMENSIONS), set(predcov.EMITTERS))
+
+    def test_a_divergent_item_never_reaches_a_counting_arm(self):
+        """RC-04: the replay-divergent items are excluded from every count.
+
+        MEASURED VACUITY, and the reason the constructed corpus below exists: on the
+        REAL corpus this assertion cannot fail. The only divergent item is
+        ``interrupted/after-t3-a``, and the interrupted arm never counts anyway — so
+        deleting the exclusion clause outright leaves this green. Verified by
+        mutation. It is kept as the invariant over the shipped corpus and paired with
+        the constructed one, which is what actually kills the mutation.
+        """
+        divergent = set(self.rep["rows"]["recompute-delta"]["divergent_items"])
+        counted = {it["id"] for it in self.rep["items"] if it["counts"]}
+        self.assertEqual(set(), divergent & counted)
+
+    def test_a_divergent_item_IN_a_counting_arm_is_excluded(self):
+        """The RC-04 exclusion, driven where it can actually be observed.
+
+        A real honest item is copied out of the corpus and its RECORDED
+        ``merged_critic.json`` — and only that — is given a blocking defect the fold
+        cannot reproduce. Its inputs are untouched, so exactly one thing changes: the
+        recorded verdict no longer matches the replayed one. The paired control is
+        the same item without the tamper; without it, an evaluator that counted
+        NOTHING would pass.
+        """
+        donor = _CORPUS / "honest" / "after-t1-a"
+        self.assertTrue(donor.is_dir(), "the donor item is gone")
+        with tempfile.TemporaryDirectory() as td:
+            def _corpus(tamper):
+                root = os.path.join(td, "tampered" if tamper else "control")
+                dest = os.path.join(root, "honest", "after-t1-a")
+                shutil.copytree(str(donor), dest)
+                if tamper:
+                    path = os.path.join(dest, "merged_critic.json")
+                    with open(path, encoding="utf-8") as fh:
+                        merged = json.load(fh)
+                    merged["defects"] = list(merged.get("defects", [])) + [
+                        {"id": "forged-by-this-test", "category": "CORRECTNESS",
+                         "severity": "CRITICAL", "location": "l", "fix": "f"}]
+                    with open(path, "w", encoding="utf-8") as fh:
+                        json.dump(merged, fh)
+                return predcov.evaluate_corpus(root)
+
+            control = _corpus(tamper=False)
+            self.assertFalse(control["items"][0]["replay_divergent"])
+            self.assertTrue(control["items"][0]["counts"],
+                            "the control must COUNT, or the tampered case proves nothing")
+            self.assertTrue(control["rows"]["critic-stale"]["counting_arm_items"])
+
+            tampered = _corpus(tamper=True)
+            self.assertTrue(tampered["items"][0]["replay_divergent"])
+            self.assertFalse(tampered["items"][0]["counts"])
+            self.assertIn("honest/after-t1-a",
+                          tampered["rows"]["recompute-delta"]["divergent_items"])
+            for stem in predcov.EMITTERS:
+                with self.subTest(stem=stem):
+                    self.assertEqual(0, tampered["rows"][stem]["counting_arm_items"])
 
 
 if __name__ == "__main__":  # pragma: no cover
