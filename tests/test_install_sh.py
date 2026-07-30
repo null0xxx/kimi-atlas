@@ -39,9 +39,28 @@ class TestInstallBackupSource(unittest.TestCase):
         self.assertEqual(self.text.count('"$INSTALLED.bak"'), 2)
 
 
+def _root_is_a_git_repo_with_a_commit() -> bool:
+    """Whether ``scripts/install.sh`` can run here at all.
+
+    The installer deploys the committed ``HEAD`` via ``git archive`` and refuses
+    otherwise with *"is not a git repo with a commit; commit first"*. Having the git
+    BINARY is therefore not the precondition — being inside a work tree with a commit
+    is. Found by running ``make ci`` against ``git archive v1.5.3``: the binary check
+    passed, the installer correctly refused, and the test reported a failure about
+    backup behaviour it had never reached. A red that names the wrong thing is worse
+    than no test, and this skip says exactly what is unavailable.
+    """
+    if not shutil.which("git"):
+        return False
+    proc = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=str(_ROOT),
+                          capture_output=True, text=True)
+    return proc.returncode == 0
+
+
 @unittest.skipUnless(
-    shutil.which("git") and shutil.which("python3") and shutil.which("tar"),
-    "requires git, python3, and tar to drive the installer end-to-end",
+    _root_is_a_git_repo_with_a_commit() and shutil.which("python3") and shutil.which("tar"),
+    "requires python3, tar, and a git work tree with a commit — the installer deploys "
+    "the committed HEAD via `git archive` and refuses without one",
 )
 class TestInstallBackupBehavior(unittest.TestCase):
     """Drive the real installer twice and prove the rolling-backup behavior."""

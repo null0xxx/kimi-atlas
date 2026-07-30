@@ -66,6 +66,35 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CORPUS = _ROOT / "tests" / "corpus"
 
 
+def _repo_files() -> set[str]:
+    """Every file that ships, as repo-relative POSIX paths.
+
+    Derived from ``git ls-files`` when the tree IS a git work tree, and from the
+    filesystem otherwise. The distinction is load-bearing and was found by running
+    ``make ci`` against ``git archive v1.5.3`` — the shipped artifact:
+
+    ``git ls-files`` returns EMPTY outside a work tree, so a citation check built on it
+    alone failed three ways on the exported tarball while every cited file was in fact
+    present. That is a manufactured RED — a red carrying no information about the thing
+    it claims to check — which this project ranks alongside a false green.
+
+    The fallback is not a weakening. In a clone, tracked implies present, so the git
+    answer is the stronger one and is preferred. In an export there is nothing to be
+    tracked BY, and "the file shipped" is precisely the question a citation check should
+    ask of a release artifact. Neither branch can pass vacuously: an empty result would
+    fail the caller's ``assertIn`` just as loudly as a wrong one.
+    """
+    out = subprocess.run(["git", "ls-files"], cwd=str(_ROOT),
+                         capture_output=True, text=True).stdout.split()
+    if out:
+        return set(out)
+    return {
+        p.relative_to(_ROOT).as_posix()
+        for p in _ROOT.rglob("*")
+        if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts
+    }
+
+
 def _git(root, *args):
     """Run git in ``root``, raising on failure (fixture setup only)."""
     return subprocess.run(
@@ -1155,8 +1184,7 @@ class TestFailOpenArm(unittest.TestCase):
         index = json.loads((_CORPUS / "failopen" / "index.json").read_text(encoding="utf-8"))
         self.assertEqual(len(index["items"]), len(items),
                          "the arm's own index must list every item on disk")
-        tracked = set(subprocess.run(["git", "ls-files"], cwd=str(_ROOT),
-                                     capture_output=True, text=True).stdout.split())
+        tracked = _repo_files()
         for item_dir in items:
             with self.subTest(item=item_dir.name):
                 meta = json.loads((item_dir / "item.json").read_text(encoding="utf-8"))
