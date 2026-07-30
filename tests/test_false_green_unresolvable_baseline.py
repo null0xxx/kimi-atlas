@@ -25,7 +25,7 @@ added a blocking predicate injected a defect, and the SKILL already owns a could
 terminal (``skills/atlas/SKILL.md:188-189`` — ``budget_exhausted`` ⇒ ⚠️ UNVERIFIED, never a green).
 
 The information is *already computed*: ``difftool.git_tree_has_baseline`` is already called at
-``skills/atlas/SKILL.md:841``, but only to gate ``out_of_scope_defects`` — far downstream of the
+``skills/atlas/SKILL.md:907``, but only to gate ``out_of_scope_defects`` — far downstream of the
 capture whose evidence it actually governs. The fix consults the check the program already has,
 at the point where the evidence is taken.
 """
@@ -103,12 +103,22 @@ class TestUnresolvableBaselineLosesTheEvidence(unittest.TestCase):
                          "empty_diff_defect is the only floor guard on diff completeness, "
                          "and a non-empty-but-incomplete diff slips past it")
 
-    def test_the_out_of_scope_control_is_disabled_at_the_same_moment(self):
-        """The two failures are simultaneous, which is what makes the green look clean."""
-        unresolvable = "0" * 40
-        self.assertFalse(difftool.git_tree_has_baseline(self.tree, unresolvable))
-        # the SKILL feeds [] to out_of_scope_defects when the guard is False
-        self.assertEqual(floorsynth.out_of_scope_defects([], ["src"]), [])
+    def test_a_non_git_review_root_still_yields_COMPLETE_evidence(self):
+        """The honest shape the first version of the guard aborted, found by both judges.
+
+        `SKILL.md:441` sends a throwaway task to a NON-git sandbox `review_root` while
+        `baseline_sha` is recorded from the git TARGET. `git_tree_has_baseline` returns False
+        on `not _is_git_repo` alone, so a two-clause guard fired here — but `capture`'s non-git
+        branch renders every in-scope file as a full new-file diff, i.e. evidence that is
+        COMPLETE. Aborting that run manufactures a RED on work that verified correctly, which
+        this project ranks as worse than the bug the guard closes.
+        """
+        with tempfile.TemporaryDirectory() as sandbox:
+            pathlib.Path(sandbox, "calc.py").write_text("def f():\n    return 1\n")
+            self.assertFalse(difftool._is_git_repo(sandbox), "precondition: sandbox is not git")
+            diff = difftool.capture(self.baseline, ["."], sandbox)
+            self.assertIn("calc.py", diff,
+                          "the non-git branch must render the coder's work in full")
 
 
 class TestSkillGatesCaptureOnBaselineResolvability(unittest.TestCase):
@@ -132,28 +142,54 @@ class TestSkillGatesCaptureOnBaselineResolvability(unittest.TestCase):
                 return n
         self.fail("pattern not found in SKILL.md: %s" % pattern)
 
-    def _executable_guard_line(self) -> int:
-        """Line of the EXECUTABLE baseline guard — never a comment or prose mention.
+    def _guard(self) -> tuple[int, str]:
+        """(line, condition-expression) of the EXECUTABLE baseline guard.
 
-        The first draft of these pins keyed on the bare string ``git_tree_has_baseline``. A
-        mutation that deleted the guard SURVIVED, because the explanatory comment directly above
-        it also contains that string, so the pins were satisfied by prose. Anchoring on an ``if``
-        whose body raises is what makes them pin executable behaviour.
+        Never a comment or a prose mention. The first draft of these pins keyed on the bare
+        string ``git_tree_has_baseline``; deleting the whole guard SURVIVED, because the
+        explanatory comment above it contains that string too — the pins were satisfied by
+        prose. The second draft then failed on a correct guard, because the condition spans
+        two physical lines and the matcher only looked at one. This joins the continuation
+        by paren depth, so it finds the guard however it is wrapped and returns the condition
+        for the caller to EXECUTE rather than pattern-match.
         """
         lines = self.text.splitlines()
         for n, line in enumerate(lines, start=1):
             stripped = line.strip()
-            if stripped.startswith("#"):
+            if stripped.startswith("#") or not stripped.startswith("if "):
                 continue
-            if not re.match(r"if .*git_tree_has_baseline", stripped):
-                continue
-            body = "\n".join(lines[n:n + 4])
-            if "SystemExit" in body:
-                return n
+            expr, depth = "", 0
+            for offset, cont in enumerate(lines[n - 1:n + 5]):
+                # Strip a trailing comment before accumulating. A judge showed the earlier
+                # version could not terminate on a guard whose last line carried one — it kept
+                # swallowing lines, found no `:`, and failed a CORRECT guard. That is a
+                # manufactured RED inside the very pin written to prevent one.
+                code = cont.split("#", 1)[0] if not cont.strip().startswith("#") else ""
+                expr += " " + code.strip()
+                depth += code.count("(") - code.count(")")
+                if expr.rstrip().endswith(":") and depth <= 0:
+                    body = "\n".join(lines[n + offset:n + offset + 4])
+                    if "git_tree_has_baseline" in expr and "SystemExit" in body:
+                        expr = expr.strip()[len("if "):].rstrip().rstrip(":").strip()
+                        # Balance-checked unwrap: `(a) and (b)` must NOT become `a) and (b`.
+                        # Only strip when the leading "(" is the one closed by the final ")".
+                        if expr.startswith("(") and expr.endswith(")"):
+                            level = 0
+                            for i, ch in enumerate(expr):
+                                level += (ch == "(") - (ch == ")")
+                                if level == 0:
+                                    if i == len(expr) - 1:
+                                        expr = expr[1:-1]
+                                    break
+                        return n, expr
+                    break
         self.fail(
-            "no EXECUTABLE baseline guard found: expected a non-comment line matching "
-            "`if ...git_tree_has_baseline...` whose next lines raise SystemExit, so that an "
+            "no EXECUTABLE baseline guard found: expected a non-comment `if` whose condition "
+            "calls git_tree_has_baseline and whose body raises SystemExit, so that an "
             "unresolvable baseline aborts before the evidence is taken")
+
+    def _executable_guard_line(self) -> int:
+        return self._guard()[0]
 
     def test_baseline_resolvability_is_established_before_the_diff_is_captured(self):
         capture_at = self._line_of(r"difftool\.capture\(")
@@ -183,14 +219,68 @@ class TestSkillGatesCaptureOnBaselineResolvability(unittest.TestCase):
         self.assertLess(guard_at, consume_at,
                         "the baseline check must precede the lenses consuming the diff")
         window = "\n".join(lines[guard_at - 1:consume_at])
-        self.assertRegex(
-            window, r"(UNVERIFIED|budget_exhausted)",
+        self.assertIn(
+            "UNVERIFIED", window,
             "the baseline check must route to the EXISTING could-not-verify terminal before "
-            "runcheck consumes the evidence; a new blocking predicate is forbidden here",
-        )
+            "runcheck consumes the evidence; a new blocking predicate is forbidden here")
+        # Assert against the ADVANCE CALL, not the window. Checking the window for the token
+        # passed while the marker was deleted from the call, because the paragraph EXPLAINING
+        # why the marker is required also contains it — prose satisfying a pin for the third
+        # time in this file. Pin the call site or pin nothing.
+        advances = [line for line in window.splitlines() if "ctxstore.advance(" in line]
+        self.assertTrue(advances, "the route must record an advance to OUTPUT")
+        for call in advances:
+            self.assertIn(
+                "cancelled=True", call,
+                "the advance MUST carry the sanctioned-jump marker: %s\nWithout it the ledger "
+                "edge is CODED -> OUTPUT, which fsm.legal_transition rejects, and "
+                "stale_verdict_defects emits a blocking CRITICAL into merged_critic.json — "
+                "verified: 1 defect without the marker, 0 with it." % call.strip())
+        for green in ("✅", 'verdict="OK"'):
+            self.assertNotIn(
+                green, window,
+                "an unresolvable baseline must never route to a green. A judge showed the "
+                "earlier version of this pin passed on prose alone, so rewriting the route to "
+                "print a green would have gone unnoticed.")
         self.assertNotIn(
             "ORCHESTRATOR_DEFECT_IDS", window,
             "this must not become a defect id — it is a terminal-state route, not a predicate")
+
+    def test_the_guards_own_condition_is_executed_against_every_honest_shape(self):
+        """The strongest pin here: it RUNS the SKILL's condition, it does not read it.
+
+        Both structural pins survive a polarity flip — delete the `not` and the guard aborts
+        every honest run while letting the defect through, yet `if ...git_tree_has_baseline...`
+        plus `SystemExit` still matches. A judge named that surviving mutation. This extracts
+        the condition text from SKILL.md and evaluates it, so polarity, the missing
+        `_is_git_repo` clause, and the `_baseline` emptiness clause are all pinned by behaviour.
+        """
+        _, expr = self._guard()
+        with tempfile.TemporaryDirectory() as nongit, tempfile.TemporaryDirectory() as repo:
+            _git(repo, "init", "-q", ".")
+            pathlib.Path(repo, "a.py").write_text("x\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-qm", "base")
+            baseline = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo,
+                capture_output=True, text=True, check=True).stdout.strip()
+            shapes = [
+                ("non-git target, no baseline", nongit, "", False),
+                ("git target, NON-GIT sandbox review_root", nongit, baseline, False),
+                ("git tree, no baseline recorded", repo, "", False),
+                ("git tree, resolvable baseline", repo, baseline, False),
+                ("git tree, UNRESOLVABLE baseline", repo, "0" * 40, True),
+            ]
+            for name, root, baseline, expected in shapes:
+                with self.subTest(shape=name):
+                    fired = bool(eval(expr, {"difftool": difftool},  # noqa: S307
+                                      {"review_root": root, "_baseline": baseline.strip()}))
+                    self.assertEqual(
+                        fired, expected,
+                        "%s: guard %s but should %s. Only an unresolvable baseline on a git "
+                        "review_root may fire; every other shape is honest work."
+                        % (name, "FIRED" if fired else "stayed silent",
+                           "fire" if expected else "stay silent"))
 
 
 if __name__ == "__main__":  # pragma: no cover

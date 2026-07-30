@@ -88,7 +88,7 @@ OUTPUT block *before* that block's own ``advance(..., "OUTPUT")`` — its own
 docstring tells fixture authors to truncate exactly there, since an
 OUTPUT-terminated fixture makes the H6 trailing-shape condition unfirable.
 Caveat, recorded rather than coded: a final ``OUTPUT`` record carrying
-``cancelled=True`` marks the sanctioned pre-CODE cancel that
+``cancelled=True`` marks a sanctioned early exit (pre-CODE cancel, or the E-1 unresolvable-baseline abort) that
 ``stale_verdict_defects`` skips outright, and dropping it would change that
 shape. Measured across all 12 ledgers: **zero** ``cancelled`` records, so no
 branch is written for a case this corpus does not contain.

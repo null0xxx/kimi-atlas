@@ -68,8 +68,8 @@ rewrites** — package-lock.json, poetry.lock, *.snap, committed codegen — whi
 does not ignore. `floorsynth._is_residue` returns **False** for all of those.
 
 **The mechanism, verified by line number:** `runcheck.run` executes `verify_cmd` at
-`skills/atlas/SKILL.md:602`; `difftool.change_paths` re-derives the changed-path list at
-`skills/atlas/SKILL.md:841` — **239 lines later**. Everything the build writes is therefore captured
+`skills/atlas/SKILL.md:666`; `difftool.change_paths` re-derives the changed-path list at
+`skills/atlas/SKILL.md:906` — **240 lines later**. Everything the build writes is therefore captured
 and attributed to the coder. **The coder cannot resolve it**, because it did not create those files
 and the fix text (correctly, per H2's interim) forbids touching files it did not author.
 
@@ -155,11 +155,11 @@ investigating agent called it *"arguably more urgent"* than H2. **No snapshot fi
 ## 5. The storage question — the fork both remedies share
 
 The obvious cheap fix for R1 is to **derive the changed-path list before the build instead of after**:
-`difftool.capture_full` already runs at `skills/atlas/SKILL.md:553`, *before* `runcheck` at `:602`.
+`difftool.capture_full` already runs at `skills/atlas/SKILL.md:576`, *before* `runcheck` at `:602`.
 
 **But it cannot simply be moved, and the reason is structural.** Verified by locating the heredoc
-boundaries: `:553` lives in the Python block spanning `skills/atlas/SKILL.md:539-576`, and `:841`
-lives in the block beginning at `skills/atlas/SKILL.md:788`. **They are separate processes.** A
+boundaries: `:576` lives in the Python block spanning `skills/atlas/SKILL.md:539-599`, and `:906`
+lives in the block beginning at `skills/atlas/SKILL.md:853`. **They are separate processes.** A
 pre-build path list therefore has to be *persisted*, and in the `review_root="."` lane `.atlas/` is
 inside the coder's writable root — the same T4-F8 exposure that made the naive H2 snapshot produce a
 demonstrated silent false GREEN.

@@ -527,8 +527,17 @@ def stale_verdict_defects(log_records) -> list[dict]:
     duplicates are collapsed (``advance`` appends the log line before writing
     state.json, so a crash-resume re-records one stage — idempotent, benign),
     and a ledger whose final OUTPUT record carries ``cancelled=True`` is
-    skipped outright (the sanctioned pre-CODE cancel). The S10 attack shape
-    has no duplicates and still trips (a) and (b) after normalization.
+    skipped outright. **That marker now has TWO producers, not one.** It began
+    as the sanctioned pre-CODE cancel; the E-1 unresolvable-baseline abort
+    (``skills/atlas/SKILL.md`` VERIFIED Step 1) is the second, and it fires
+    AFTER ``CODED``, so a legitimate ledger may now read
+    ``[..., CODED, OUTPUT{cancelled}]`` or ``[..., REFINE, CODED, OUTPUT{cancelled}]``.
+    Both round-3 judges flagged that this docstring described only the first.
+    The early return is deliberately blanket for both: on either route no
+    verification ran, so there is no stage order to police and no verdict to be
+    stale against — and neither route can reach a green, because each ends at
+    the UNVERIFIED terminal. The S10 attack shape has no duplicates and still
+    trips (a) and (b) after normalization.
 
     At most ONE defect is ever returned: the three conditions share one id, one
     location and one remedy sentence, and differ only in the reason text, which
