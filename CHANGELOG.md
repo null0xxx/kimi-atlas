@@ -4,6 +4,37 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3.1] — 2026-07-30
+
+**The v1.5.3 tarball did not pass its own gate.** No runtime code changes here — the plugin
+behaves identically — but `make ci` against `git archive v1.5.3`, the artifact users actually
+install, failed four tests. All four were environment artifacts rather than defects: every
+cited file was present, and the checks were asking git questions of a tree that is not a git
+repository. This project treats a red that carries no information about the thing it claims to
+check as a defect in its own right, so it is fixed rather than explained away.
+
+- **A citation check built its file set from `git ls-files`**, which returns empty outside a
+  work tree — three cited files reported "not in the repository" while all three shipped. Now
+  derived from git when the tree IS a work tree and from the filesystem otherwise. In a clone
+  the git answer is stronger (tracked implies present) and is preferred; in an export there is
+  nothing to be tracked by, and *"the file shipped"* is exactly the right question of a release
+  artifact.
+- **A skip guard named the wrong precondition.** It gated on the git *binary*, but
+  `scripts/install.sh` deploys the committed `HEAD` via `git archive` and refuses without a
+  work tree and a commit. In the export the binary check passed, the installer correctly
+  refused, and the test reported a failure about backup behaviour it had never reached.
+- **Nothing pinned the version.** `make ci` passed identically before and after the v1.5.3
+  manifest bump, so the four places stating the current version were kept in step by hand — a
+  release shipping with `README.md` pinning the previous tag would have been green all the way
+  through the gate. `tests/test_version_consistency.py` now pins the manifest against
+  `plugin_meta`, the CHANGELOG entry *and* that it is the newest, README's pinned-install
+  example, `AGENTS.md`'s project line and open-items heading, and `references/system-map.md`.
+  It also pins the other half of the rule: **historical version prose must survive**, so the
+  checks can never be satisfied by scrubbing older releases out of the record.
+
+Verified: `make ci` EXIT 0 in a clone **and** against `git archive` of this commit — 1706
+tests both ways.
+
 ## [1.5.3] — 2026-07-30
 
 **A live false GREEN is closed, and two headline claims this project made about itself are

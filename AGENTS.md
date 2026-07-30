@@ -11,7 +11,7 @@ what exists, how to verify it, and what is still open. For depth, follow the lin
 
 **kimi-atlas** — a many-agent, quality-calibrated orchestrator plugin for Kimi Code with **115
 vendored official skill packages** built in. Public repo: <https://github.com/null0xxx/kimi-atlas>
-(v1.5.3, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
+(v1.5.3.1, MIT). Install: `/plugins install https://github.com/null0xxx/kimi-atlas` (managed copy at
 `~/.kimi-code/plugins/managed/kimi-atlas`); from source: `./scripts/install.sh`
 (installs to `~/.kimi-code/plugins/kimi-atlas`).
 
@@ -125,7 +125,7 @@ not sufficient — everything must stay green on all three lanes.
   surface the residual for human revert/keep/discard at OUTPUT. Events → `hooks.jsonl` (via
   `hooks/telemetry.sh` + `scripts/ctxevents.py`), never `log.jsonl`.
 
-## Open items (as of v1.5.3)
+## Open items (as of v1.5.3.1)
 
 > **The authoritative ledger is now
 > [`docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md`](docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md)** —
