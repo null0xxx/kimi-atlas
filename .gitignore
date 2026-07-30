@@ -4,5 +4,8 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .atlas/
+# gentle-ai's per-repo scratch (skill registry + its cache). Tool residue, like .atlas/ above.
+# Left untracked it puts an unreferenced .md in the tree and the doc-inventory gate fails.
+.atl/
 tmp_*/
 Skills/

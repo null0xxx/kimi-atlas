@@ -542,6 +542,21 @@ from scripts import ctxstore, difftool, langfloor, runcheck
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
+# E-1 -- BASELINE RESOLVABILITY, established BEFORE the evidence is taken.
+# difftool.capture never raises: if the baseline does not resolve, every _tracked_at probe
+# returns False and the whole tracked-modification channel is silently DROPPED. The diff then
+# holds none of the coder's edits to tracked files -- yet stays NON-empty if it also created one
+# new file, so empty_diff_defect cannot see it, while runcheck still executes the modified tree.
+# Six lenses would review a diff containing none of the work and the run could print a green.
+# This adds NO new blocking predicate and NO new terminal: git_tree_has_baseline is already
+# computed downstream (Step 4+5) and this routes to the could-not-verify terminal that already
+# exists. The condition is deliberately narrow -- SKILL.md:200 records baseline_sha as "" when
+# the target is not a repo, so a non-repo and a repo with no baseline are both SILENT; only a
+# RECORDED baseline that fails to resolve fires. Probed against all five cases before shipping.
+_baseline = (st.get("baseline_sha") or "").strip()
+if _baseline and not difftool.git_tree_has_baseline(review_root, _baseline):
+    print("BASELINE_UNRESOLVABLE=" + _baseline)
+    raise SystemExit(3)
 # scope_paths are relative to review_root; baseline_sha resolves inside a worktree
 # because it shares the parent repo's object DB.
 diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
@@ -575,6 +590,19 @@ ctxstore.write_artifact(".atlas", run, "test_files.json", test_files)
 print("DIFF_BYTES=%d CHANGED=%d TESTS=%d" % (len(diff), len(changed_files), len(test_files)))
 PY
 ```
+
+> **If that block printed `BASELINE_UNRESOLVABLE=<sha>` (exit 3), STOP VERIFIED HERE.** A baseline
+> was recorded but does not resolve in `review_root`, so **no diff taken against it can be trusted
+> to be complete** — `difftool.capture` degrades silently, and a diff that is merely non-empty is
+> not evidence that it is whole. Do **not** run the lenses on it; a lens that reviews an incomplete
+> diff and finds nothing produces a green that cannot be substantiated, which is the one outcome
+> THE ONE GUARANTEE forbids. Go straight to **OUTPUT**:
+> `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", budget_exhausted=True)`
+> and print `⚠️ UNVERIFIED`, telling the human plainly that the recorded baseline no longer resolves
+> (a deleted branch or pruned worktree is the ordinary cause) and that **re-running against a
+> resolvable baseline is the whole remedy**. This is the **existing** could-not-verify terminal
+> (§Completion Invariant, `budget_exhausted`) — it is not a new defect id, not a new gate condition,
+> and it never appears in `merged_critic.json`.
 
 **Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`** (mem-guarded before `runcheck`). Collect
 their defects into `det_evidence.json` — the evidence the judgment critics also receive:

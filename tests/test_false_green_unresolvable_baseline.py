@@ -132,30 +132,65 @@ class TestSkillGatesCaptureOnBaselineResolvability(unittest.TestCase):
                 return n
         self.fail("pattern not found in SKILL.md: %s" % pattern)
 
+    def _executable_guard_line(self) -> int:
+        """Line of the EXECUTABLE baseline guard — never a comment or prose mention.
+
+        The first draft of these pins keyed on the bare string ``git_tree_has_baseline``. A
+        mutation that deleted the guard SURVIVED, because the explanatory comment directly above
+        it also contains that string, so the pins were satisfied by prose. Anchoring on an ``if``
+        whose body raises is what makes them pin executable behaviour.
+        """
+        lines = self.text.splitlines()
+        for n, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if not re.match(r"if .*git_tree_has_baseline", stripped):
+                continue
+            body = "\n".join(lines[n:n + 4])
+            if "SystemExit" in body:
+                return n
+        self.fail(
+            "no EXECUTABLE baseline guard found: expected a non-comment line matching "
+            "`if ...git_tree_has_baseline...` whose next lines raise SystemExit, so that an "
+            "unresolvable baseline aborts before the evidence is taken")
+
     def test_baseline_resolvability_is_established_before_the_diff_is_captured(self):
         capture_at = self._line_of(r"difftool\.capture\(")
-        guard_lines = [n for n, line in enumerate(self.text.splitlines(), start=1)
-                       if "git_tree_has_baseline" in line]
-        self.assertTrue(guard_lines, "the SKILL does not consult git_tree_has_baseline at all")
-        self.assertTrue(
-            any(n < capture_at for n in guard_lines),
-            "difftool.capture at SKILL.md:%d takes the evidence before any "
-            "git_tree_has_baseline check (first check is at line %s). An unresolvable baseline "
-            "therefore yields a silently incomplete diff that every lens then reviews as if it "
-            "were the change." % (capture_at, guard_lines[0]),
+        guard_at = self._executable_guard_line()
+        self.assertLess(
+            guard_at, capture_at,
+            "difftool.capture at SKILL.md:%d takes the evidence before the executable baseline "
+            "guard at line %d. An unresolvable baseline therefore yields a silently incomplete "
+            "diff that every lens then reviews as if it were the change."
+            % (capture_at, guard_at),
         )
 
     def test_an_unresolvable_baseline_routes_to_the_existing_unverified_terminal(self):
-        """It must reuse the could-not-verify path, never a new defect id or a new terminal."""
+        """It must reuse the could-not-verify path, never a new defect id or a new terminal.
+
+        The window is anchored on the FIRST ``git_tree_has_baseline`` and closed at
+        ``runcheck.run`` — the point where the deterministic lenses begin consuming the
+        evidence. An earlier draft of this test windowed on ``### VERIFIED`` instead, which is
+        simply wrong: the capture happens INSIDE the VERIFIED section, so that window excluded
+        the very code it meant to inspect and the test could not have passed for any fix.
+        """
         self.assertIn("budget_exhausted", self.text,
                       "the existing could-not-verify terminal must still be present")
-        window = self.text[:self.text.index("### VERIFIED")] if "### VERIFIED" in self.text else self.text
+        lines = self.text.splitlines()
+        guard_at = self._executable_guard_line()
+        consume_at = self._line_of(r"runcheck\.run\(")
+        self.assertLess(guard_at, consume_at,
+                        "the baseline check must precede the lenses consuming the diff")
+        window = "\n".join(lines[guard_at - 1:consume_at])
         self.assertRegex(
-            window,
-            r"git_tree_has_baseline[\s\S]{0,600}?(UNVERIFIED|budget_exhausted)",
-            "the baseline check must be tied to the existing UNVERIFIED terminal before "
-            "VERIFIED consumes the diff; a new blocking predicate is forbidden here",
+            window, r"(UNVERIFIED|budget_exhausted)",
+            "the baseline check must route to the EXISTING could-not-verify terminal before "
+            "runcheck consumes the evidence; a new blocking predicate is forbidden here",
         )
+        self.assertNotIn(
+            "ORCHESTRATOR_DEFECT_IDS", window,
+            "this must not become a defect id — it is a terminal-state route, not a predicate")
 
 
 if __name__ == "__main__":  # pragma: no cover
