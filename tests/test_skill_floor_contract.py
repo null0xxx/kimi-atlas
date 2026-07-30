@@ -201,17 +201,57 @@ class TestStep45FoldIsStructural(unittest.TestCase):
         baseline resolves — a non-git capture renders every pre-existing file as
         new, which would flag the whole honest repo; an unresolvable baseline
         silently degrades the tracked channel. The gate is one expression, so it
-        cannot drift from the fold it guards."""
+        cannot drift from the fold it guards.
+
+        **AMENDED for R1.** The gate's PRIMARY home moved: the list is now taken in the
+        Step-2 block, BEFORE `runcheck` executes the target's build, because re-deriving it
+        here attributed every file the build wrote to the coder. The invariant is unchanged
+        and is now asserted in BOTH places — at its new primary site (the sibling test
+        below) and here on the fallback that still guards a re-derivation. Still exactly one
+        `full_paths` assignment, so the gate cannot drift from the fold it guards.
+        """
         assigns = [n for n in ast.walk(self.tree)
                    if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
                    and n.targets[0].id == "full_paths"]
         self.assertEqual(len(assigns), 1, "expected exactly one full_paths assignment")
         v = assigns[0].value
-        self.assertIsInstance(v, ast.IfExp, "full_paths must be gated inline")
-        self.assertEqual(ast.unparse(v.test),
+        self.assertIsInstance(v, ast.IfExp, "full_paths must be resolved inline")
+        # Primary arm: the pre-build list Step 2 persisted. Fallback arm: today's gated
+        # re-derivation — never `[]`, which would silently disable the S3(a) control.
+        self.assertEqual(ast.unparse(v.test), "_pre_build_paths is not None")
+        self.assertEqual(ast.unparse(v.body), "_pre_build_paths")
+        fallback = v.orelse
+        self.assertIsInstance(fallback, ast.IfExp,
+                              "the fallback must itself be gated, not a bare []")
+        self.assertEqual(ast.unparse(fallback.test),
                          "difftool.git_tree_has_baseline(review_root, baseline)")
-        self.assertEqual(ast.unparse(v.body),
+        self.assertEqual(ast.unparse(fallback.body),
                          "difftool.change_paths(baseline, review_root)")
+        self.assertEqual(ast.unparse(fallback.orelse), "[]")
+
+    def test_the_pre_build_list_carries_the_same_gate_at_its_new_home(self):
+        """R1: the gate travels with the mechanism, or it is not an invariant.
+
+        Moving the capture into the Step-2 block would be worthless if the gate stayed
+        behind — a non-git capture renders every pre-existing file as new and would flag
+        the whole honest repo. This asserts the Step-2 assignment is the SAME gated
+        expression, parsed from that block rather than pattern-matched.
+        """
+        blocks = [b for b in _heredoc_bodies(SKILL.read_text(encoding="utf-8"))
+                  if "runcheck.run(" in b]
+        self.assertEqual(len(blocks), 1, "expected exactly one Step-2 block")
+        tree = ast.parse(blocks[0].replace("${KIMI_SESSION_ID}", "SID"))
+        assigns = [n for n in ast.walk(tree)
+                   if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+                   and n.targets[0].id == "full_paths_pre_build"]
+        self.assertEqual(len(assigns), 1,
+                         "expected exactly one pre-build full_paths assignment in Step 2")
+        v = assigns[0].value
+        self.assertIsInstance(v, ast.IfExp, "the pre-build capture must be gated inline")
+        self.assertEqual(ast.unparse(v.test),
+                         "difftool.git_tree_has_baseline(review_root, _baseline)")
+        self.assertEqual(ast.unparse(v.body),
+                         "difftool.change_paths(_baseline, review_root)")
         self.assertEqual(ast.unparse(v.orelse), "[]")
 
     def _gate_results_literal(self):

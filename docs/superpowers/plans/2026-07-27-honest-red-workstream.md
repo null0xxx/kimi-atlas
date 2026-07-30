@@ -43,7 +43,7 @@ very test that would catch the bug — is executed but unreviewed. **Do not dele
 
 ---
 
-## 2. R1 — the run's own build output. Real, narrower than first claimed. Not closed.
+## 2. R1 — the run's own build output. **CLOSED 2026-07-30.**
 
 **CORRECTED 2026-07-30 — the first version of this section overstated the blast radius, and
 both blind judges caught it independently.** It reported *"7 blocking HIGH"* from a list including
@@ -184,8 +184,8 @@ absent, unreadable, stale or mismatched record must fall back to current behavio
 
 | # | Item | Size | Why this order |
 |---|---|---|---|
-| **1** | **Settle §5** — where pre-coder/pre-build state lives, with the fail-to-RED rule | small, design | Both remedies block on it; deciding once unblocks both |
-| **2** | **R1** — derive the changed-path list **before** `runcheck`, persist per §5 | small | Cheapest remedy of the three, shares item 1's decision, and removes most of the denylist's load. **Not** ranked first on frequency — see the §0 amendment |
+| ~~1~~ | ~~**Settle §5**~~ **MOOT for R1** — the Step-2 block runs `change_paths` and `runcheck` in ONE process, so the list never crosses a trust boundary. Still open for H2, which needs pre-CODER state | small, design | Was thought to block both; blocks only H2 |
+| ~~2~~ | ~~**R1** — derive the changed-path list **before** `runcheck`~~ **DONE** — taken in the Step-2 block, before the build, in the SAME process, so §5's storage question never arose | small | Cheapest remedy of the three, shares item 1's decision, and removes most of the denylist's load. **Not** ranked first on frequency — see the §0 amendment |
 | **3** | **S3** — name the auto-permission mode in `skills/atlas/SKILL.md` and make the mode deterministic | small–medium | Independent of both; today the run mode is decided by improvisation |
 | **4** | **`_RESIDUE_SEGMENTS`** — reconsider once §2 lands; much of its load disappears | small | It is a denylist against an open world and should not be the thing holding the predicate silent |
 | **5** | **H2** — build `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md` **only** if its revisit condition (§3a) is met | large | Smaller half; forgeable trusted input; plan preserved either way |

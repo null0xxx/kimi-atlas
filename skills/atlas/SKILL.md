@@ -649,6 +649,7 @@ echo "AVAIL_MB=${avail}"; [ "${avail:-0}" -lt 3072 ] && echo "LOW_MEM — wait/s
 PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
 import json, pathlib
 from scripts import ctxstore, runcheck, astlens, syntaxlens, quality, reqcoverage, pathcheck, check_artifact_naming, sast, lintlens
+from scripts import difftool
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
@@ -659,6 +660,22 @@ try:
     ctx = ctxstore.read_artifact(".atlas", run, "context.json")   # scout grounding digest (may be absent -> degraded)
 except Exception:
     ctx = {}
+
+# R1 -- THE WHOLE-TREE CHANGE LIST IS TAKEN BEFORE THE BUILD, NOT AFTER.
+# runcheck below executes verify_cmd, which writes into review_root: a rewritten
+# package-lock.json, committed codegen, any artefact the project does not gitignore.
+# Step 4+5 used to re-derive this list AFTER that, so everything the BUILD wrote was
+# attributed to the CODER and fired a blocking HIGH out-of-scope defect the coder cannot
+# resolve -- it did not create those files, and the fix text (correctly) forbids touching
+# files it did not author. Taking the list here is not a workaround but the right moment:
+# the coder finished at CODED, so its blast radius is complete and nothing it does can
+# change this list, while the build has not run yet. Same process as runcheck, so no
+# cross-block trust question is introduced -- and note _RESIDUE_SEGMENTS was only ever a
+# 14-entry denylist standing in for this ordering.
+_baseline = (st.get("baseline_sha") or "").strip()
+full_paths_pre_build = (difftool.change_paths(_baseline, review_root)
+                        if difftool.git_tree_has_baseline(review_root, _baseline) else [])
+ctxstore.write_artifact(".atlas", run, "full_paths.json", full_paths_pre_build)
 
 # Lens 5 DOES-IT-RUN -- fully deterministic, root Bash, mem-capped + hard timeout. cwd = review_root
 # so it exercises the coder's ACTUAL tree, not the untouched main checkout.
@@ -903,8 +920,18 @@ script_defects += floorsynth.dimension_dissent_defects(loaded_map)
 # deleting a pre-existing file.
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
 baseline = (st.get("baseline_sha") or "").strip()
-full_paths = difftool.change_paths(baseline, review_root) \
-    if difftool.git_tree_has_baseline(review_root, baseline) else []
+# R1: READ the list Step 2 took BEFORE the build; never re-derive it here. Re-deriving at
+# this point attributes every file the build wrote to the coder. If the artifact is absent
+# (an older run, or a crash between Step 2 and here) fall back to re-deriving -- that is
+# exactly today's behaviour, so the degraded path is never WORSE than before. It must never
+# fall back to [], which would silently disable the S3(a) control and open a false green.
+try:
+    _pre_build_paths = ctxstore.read_artifact(".atlas", run, "full_paths.json")
+except Exception:
+    _pre_build_paths = None
+full_paths = _pre_build_paths if _pre_build_paths is not None \
+    else (difftool.change_paths(baseline, review_root)
+          if difftool.git_tree_has_baseline(review_root, baseline) else [])
 script_defects += floorsynth.out_of_scope_defects(full_paths, st["scope_paths"])
 
 merged, schema_errors = floorsynth.merge_and_validate(critics, script_defects)
