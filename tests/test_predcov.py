@@ -1757,5 +1757,107 @@ class TestSecondMeasure(unittest.TestCase):
             self.assertIn(rng, text)
 
 
+class TestCommittedPredcovRecord(unittest.TestCase):
+    """S-1/S-9: the committed record must not silently disagree with the code.
+
+    `references/predcov.json` is written only by the human-invoked `make predcov-write`;
+    `make ci` runs the instrument WITHOUT `--json` and never compares. That gap shipped a
+    real defect: commit 8d2a1bc is titled "the second measure reaches the artifact and the
+    report", and the report half landed while the artifact half did not — the committed
+    file had no `second_measure` key at all, and no test could see it because every test
+    evaluated a fresh in-memory report.
+
+    This is the repo's existing `TestCommitted*` idiom (skills manifest, skill registry)
+    applied to the one generated artifact that lacked it. The record is byte-deterministic
+    across processes by construction, so this pin is exact rather than approximate, and the
+    remedy when it fails is one command: `make predcov-write`.
+    """
+
+    def setUp(self):
+        self.path = _ROOT / "references" / "predcov.json"
+        self.committed = json.loads(self.path.read_text(encoding="utf-8"))
+
+    def test_every_key_the_instrument_produces_is_present_in_the_record(self):
+        """The exact shape of the 8d2a1bc miss: a key exists live and not on disk."""
+        live = predcov.evaluate_corpus()
+        missing = sorted(set(live) - set(self.committed))
+        self.assertEqual(
+            missing, [],
+            "references/predcov.json is missing key(s) the instrument now emits: %s. "
+            "Run `make predcov-write`." % missing)
+
+    def test_the_committed_record_equals_a_live_evaluation(self):
+        """Compared in SERIALIZED form, which is the only form the record exists in.
+
+        The in-memory report carries tuples in places (a `dimension` is `(3,)`); the file
+        carries `[3]`, because JSON has no tuple. Comparing the live dict directly against
+        the parsed file therefore reports a difference that is pure round-tripping and
+        would make this pin fail forever regardless of staleness. Both sides go through
+        one round-trip so the comparison is of content, not of Python types.
+        """
+        live = json.loads(json.dumps(predcov.evaluate_corpus(), sort_keys=True))
+        self.assertEqual(
+            self.committed, live,
+            "references/predcov.json disagrees with a live evaluation of the committed "
+            "corpus. The record is deterministic, so this means it is stale. Run "
+            "`make predcov-write`.")
+
+    def test_the_record_carries_the_two_blocks_that_previously_went_missing(self):
+        self.assertIn("second_measure", self.committed)
+        self.assertEqual(len(self.committed["second_measure"]), 4,
+                         "one row per release interval")
+        self.assertIn("fire_provenance", self.committed)
+
+
+class TestFireProvenance(unittest.TestCase):
+    """S-2: the printed line says "honest corpus"; the numerator counts three arms.
+
+    Found by a blind judge. `out-of-scope`'s only counted fire is `dirty/changelog-50-57`,
+    whose paths and scope are hand-authored constants in `scripts/corpusbuild.py` — so one
+    of the two reported observations is an input its own author chose to make fire, and the
+    report never said so. The instrument's own CONTROLS_DIR rule forbids exactly that
+    reading. The NUMBER is deliberately not adjusted: the roadmap's prediction is evaluated
+    verbatim, and re-scoping it after seeing the result is the failure this phase exists to
+    prevent. What changes is that the reader is told.
+    """
+
+    def test_the_authored_fire_is_labelled_authored(self):
+        report = predcov.evaluate_corpus()
+        prov = report["fire_provenance"]
+        authored = [f for f in prov["fires"] if f["provenance"] == "AUTHORED"]
+        self.assertTrue(authored, "the dirty arm's fire must be labelled AUTHORED")
+        self.assertEqual([f["item"] for f in authored], ["dirty/changelog-50-57"])
+
+    def test_a_recorded_run_is_not_labelled_authored(self):
+        """The discriminating half — a classifier that labels everything AUTHORED is useless."""
+        prov = predcov.evaluate_corpus()["fire_provenance"]
+        recorded = [f for f in prov["fires"] if f["provenance"] == "recorded"]
+        self.assertTrue(recorded, "the honest arm's fire must be labelled recorded")
+        for entry in recorded:
+            self.assertTrue(entry["item"].startswith("honest/"))
+
+    def test_an_unknown_kind_is_never_folded_into_recorded(self):
+        """Absent is not 'recorded' — the same rule the corpus applies to unmeasured items."""
+        items = [{"id": "x/1", "kind": "something-new"}]
+        rows = {"out-of-scope": {"fires": ["x/1"]}}
+        prov = predcov.fire_provenance(items, rows)
+        self.assertEqual(prov["fires"][0]["provenance"], "unclassified")
+        self.assertEqual(prov["recorded"], 0)
+
+    def test_the_report_warns_when_a_counted_fire_is_authored(self):
+        text = predcov.render(predcov.evaluate_corpus())
+        self.assertIn("counted arms:", text)
+        self.assertIn("AUTHORED", text)
+        self.assertIn("depicting a defect, never as observing one", text)
+
+    def test_the_verbatim_prediction_and_its_number_are_unchanged(self):
+        """The fix must add truth, never move the goalposts."""
+        prediction = predcov.evaluate_corpus()["prediction"]
+        self.assertEqual(prediction["statement"],
+                         "at least 3 of the 10 predicates fire on the honest corpus")
+        self.assertEqual(prediction["observed"], 2)
+        self.assertEqual(prediction["verdict"], "FALSIFIED")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

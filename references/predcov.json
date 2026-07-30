@@ -164,6 +164,28 @@
     "source_sha256": "91e6ebbb251999e42b94ca8c801fbd7b91105f8bfa75c70d3b7de72bf7a76c6b"
   },
   "errors": [],
+  "fire_provenance": {
+    "authored": 1,
+    "by_class": {
+      "AUTHORED": 1,
+      "recorded": 1
+    },
+    "fires": [
+      {
+        "item": "dirty/changelog-50-57",
+        "kind": "documented-shape",
+        "provenance": "AUTHORED",
+        "stem": "out-of-scope"
+      },
+      {
+        "item": "honest/before-t3-a",
+        "kind": "recorded-run",
+        "provenance": "recorded",
+        "stem": "critic-stale"
+      }
+    ],
+    "recorded": 1
+  },
   "firing_rule": "at least one defect whose id STEM is this emitter's own AND whose severity is in rubric.BLOCKING; once per emitter per item, never once per defect",
   "items": [
     {
@@ -3330,5 +3352,47 @@
       ]
     }
   },
-  "schema": "predcov-report/1"
+  "schema": "predcov-report/1",
+  "second_measure": [
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 39130,
+      "injections": 1,
+      "injections_state": "inherited",
+      "predicate_delta": 6,
+      "predicates": 6,
+      "range": "v1.4.0..v1.5.0",
+      "whole_diff_bytes": 464501
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 32139,
+      "injections": 0,
+      "injections_state": "inherited",
+      "predicate_delta": 0,
+      "predicates": 6,
+      "range": "v1.5.0..v1.5.1",
+      "whole_diff_bytes": 191917
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 62667,
+      "injections": 7,
+      "injections_state": "inherited",
+      "predicate_delta": 4,
+      "predicates": 10,
+      "range": "v1.5.1..v1.5.2",
+      "whole_diff_bytes": 320618
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 45243,
+      "injections": null,
+      "injections_state": "unaudited",
+      "predicate_delta": 0,
+      "predicates": 10,
+      "range": "v1.5.2..v1.5.2.1",
+      "whole_diff_bytes": 273187
+    }
+  ]
 }

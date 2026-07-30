@@ -1753,6 +1753,7 @@ def evaluate_corpus(corpus_root: str = "tests/corpus") -> dict:
         "mechanisms": attribute_fires(items),
         "passthrough": passthrough_bucket(items),
         "prediction": _prediction(rows, derived, bool(errors)),
+        "fire_provenance": fire_provenance(items, rows),
         "second_measure": second_measure(items),
         "items": items,
         "errors": sorted(errors),
@@ -1826,6 +1827,55 @@ def _arm_blocks(items: list[dict]) -> dict:
             )
         blocks[arm] = block
     return blocks
+
+
+# How an item came to exist, keyed on the ``kind`` each corpus item already records.
+# S-2: the printed prediction says "on the honest corpus" while the numerator counts
+# three arms, and one of them is AUTHORED. The number is not changed for that -- the
+# roadmap's prediction is carried verbatim and re-scoping it after seeing the result is
+# the failure this instrument exists to prevent -- but the reader is now told which
+# observations are recorded and which the author constructed.
+_PROVENANCE_OF_KIND: dict[str, str] = {
+    "recorded-run": "recorded",       # a real atlas run; nobody chose what it would contain
+    "release-interval": "derived",    # computed from this repo's own git tags
+    "documented-shape": "AUTHORED",   # hand-written constants depicting a documented defect
+}
+
+
+def fire_provenance(items: list[dict], rows: dict) -> dict:
+    """Classify every counted fire by how its item came to exist.
+
+    Pure. The instrument's own ``CONTROLS_DIR`` rule forbids a control living inside the
+    corpus, because it would then be "measuring inputs its own author chose to make
+    fire". The ``dirty`` arm is a legitimate corpus item rather than a control, but it is
+    still authored, and a report that calls it part of "the honest corpus" without saying
+    so invites exactly the reading that rule guards against.
+
+    Returns ``{"by_class": {...}, "fires": [{stem, item, provenance, kind}], "authored": n}``.
+    An item whose ``kind`` is unknown is reported as ``"unclassified"`` and counted
+    separately -- never silently folded into ``recorded``.
+    """
+    kind_of = {item["id"]: item.get("kind") for item in items or []}
+    fires: list[dict] = []
+    for stem in EMITTERS:
+        row = rows.get(stem) or {}
+        for item_id in row.get("fires") or []:
+            kind = kind_of.get(item_id)
+            fires.append({
+                "stem": stem,
+                "item": item_id,
+                "kind": kind,
+                "provenance": _PROVENANCE_OF_KIND.get(kind, "unclassified"),
+            })
+    by_class: dict[str, int] = {}
+    for entry in fires:
+        by_class[entry["provenance"]] = by_class.get(entry["provenance"], 0) + 1
+    return {
+        "by_class": dict(sorted(by_class.items())),
+        "fires": fires,
+        "authored": by_class.get("AUTHORED", 0),
+        "recorded": by_class.get("recorded", 0),
+    }
 
 
 def _prediction(rows: dict, derived: list[str], degraded: bool) -> dict:
@@ -2245,6 +2295,21 @@ def render(report: dict) -> str:
                  % ", ".join(prediction.get("priors") or ["-"]))
     lines.append("observed_excluding_priors: %s"
                  % prediction.get("observed_excluding_priors", "-"))
+    prov = report.get("fire_provenance") or {}
+    if prov.get("fires"):
+        lines.append("counted arms: %s   (the statement above says \"honest corpus\"; "
+                     "these are the arms the numerator actually counts)"
+                     % ", ".join(prediction.get("counting_arms") or ["-"]))
+        lines.append("provenance of each counted fire: %s"
+                     % "  ".join("%s<-%s[%s]" % (f["stem"], f["item"], f["provenance"])
+                                 for f in prov["fires"]))
+        if prov.get("authored"):
+            lines.append(
+                "!! %d of %d counted fire(s) come from an AUTHORED item, not a recorded run. "
+                "The number above is NOT adjusted for this -- the roadmap's prediction is "
+                "evaluated verbatim -- but an authored fixture is an input its own author "
+                "chose to make fire, so read it as depicting a defect, never as observing one."
+                % (prov["authored"], len(prov["fires"])))
     lines.append("CEILING: %s" % prediction.get("ceiling", "-"))
     lines.append("SCOPE: %s" % prediction.get("scope", "-"))
     if report.get("errors"):
