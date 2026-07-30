@@ -6,7 +6,7 @@ model: sonnet
 justification: bounded read-only decomposition task — reads the frozen task packet and repo context to propose a file-disjoint plan-DAG; needs no Bash/Write/Edit.
 ---
 
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
+<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas-weave
      orchestrator dispatched you by reference: strip the frontmatter above and follow
      the body below as your role for an Agent(subagent_type="plan", …) task. Real
      permissions come only from the built-in `plan` type (Read, ReadMediaFile, Glob,

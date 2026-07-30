@@ -548,14 +548,22 @@ review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").stri
 # holds none of the coder's edits to tracked files -- yet stays NON-empty if it also created one
 # new file, so empty_diff_defect cannot see it, while runcheck still executes the modified tree.
 # Six lenses would review a diff containing none of the work and the run could print a green.
-# This adds NO new blocking predicate and NO new terminal: git_tree_has_baseline is already
-# computed downstream (Step 4+5) and this routes to the could-not-verify terminal that already
-# exists. The condition is deliberately narrow -- SKILL.md:200 records baseline_sha as "" when
-# the target is not a repo, so a non-repo and a repo with no baseline are both SILENT; only a
-# RECORDED baseline that fails to resolve fires. Probed against all five cases before shipping.
+# This adds NO new blocking predicate and NO new terminal.
+# THE CONDITION HAS THREE CLAUSES AND ALL THREE ARE LOAD-BEARING. capture degrades ONLY on the
+# git branch: on a NON-git review_root it walks the scope and renders every file as a full
+# new-file diff, i.e. COMPLETE evidence. But git_tree_has_baseline returns False on
+# `not _is_git_repo(cwd)` ALONE, so a two-clause guard fires on the SKILL's own documented
+# ":441 Not a git repo / throwaway task" lane -- a git TARGET (non-empty baseline_sha, recorded
+# at :200 from the session cwd) with a NON-git sandbox review_root. Both round-2 judges caught
+# that: the two-clause version manufactured a RED on a run whose evidence was whole, which this
+# project ranks as WORSE than the bug it closes. `_is_git_repo` is a private pure predicate and
+# is used deliberately -- adding a public alias to a runtime module mid-fix is more change for
+# the same answer. No path is echoed: the marker is a FIXED literal, because state.json sits in
+# the coder's writable root in the interactive lane and this line is read by the root.
 _baseline = (st.get("baseline_sha") or "").strip()
-if _baseline and not difftool.git_tree_has_baseline(review_root, _baseline):
-    print("BASELINE_UNRESOLVABLE=" + _baseline)
+if (_baseline and difftool._is_git_repo(review_root)
+        and not difftool.git_tree_has_baseline(review_root, _baseline)):
+    print("BASELINE_UNRESOLVABLE")
     raise SystemExit(3)
 # scope_paths are relative to review_root; baseline_sha resolves inside a worktree
 # because it shares the parent repo's object DB.
@@ -591,18 +599,31 @@ print("DIFF_BYTES=%d CHANGED=%d TESTS=%d" % (len(diff), len(changed_files), len(
 PY
 ```
 
-> **If that block printed `BASELINE_UNRESOLVABLE=<sha>` (exit 3), STOP VERIFIED HERE.** A baseline
-> was recorded but does not resolve in `review_root`, so **no diff taken against it can be trusted
-> to be complete** — `difftool.capture` degrades silently, and a diff that is merely non-empty is
-> not evidence that it is whole. Do **not** run the lenses on it; a lens that reviews an incomplete
-> diff and finds nothing produces a green that cannot be substantiated, which is the one outcome
-> THE ONE GUARANTEE forbids. Go straight to **OUTPUT**:
-> `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", budget_exhausted=True)`
-> and print `⚠️ UNVERIFIED`, telling the human plainly that the recorded baseline no longer resolves
-> (a deleted branch or pruned worktree is the ordinary cause) and that **re-running against a
-> resolvable baseline is the whole remedy**. This is the **existing** could-not-verify terminal
-> (§Completion Invariant, `budget_exhausted`) — it is not a new defect id, not a new gate condition,
-> and it never appears in `merged_critic.json`.
+> **If that block printed `BASELINE_UNRESOLVABLE` (exit 3), STOP VERIFIED HERE.** The review_root
+> **is** a git tree and a baseline **was** recorded, but it does not resolve there — so **no diff
+> taken against it can be trusted to be complete**. `difftool.capture` degrades silently on that
+> branch, and a diff that is merely non-empty is not evidence that it is whole. Do **not** run the
+> lenses on it; a lens that reviews an incomplete diff and finds nothing produces a green that
+> cannot be substantiated, which is the one outcome THE ONE GUARANTEE forbids.
+>
+> Record the **sanctioned early exit** and go straight to **OUTPUT**:
+> `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", cancelled=True)`
+> — then print `⚠️ UNVERIFIED` **directly**. Do **not** run the OUTPUT marshalling block: this run
+> aborted before Step 4+5, so `merged_critic.json` does not exist and reading it would raise.
+> Tell the human that the recorded baseline no longer resolves in the reviewed tree (a deleted
+> branch or a pruned worktree is the ordinary cause) and that **re-running against a resolvable
+> baseline is the whole remedy**.
+>
+> **`cancelled=True` is required and is not decoration.** It is the existing marker that sanctions a
+> jump past `CODED`/`VERIFIED` — `floorsynth.stale_verdict_defects` returns `[]` early on a ledger
+> whose last record carries it (`scripts/floorsynth.py:550-551`), and the pre-CODE Cancel route at
+> `:427-430` uses it for the same reason. **A round-2 judge found the first version of this route
+> omitted it**, which made the ledger edge `CODED → OUTPUT` — illegal under `fsm.legal_transition`
+> — and emitted a blocking CRITICAL `stale-verdict` into `merged_critic.json`, the exact opposite of
+> what this paragraph promised. Verified: without the marker `stale_verdict_defects` returns 1
+> CRITICAL; with it, 0. `budget_exhausted` is deliberately **not** passed: it is log-only telemetry
+> at `advance`, and OUTPUT derives the real flag from the ledger, so setting it here would mislead
+> without doing anything. No new defect id, no new gate condition, nothing in `merged_critic.json`.
 
 **Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`** (mem-guarded before `runcheck`). Collect
 their defects into `det_evidence.json` — the evidence the judgment critics also receive:
