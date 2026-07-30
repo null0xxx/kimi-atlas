@@ -25,7 +25,7 @@ added a blocking predicate injected a defect, and the SKILL already owns a could
 terminal (``skills/atlas/SKILL.md:188-189`` — ``budget_exhausted`` ⇒ ⚠️ UNVERIFIED, never a green).
 
 The information is *already computed*: ``difftool.git_tree_has_baseline`` is already called at
-``skills/atlas/SKILL.md:891``, but only to gate ``out_of_scope_defects`` — far downstream of the
+``skills/atlas/SKILL.md:907``, but only to gate ``out_of_scope_defects`` — far downstream of the
 capture whose evidence it actually governs. The fix consults the check the program already has,
 at the point where the evidence is taken.
 """
@@ -160,14 +160,27 @@ class TestSkillGatesCaptureOnBaselineResolvability(unittest.TestCase):
                 continue
             expr, depth = "", 0
             for offset, cont in enumerate(lines[n - 1:n + 5]):
-                expr += " " + cont.strip()
-                depth += cont.count("(") - cont.count(")")
+                # Strip a trailing comment before accumulating. A judge showed the earlier
+                # version could not terminate on a guard whose last line carried one — it kept
+                # swallowing lines, found no `:`, and failed a CORRECT guard. That is a
+                # manufactured RED inside the very pin written to prevent one.
+                code = cont.split("#", 1)[0] if not cont.strip().startswith("#") else ""
+                expr += " " + code.strip()
+                depth += code.count("(") - code.count(")")
                 if expr.rstrip().endswith(":") and depth <= 0:
                     body = "\n".join(lines[n + offset:n + offset + 4])
                     if "git_tree_has_baseline" in expr and "SystemExit" in body:
                         expr = expr.strip()[len("if "):].rstrip().rstrip(":").strip()
+                        # Balance-checked unwrap: `(a) and (b)` must NOT become `a) and (b`.
+                        # Only strip when the leading "(" is the one closed by the final ")".
                         if expr.startswith("(") and expr.endswith(")"):
-                            expr = expr[1:-1]
+                            level = 0
+                            for i, ch in enumerate(expr):
+                                level += (ch == "(") - (ch == ")")
+                                if level == 0:
+                                    if i == len(expr) - 1:
+                                        expr = expr[1:-1]
+                                    break
                         return n, expr
                     break
         self.fail(

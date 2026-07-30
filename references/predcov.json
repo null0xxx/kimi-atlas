@@ -161,7 +161,7 @@
     "n": 10,
     "rule": "one top-level def emitting a dict with \"id\" + a CONSTANT \"severity\" in rubric.BLOCKING",
     "source": "scripts/floorsynth.py",
-    "source_sha256": "91e6ebbb251999e42b94ca8c801fbd7b91105f8bfa75c70d3b7de72bf7a76c6b"
+    "source_sha256": "d557d0f43939f0c23262d33f59a0b288ae85ced0ae9e8fe1e996d9118d403242"
   },
   "errors": [],
   "fire_provenance": {

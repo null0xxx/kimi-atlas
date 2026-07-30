@@ -1,5 +1,5 @@
 {
-  "branch_line": 628,
+  "branch_line": 637,
   "branch_source": "if schema_errors:",
   "derivation": "enforce_critic_schema rejects any defect category outside rubric.DIMENSIONS. The two arms differ in that one field alone: both return a 2-tuple, both are truthy, and both merge exactly one defect, so every rule that reads the RETURN VALUE rather than schema_errors scores them the same -- which is how this emitter lands in the numerator on every item in the corpus.",
   "emitter": "critic-schema",

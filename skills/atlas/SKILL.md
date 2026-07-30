@@ -606,13 +606,28 @@ PY
 > lenses on it; a lens that reviews an incomplete diff and finds nothing produces a green that
 > cannot be substantiated, which is the one outcome THE ONE GUARANTEE forbids.
 >
-> Record the **sanctioned early exit** and go straight to **OUTPUT**:
+> Record the **sanctioned early exit** and go to **OUTPUT**:
 > `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", cancelled=True)`
-> — then print `⚠️ UNVERIFIED` **directly**. Do **not** run the OUTPUT marshalling block: this run
-> aborted before Step 4+5, so `merged_critic.json` does not exist and reading it would raise.
-> Tell the human that the recorded baseline no longer resolves in the reviewed tree (a deleted
-> branch or a pruned worktree is the ordinary cause) and that **re-running against a resolvable
-> baseline is the whole remedy**.
+>
+> **Do not marshal a verdict from `merged_critic.json`.** On a first pass it does not exist; on a
+> REFINE pass it *does* — written by pass 1 — and it describes a **different tree**, so reading it
+> would present stale judgment as this run's. Status is `⚠️ UNVERIFIED` by construction here; there
+> is nothing to compute. *(An earlier draft of this paragraph justified the skip by claiming the
+> artifact "does not exist"; a judge showed that is false on any refine pass. The reason is
+> staleness, not absence.)*
+>
+> **Everything the human is owed still happens.** Present the labelled **STOP block** with the
+> `⚠️ UNVERIFIED` header, and state plainly that the recorded baseline no longer resolves in the
+> reviewed tree (a deleted branch or a pruned worktree is the ordinary cause) and that **re-running
+> against a resolvable baseline is the whole remedy**. **In the interactive lane the coder has
+> already written the user's real tree** (`review_root = "."`, and CODED completed before this
+> block), so the residual change is live on disk: **call the `AskUserQuestion` gate — Apply /
+> Refine further / Discard — exactly as OUTPUT does**, and never merge or reset without an explicit
+> answer. Headless has nothing to gate; its work is confined to the isolated worktree or sandbox.
+> *(Both round-3 judges found the earlier draft skipped this gate and left an interactive user with
+> a modified tree, a bare status line and no sanctioned choice. The pre-CODE Cancel route it cited
+> as precedent is safe to shortcut only because that route has **no code change**; this one runs
+> after CODED.)*
 >
 > **`cancelled=True` is required and is not decoration.** It is the existing marker that sanctions a
 > jump past `CODED`/`VERIFIED` — `floorsynth.stale_verdict_defects` returns `[]` early on a ledger
