@@ -2143,9 +2143,19 @@ def second_measure(items: list[dict]) -> list[dict]:
         item_dir = (item or {}).get("dir")
         if not rng or not item_dir:
             continue
+        # C-3: item["dir"] is stored REPO-RELATIVE (evaluate_corpus), so it must be
+        # re-anchored to _ROOT and never resolved against the process cwd. Resolved
+        # against the cwd, every interval degraded to "unmeasured" when the module was
+        # run from anywhere but the repository root -- a different report from the same
+        # corpus and the same code, which breaks this module's own stated byte-determinism
+        # and is the exact discipline discover_emitters already applies ("the denominator
+        # must not depend on where the reader stood"). make/unittest always run from the
+        # root, so no test could see it.
+        item_path = pathlib.Path(item_dir)
+        if not item_path.is_absolute():
+            item_path = _ROOT / item_path
         try:
-            raw = json.loads(
-                (pathlib.Path(item_dir) / "item.json").read_text(encoding="utf-8"))
+            raw = json.loads((item_path / "item.json").read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             continue
         measure = raw.get("second_measure")

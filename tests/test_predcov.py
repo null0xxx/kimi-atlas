@@ -55,6 +55,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -1714,6 +1715,36 @@ class TestSecondMeasure(unittest.TestCase):
             self.assertIsInstance(row["code_diff_bytes"], int)
             self.assertGreater(row["code_diff_bytes"], 0)
             self.assertGreater(row["whole_diff_bytes"], row["code_diff_bytes"])
+
+    def test_the_bytes_are_the_same_from_any_working_directory(self):
+        """C-3: the report must not depend on where the reader stood.
+
+        `item["dir"]` is stored repo-relative; resolving it against the process cwd made
+        every interval read `unmeasured` from anywhere but the repository root. No existing
+        test could see it because `make test` always runs from the root — so this one
+        deliberately does not, and it runs the module in a SUBPROCESS so the cwd is real
+        rather than simulated.
+        """
+        script = (
+            "import json,sys;"
+            "sys.path.insert(0, %r);"
+            "from scripts import predcov;"
+            "r=predcov.evaluate_corpus();"
+            "print(json.dumps(r['second_measure'], sort_keys=True))" % str(_ROOT)
+        )
+        with tempfile.TemporaryDirectory() as elsewhere:
+            from_root = subprocess.run(
+                [sys.executable, "-c", script], cwd=str(_ROOT),
+                capture_output=True, text=True, check=True).stdout
+            from_elsewhere = subprocess.run(
+                [sys.executable, "-c", script], cwd=elsewhere,
+                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(
+            from_root, from_elsewhere,
+            "second_measure differs by working directory; item['dir'] must be re-anchored "
+            "to the repository root, never resolved against the process cwd")
+        self.assertIn('"bytes_state": "measured"', from_elsewhere,
+                      "and it must actually measure, not degrade to unmeasured everywhere")
 
     def test_an_unreadable_interval_is_unmeasured_never_zero(self):
         """Absent is not 0 — a zero would rank as the smallest diff and skew the reading."""

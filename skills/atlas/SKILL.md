@@ -716,7 +716,8 @@ PY
      floor is fail-open), say so explicitly so the critic knows the deterministic floor caught
      nothing and this lens rests on its own reading. Either way the SECURITY critic **still runs** —
      SAST augments the judgment eye, it never replaces it.
-3. Call `Agent(subagent_type="plan", prompt=<role body + packet>[, temperature=<distinct>])`. **Per
+3. Call `Agent(subagent_type="plan", prompt=<role reference + packet>[, temperature=<distinct>])`
+   — the reference from step 1, never a body: you do not open the role file (§2). **Per
    V5, set a DISTINCT temperature per lens if the `Agent` tool exposes one** (suggested: correctness
    `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
    already baked into each role file carries the diversity.**

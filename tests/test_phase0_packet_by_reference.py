@@ -32,10 +32,18 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SKILL = _ROOT / "skills" / "atlas" / "SKILL.md"
 _PLUGIN_JSON = _ROOT / ".kimi-plugin" / "plugin.json"
 
-# The role-side verb the ROOT must no longer be told to perform. "prepend" is the
-# operative word in both sites' current text; its absence is necessary but not
-# sufficient, which is why every prose test below also pins what replaced it.
-_ROOT_SIDE_PREPEND = re.compile(r"prepend", re.IGNORECASE)
+# Every way the root can be told to carry a role BODY, not just the one word.
+#
+# The first version of this pin matched only "prepend". A blind adversarial review found
+# `skills/atlas/SKILL.md:719` — `prompt=<role body + packet>` — which reinstates exactly the
+# behaviour Phase 0 removed, three lines below the step that says the root must not read the
+# file, and this pin was green the whole time because that line does not contain the word.
+# A pin that keys on one VERB cannot see a paraphrase; this one also matches a dispatch
+# whose PROMPT is constructed from a body. It is deliberately NOT a bare search for the
+# phrase "role body": the contract text legitimately contains that phrase in order to
+# FORBID it ("never paste a role body into a prompt"), and a pin that cannot tell a
+# prohibition from an instruction fires on the very sentence that fixes the defect.
+_ROOT_SIDE_PREPEND = re.compile(r"prepend|prompt\s*=\s*<[^>]*\bbody\b", re.IGNORECASE)
 
 # The passage that replaces it is addressed to the subagent. Both markers are
 # required: the possessive names whose role it is, and "first act" pins that the read
@@ -201,14 +209,22 @@ class TestEveryLiveContractStatement(unittest.TestCase):
     stated, so nobody has to guess whether the omission was intentional.
     """
 
-    LIVE_DOCS = (
-        "AGENTS.md",
-        "README.md",
-        "references/orchestration.md",
-        "references/architecture.md",
-        "references/system-map.md",
-        "references/system-graph.json",
-    )
+    # Derived, not hand-maintained. The first version of this was a hand-written tuple and it
+    # OMITTED skills/atlas-weave/SKILL.md, which is how C-2 shipped: the two weave-only role
+    # files were rewritten to claim by-reference dispatch while weave's own program still said
+    # prepend. A list someone must remember to extend is a list that will be short.
+    # references/kimi-runtime.md is held to a SHARPER rule by its own test below, not a weaker
+    # one: it must KEEP the verified fact that the blessed apex plugin prepends, while proving
+    # every such sentence attributes it to apex and never to atlas. A blunt "contains no
+    # prepend" check would delete a true runtime fact, so it is excluded here by name.
+    _SHARPER_RULE_ELSEWHERE = frozenset({"references/kimi-runtime.md"})
+
+    LIVE_DOCS = tuple(sorted(
+        ({"AGENTS.md", "README.md", "references/system-graph.json"}
+         | {str(p.relative_to(_ROOT)) for p in (_ROOT / "references").glob("*.md")}
+         | {str(p.relative_to(_ROOT)) for p in _ROOT.glob("skills/atlas*/SKILL.md")})
+        - _SHARPER_RULE_ELSEWHERE
+    ))
 
     def test_no_role_file_claims_the_orchestrator_prepends_it(self):
         """The runtime site: the subagent reads this file as its first act."""
