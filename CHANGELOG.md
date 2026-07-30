@@ -4,6 +4,105 @@ All notable changes to **kimi-atlas** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] — 2026-07-30
+
+**A live false GREEN is closed, and two headline claims this project made about itself are
+WITHDRAWN because measurement refuted them.** This release ships more retractions than features, and
+that is the point: every number below was executed, and the ones that did not survive are struck out
+rather than defended.
+
+### The defect that mattered — a green over unreviewed work
+
+- **An unresolvable `baseline_sha` could ship a substantiated-looking green.** No attacker required:
+  a deleted branch or a pruned worktree is enough. `difftool.capture` never raises and degrades
+  silently — every `_tracked_at` probe fails, so the whole tracked-modification channel is dropped
+  and `diff.patch` contains **none of the coder's edits to tracked files**. It is not empty, though,
+  if the coder also created one new file, so `floorsynth.empty_diff_defect` stays silent;
+  `git_tree_has_baseline` returns False at the same moment, so `out_of_scope_defects` is fed `[]` and
+  the S3(a) control switches off too — while `runcheck` still executes the modified tree. Six lenses
+  then review a diff holding none of the work. Measured end to end: an honest baseline yields a 321 B
+  diff containing the edit; an unresolvable one yields 146 B containing none of it.
+  **This violates THE ONE GUARANTEE and was PRE-EXISTING — recorded nowhere until now.**
+
+  The fix **uses information the program already had**: `git_tree_has_baseline` was already computed
+  at Step 4+5, purely to gate `out_of_scope_defects`, far downstream of the capture whose evidence it
+  governs. It is now consulted where the evidence is taken. **No new blocking predicate, no new gate
+  condition, no new terminal, no new function, and `scripts/verdict.py` untouched** (blob `57062e71`,
+  byte-identical across six releases). An unresolvable baseline routes to the could-not-verify
+  terminal that already exists and never reaches `merged_critic.json`.
+
+  The guard's condition is **narrow on purpose and was probed before shipping**:
+  `git_tree_has_baseline` returns False for *four* different situations, and a two-clause version
+  aborted the documented non-git sandbox lane — where `capture` produces **complete** evidence. That
+  first version manufactured a RED on honest work, which this project ranks as worse than the bug it
+  closes. Three clauses; all four honest shapes silent; only a recorded-but-unresolvable baseline on
+  a git tree fires.
+
+### Two claims withdrawn
+
+- ~~**Phase 0 — packet by reference, −14.3% cost-weighted.**~~ **FALSIFIED.** Built, run 12× across
+  three dogfood targets with same-plugin control pairs, **measured +4.0%** on the tightest-controlled
+  target. The dispatch change itself ships and works (12/12 runs `rc=0`, no run degraded, every role
+  resolved by reference) — it simply does not buy what it was built to buy, and it costs turns
+  (+17.3%). **The whole resident-bytes cost lever is withdrawn with it:** 95.17% of all input is
+  cache-read and `inputCacheCreation` is identically 0, so removing resident bytes removes the
+  *cheapest* token class while adding full-price inferences. The roadmap's *"−24% to −29%
+  defensible"* is retracted. **Never quote a cost percentage without naming its currency** — the flat
+  token sum is volume, not cost.
+
+- ~~**The blocking-predicate diagnosis.**~~ **FALSIFIED by its own committed test.** Phase 1 ships as
+  `scripts/predcov.py` — a **report-only** instrument that adds no blocking predicate, always exits
+  0, and changes no verdict — plus `tests/corpus/` (17 items, four arms) and `scripts/corpusbuild.py`.
+  Its prediction was *"at least 3 of the 10 predicates fire on the honest corpus"*; **observed 2, and
+  both fires were declared as priors before the corpus existed, so nothing new fired.** The second,
+  independent measure points the other way: code diff **bytes** rank-order the injections exactly
+  (32,139→0 < 39,130→1 < 62,667→7) while predicate delta is **anti**-ranked (+6→1, +4→7). Phases 2–5
+  of the roadmap lose their premise.
+
+### Judgment Day — 21 findings, and what they caught in the fixes
+
+Reviewed by two blind judges over three rounds (initial plus the two permitted scoped
+re-judgments). **Terminal state: APPROVED** — both final judges returned zero CRITICAL and zero
+BLOCKER. The re-judgments earned their place: **they found three real defects in the fixes above**,
+each of which is also closed here.
+
+- **A pin passed on its own prose three times in one file.** First a guard pin matched the
+  explanatory *comment* containing `git_tree_has_baseline`, so deleting the entire executable guard
+  survived. Then a terminal pin matched the paragraph *explaining why* a marker is required, while
+  the marker was deleted from the actual call. **The rule this release adopts: pin the call site, or
+  pin nothing.** The strongest pin here now *executes* the SKILL's extracted condition against five
+  shapes rather than pattern-matching it.
+- **The abort route abandoned the interactive human gate.** It fires after `CODED`, and the
+  interactive lane writes the user's real tree — so the STOP block and the Apply / Refine / Discard
+  choice now happen on that path exactly as they do at OUTPUT.
+- **`cancelled=True` now has two producers**, and both runtime docstrings said otherwise.
+
+### Also in this release
+
+- **`skills/atlas-weave/SKILL.md` dispatches by reference too.** Two weave-only role files had been
+  rewritten to tell their reader they arrived by reference while weave still pasted them in — the
+  role file stated a falsehood and the root copied it verbatim. One contract now, not two.
+- **Regression pins strengthened where they had failed silently.** The by-reference pin keyed on the
+  single verb `prepend` and missed `prompt=<role body + packet>`; `LIVE_DOCS` was a hand-written
+  tuple that omitted `skills/atlas-weave/SKILL.md` and is now derived (6 → 14 documents);
+  `references/predcov.json` is compared against a live evaluation by the repo's existing
+  `TestCommitted*` idiom, after the artifact half of a commit titled *"reaches the artifact and the
+  report"* silently failed to land.
+- **The instrument tells the truth about its own numerator.** The printed line said *"honest
+  corpus"* while the count included an authored fixture; the number is unchanged and the provenance
+  of every counted fire is now printed.
+
+### Open, and named rather than implied
+
+**H2** (pre-existing user dirt fires `out_of_scope_defects`) is **designed but deferred** — a
+1,276-line six-lens-challenged plan is in the repo, with its revisit condition. **R1** (the
+verification run's own build output fires the same lens) is real but **narrower than this project
+first claimed**: `--exclude-standard` honours `.gitignore`, so re-measured end to end it is 2
+defects, not 7. **No ordering between H2 and R1 is claimed** — the ranking rested on the withdrawn
+figure. **S3**: the run mode is undefined (`dirty` appears 0 times in the SKILL; the pre-CODE gate
+never consults tree state). Audit items S1/S2/S6/S8/S11/S12/S13 and S15–S17 remain open.
+Full record: [`docs/superpowers/plans/2026-07-27-honest-red-workstream.md`](docs/superpowers/plans/2026-07-27-honest-red-workstream.md).
+
 ## [1.5.2.1] — 2026-07-26
 
 **Seven defects were live in the shipped v1.5.2, one CRITICAL. Three of the seven were introduced by
