@@ -134,7 +134,7 @@ settled for another reason and the marginal cost drops.
 
 ---
 
-## 4. S3 — the run mode is UNDEFINED, and this may outrank both
+## 4. S3 — the run mode is UNDEFINED. **CLOSED 2026-07-30 by inverting the question.**
 
 **Measured:** the word `dirty` appears **0 times** in `skills/atlas/SKILL.md`. There is no
 `git status` anywhere in the PRE-CODE gate. **The gate never consults tree state at all**, and the
@@ -186,7 +186,7 @@ absent, unreadable, stale or mismatched record must fall back to current behavio
 |---|---|---|---|
 | ~~1~~ | ~~**Settle §5**~~ **MOOT for R1** — the Step-2 block runs `change_paths` and `runcheck` in ONE process, so the list never crosses a trust boundary. Still open for H2, which needs pre-CODER state | small, design | Was thought to block both; blocks only H2 |
 | ~~2~~ | ~~**R1** — derive the changed-path list **before** `runcheck`~~ **DONE** — taken in the Step-2 block, before the build, in the SAME process, so §5's storage question never arose | small | Cheapest remedy of the three, shares item 1's decision, and removes most of the denylist's load. **Not** ranked first on frequency — see the §0 amendment |
-| **3** | **S3** — name the auto-permission mode in `skills/atlas/SKILL.md` and make the mode deterministic | small–medium | Independent of both; today the run mode is decided by improvisation |
+| ~~3~~ | ~~**S3**~~ **DONE** — not by naming a mode (a judge showed no such mode exists) but by replacing the inference *"is a human present?"* with the fact *"did a human answer?"*. `review_root = "."` now requires a recorded approval; absence isolates | small–medium | Independent of both |
 | **4** | **`_RESIDUE_SEGMENTS`** — reconsider once §2 lands; much of its load disappears | small | It is a denylist against an open world and should not be the thing holding the predicate silent |
 | **5** | **H2** — build `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md` **only** if its revisit condition (§3a) is met | large | Smaller half; forgeable trusted input; plan preserved either way |
 

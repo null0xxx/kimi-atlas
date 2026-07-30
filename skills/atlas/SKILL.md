@@ -420,17 +420,48 @@ PY
 > both `difftool.capture` and `runcheck.run`) all read the one value:
 > `ctxstore.write_artifact(".atlas","${KIMI_SESSION_ID}","review_root", "<root>")`.
 
-Then branch on the run mode:
-- **Interactive (a human is present):** present the plan preview and call **one**
+**S3 — WHICH BRANCH YOU TAKE IS EVIDENCE, NEVER A JUDGEMENT.** The two arms below used to be
+selected by asking yourself whether "a human is present". Nothing in this program can establish
+that: `isatty()` is **False for every tool-launched subprocess** (measured — stdin *and* stdout),
+no run mode is named anywhere in the plugin, and the choice was never recorded, so it could not
+even be audited afterwards. Measured on twelve real runs: four took `review_root = "."`, and in
+one the orchestrator reasoned its way to an isolated worktree and then reversed to `"."` three
+paragraphs later, inside a single run. **That is a SAFE-1 breach waiting to happen** — a session
+with no human that judges itself "interactive" hands the coder the user's real tree unattended,
+which the Headless arm below explicitly forbids.
+
+**So the question is inverted, and it is the only formulation this program can actually answer.**
+Do not ask *"is a human present?"* — that is an inference. Ask *"did a human answer?"* — that is a
+fact, and one this run either holds or does not:
+
+> **`review_root = "."` REQUIRES a recorded human approval, and nothing else grants it.** The
+> Interactive arm's `AskUserQuestion` returning *Approve* IS the evidence, and it must be recorded
+> before the coder is dispatched:
+> `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","TRIAGED", human_approved=True)` (or carry it on
+> whichever advance you are already making — it is a ledger fact, not a new stage).
+> **DEFAULT: no such record ⇒ take the Headless arm and isolate.** Isolation is always safe;
+> writing a real tree unattended never is. If you cannot ask — the ask fails, times out, or the
+> session has no channel for it — that is not an ambiguity to resolve by judgement, it is simply
+> the absence of the evidence, and the default already covers it.
+
+This adds **no new stage, no new blocking predicate, and no new terminal** — one ledger field, and
+a default that fails toward the safe side. The human still sees everything at the OUTPUT gate
+either way; the only thing that changes is that an unattended run can no longer write the tree it
+was never authorised to touch.
+
+Then branch:
+- **Interactive (a human answered):** present the plan preview and call **one**
   `AskUserQuestion` — Approve / Adjust scope / Cancel. On *Adjust*, revise the plan (still pre-CODE)
   and re-present once. On *Cancel*, record the sanctioned jump —
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", cancelled=True)` —
   and go straight to **OUTPUT** with status `⚠️ UNVERIFIED` and no code change (no final-status
   recompute: the `cancelled=True` marker sanctions the machine jump past CODED/VERIFIED, and the
   stage-order fold skips a ledger that carries it). This `AskUserQuestion` is a **sanctioned
-  pause** (Completion Invariant gate 2). The
-  coder edits the real tree directly, so **`review_root = "."`**.
-- **Headless (`-p`, no human):** you **cannot** ask, so you **must isolate**. Never apply to the
+  pause** (Completion Invariant gate 2). **On *Approve*, record `human_approved=True` FIRST** —
+  that record is what authorises the next line, and without it this arm is not available:
+  the coder edits the real tree directly, so **`review_root = "."`**.
+- **Headless (no recorded human approval) — THE DEFAULT:** you have no evidence anyone is there,
+  so you **must isolate**. Never apply to the
   user's working tree or default branch. Confine the coder:
   - **Target is a git repo:** create an isolated worktree/branch off `baseline_sha` and give the
     coder that path as its only writable root —
