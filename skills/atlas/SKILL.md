@@ -669,13 +669,26 @@ except Exception:
 # resolve -- it did not create those files, and the fix text (correctly) forbids touching
 # files it did not author. Taking the list here is not a workaround but the right moment:
 # the coder finished at CODED, so its blast radius is complete and nothing it does can
-# change this list, while the build has not run yet. Same process as runcheck, so no
-# cross-block trust question is introduced -- and note _RESIDUE_SEGMENTS was only ever a
-# 14-entry denylist standing in for this ordering.
+# change this list, while the build has not run yet -- and note _RESIDUE_SEGMENTS was only
+# ever a 14-entry denylist standing in for this ordering.
+#
+# THE TRUST BOUNDARY IS REAL, and an earlier draft of this comment denied it. The capture
+# below shares a process with runcheck, but the CONSUMER is a different heredoc (Step 4+5),
+# reached only AFTER runcheck has executed the target's own build in review_root. So these
+# bytes -- a list of target-controlled filenames -- do cross from before-target-code to
+# after-target-code, and in interactive mode .atlas/ sits inside the coder's writable root.
+# Hence write_artifact_confined (O_NOFOLLOW, no symlinked component, no traversal) and a
+# baseline stamp the consumer must match. On ANY confinement failure we write nothing at
+# all: Step 4+5 then re-derives, which is exactly today's behaviour, so the degraded path is
+# never worse than before -- and this block never aborts a run over it.
 _baseline = (st.get("baseline_sha") or "").strip()
 full_paths_pre_build = (difftool.change_paths(_baseline, review_root)
                         if difftool.git_tree_has_baseline(review_root, _baseline) else [])
-ctxstore.write_artifact(".atlas", run, "full_paths.json", full_paths_pre_build)
+try:
+    ctxstore.write_artifact_confined(".atlas", run, "full_paths.json",
+                                     {"baseline": _baseline, "paths": full_paths_pre_build})
+except Exception as _e:
+    print("R1_CAPTURE_UNCONFINED: %s -- Step 4+5 will re-derive" % _e)
 
 # Lens 5 DOES-IT-RUN -- fully deterministic, root Bash, mem-capped + hard timeout. cwd = review_root
 # so it exercises the coder's ACTUAL tree, not the untouched main checkout.
@@ -925,10 +938,23 @@ baseline = (st.get("baseline_sha") or "").strip()
 # (an older run, or a crash between Step 2 and here) fall back to re-deriving -- that is
 # exactly today's behaviour, so the degraded path is never WORSE than before. It must never
 # fall back to [], which would silently disable the S3(a) control and open a false green.
+#
+# THE STAMP IS THE LOAD-BEARING PART. These bytes were written before the target's build ran
+# and are read after it. A stale artifact lists FEWER paths than reality, so consuming one
+# would make out_of_scope_defects MISS a real out-of-scope change -- a FALSE GREEN, the one
+# direction this project never accepts. So the artifact is honoured only when it is the
+# expected shape AND its baseline is the baseline this fold is judging; anything else
+# re-derives.
 try:
-    _pre_build_paths = ctxstore.read_artifact(".atlas", run, "full_paths.json")
+    _art = ctxstore.read_artifact(".atlas", run, "full_paths.json")
 except Exception:
-    _pre_build_paths = None
+    _art = None
+_pre_build_paths = None
+if isinstance(_art, dict) and isinstance(_art.get("paths"), list) \
+        and (_art.get("baseline") or "") == baseline:
+    _pre_build_paths = _art["paths"]
+elif _art is not None:
+    print("R1_STAMP_REJECTED: artifact does not match baseline %r -- re-deriving" % baseline)
 full_paths = _pre_build_paths if _pre_build_paths is not None \
     else (difftool.change_paths(baseline, review_root)
           if difftool.git_tree_has_baseline(review_root, baseline) else [])

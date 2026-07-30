@@ -5,9 +5,21 @@
 > `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md`, which remains valid as a *design* for
 > one half of the problem but was written before the measurements in §2 and §3 existed.
 
-**State at writing (2026-07-27; corrected 2026-07-30):** branch `feat/phase0-packet-by-reference` · `make ci`
-EXIT 0. Nothing in this document is built. §2 was corrected after a dual blind review; see the
-amendments dated 2026-07-30.
+**State (2026-07-27; corrected twice on 2026-07-30):** branch `fix/v154-judgment-round1` · `make ci`
+EXIT 0.
+
+**Build status — read this before trusting any section below.** Three fixes were built as the
+v1.5.4 candidate and put through two blind judges on an immutable target. The judgment was
+**ESCALATED**, and the disposition is:
+
+| | |
+|---|---|
+| **R1** (§2) | **BUILT and KEPT.** The ordering is right. Its `CLOSED` claim is retracted — see the correction at the head of §2. |
+| **S3** (§4) | **BUILT, then REVERTED.** The mechanism recorded the human's approval with an out-of-order `advance(…,"TRIAGED",…)`, producing two illegal adjacencies and a blocking `stale-verdict` CRITICAL on *every honest interactive run* — the exact anti-pattern `skills/atlas/SKILL.md:1123-1127` already forbids. The **inversion** S3 argues for is correct and stands; the implementation does not. |
+| **H2** (§3) | **BUILT, then REVERTED.** It rested on S3's reachability claim, and the *Adjust scope* remedy it advertised to the human is inert: `scope_paths` has no writer after `ctxstore.init_run`. §3's own item **H-d** had already recorded and rejected this. |
+
+Full findings, with the executed proofs:
+[the v1.5.4 frozen judgment ledger](2026-07-30-v154-judgment-ledger.md).
 
 ---
 
@@ -43,7 +55,18 @@ very test that would catch the bug — is executed but unreviewed. **Do not dele
 
 ---
 
-## 2. R1 — the run's own build output. **CLOSED 2026-07-30.**
+## 2. R1 — the run's own build output. **NARROWED on pass 1, still OPEN on refine passes.**
+
+> **CORRECTED AGAIN 2026-07-30, after the v1.5.4 dual judgment.** This heading previously read
+> **CLOSED**. Both judges rejected that, and they are right. The capture is "pre-build" only
+> relative to the CURRENT pass's `runcheck`. On a REFINE re-dispatch the loop re-enters CODED and
+> then VERIFIED, so pass 2's Step-2 capture is taken **after pass 1's build already wrote into
+> `review_root`** — the rewritten lockfile, the un-gitignored junit XML, the committed codegen are
+> all still in pass 2's "pre-build" list. So every run that refines at least once — i.e. every run
+> that found a real defect — retains the manufactured, unresolvable RED. The change strictly
+> narrows the window and never worsens it, but *closed* was an overclaim of exactly the kind the
+> previous release had to correct. Full ledger:
+> `docs/superpowers/plans/2026-07-30-v154-judgment-ledger.md` (F-5).
 
 **CORRECTED 2026-07-30 — the first version of this section overstated the blast radius, and
 both blind judges caught it independently.** It reported *"7 blocking HIGH"* from a list including

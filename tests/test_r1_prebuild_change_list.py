@@ -11,13 +11,30 @@ nobody did wrong — the failure this project's governing rule ranks above the b
 WHY THE FIX IS AN ORDERING FIX AND NOT A WORKAROUND. The coder finishes at ``CODED``. By Step 2
 its blast radius is complete and nothing it does can change the list, while the build has not
 run yet. Taking the list there is simply the correct moment to ask the question the predicate
-was always asking. It also lands in the SAME process as ``runcheck``, so no new cross-block
-trust question is introduced.
+was always asking.
 
-WHAT THIS DOES NOT CLAIM. ``floorsynth._RESIDUE_SEGMENTS`` — a hard-coded 14-entry denylist —
-is untouched here. It was only ever standing in for this ordering, and whether it can now
-shrink is a separate question with its own evidence (see
-``docs/superpowers/plans/2026-07-27-honest-red-workstream.md`` §6 item 4).
+THE TRUST BOUNDARY IS REAL — an earlier version of this docstring denied it, and both blind
+judges rejected that. The capture shares a process with ``runcheck``, but the CONSUMER is a
+different heredoc reached only *after* the target's own build has executed in ``review_root``.
+So the bytes — a list of target-controlled filenames — do cross from before-target-code to
+after-target-code, and in the interactive lane ``.atlas/`` sits inside the coder's writable
+root. Hence ``write_artifact_confined`` and a baseline stamp the consumer must match. Both are
+pinned below.
+
+WHAT THIS DOES NOT CLAIM — three limits, stated rather than implied:
+
+1. **R1 is not closed on REFINE passes.** The capture is "pre-build" only relative to the
+   CURRENT pass. On a refine re-dispatch, pass 2's Step-2 capture is taken after pass 1's build
+   already wrote into the tree, so the manufactured RED returns for any run that refines at
+   least once. The window is strictly narrowed and never widened, but this is a NARROWING.
+2. **``TestBuildOutputIsNotAttributedToTheCoder`` proves the MECHANISM, not this change.** It
+   exercises ``difftool``/``floorsynth`` only and would pass with the whole change reverted. It
+   is here to characterise the defect. The pins that actually bind the fix are all in
+   ``TestSkillTakesTheListBeforeTheBuild``, and each names the mutation that kills it.
+3. ``floorsynth._RESIDUE_SEGMENTS`` — a hard-coded 14-entry denylist — is untouched. It was
+   only ever standing in for this ordering, and whether it can now shrink is a separate
+   question with its own evidence (see
+   ``docs/superpowers/plans/2026-07-27-honest-red-workstream.md`` §6 item 4).
 """
 from __future__ import annotations
 
@@ -147,9 +164,11 @@ class TestSkillTakesTheListBeforeTheBuild(unittest.TestCase):
         An absent artifact must degrade to TODAY's behaviour (a re-derivation, i.e. the
         manufactured RED) and never to a green. Worse-than-before is not acceptable; so is
         opening a false green to avoid a false red.
+
+        Killed by: replacing the fallback expression with ``[]``, or dropping the ``except``.
         """
         read_at = self._code_line('read_artifact(".atlas", run, "full_paths.json")')
-        window = "\n".join(self.lines[read_at - 1:read_at + 8])
+        window = "\n".join(self.lines[read_at - 1:read_at + 12])
         self.assertIn("except", window, "the read must be guarded")
         self.assertIn("difftool.change_paths(", window,
                       "the fallback must RE-DERIVE, which is today's behaviour")
@@ -157,9 +176,57 @@ class TestSkillTakesTheListBeforeTheBuild(unittest.TestCase):
                          "falling back to an empty list disables the control silently")
 
     def test_the_pre_build_list_is_persisted_under_the_run_ledger(self):
-        write_at = self._code_line('write_artifact(".atlas", run, "full_paths.json"')
+        write_at = self._code_line('write_artifact_confined(".atlas", run, "full_paths.json"')
         capture_at = self._code_line("difftool.change_paths(_baseline, review_root)")
         self.assertLess(capture_at, write_at, "capture, then persist")
+
+    def test_the_write_is_confined_because_the_bytes_cross_a_trust_boundary(self):
+        """These bytes are read AFTER the target's build ran, from the coder's writable root.
+
+        ``write_artifact`` is a bare ``write_text`` that follows symlinks at every component;
+        ``ctxstore`` documents that callers persisting attacker-influenceable bytes into
+        ``.atlas/`` must use the confined hand instead. The payload here is a list of
+        target-controlled filenames.
+
+        Killed by: changing the call back to ``ctxstore.write_artifact(``.
+        """
+        self.assertNotIn(
+            'ctxstore.write_artifact(".atlas", run, "full_paths.json"',
+            "\n".join(self.lines),
+            "the unconfined hand follows symlinks — see ctxstore.write_artifact_confined")
+        self._code_line('write_artifact_confined(".atlas", run, "full_paths.json"')
+
+    def test_a_confinement_failure_degrades_and_never_aborts_the_run(self):
+        """A new abort path in Step 2 would be a new way to manufacture a failure.
+
+        If the confined write refuses, the correct outcome is NO artifact — Step 4+5 then
+        re-derives, which is today's behaviour. Raising here would kill the block before
+        ``runcheck`` ever runs, on a tree where nobody did anything wrong.
+
+        Killed by: removing the try/except around the confined write.
+        """
+        write_at = self._code_line('write_artifact_confined(".atlas", run, "full_paths.json"')
+        window = "\n".join(self.lines[write_at - 3:write_at + 4])
+        self.assertIn("try:", window, "the confined write must be guarded")
+        self.assertIn("except", window, "a confinement failure must not abort Step 2")
+
+    def test_the_consumer_verifies_the_stamp_before_trusting_the_artifact(self):
+        """A stale artifact lists FEWER paths than reality — that direction is a FALSE GREEN.
+
+        The artifact is written before the target's build and read after it. Honouring one
+        whose baseline is not the baseline being judged would make ``out_of_scope_defects``
+        miss a real out-of-scope change.
+
+        Killed by: dropping the baseline comparison, or accepting a non-dict artifact.
+        """
+        read_at = self._code_line('read_artifact(".atlas", run, "full_paths.json")')
+        consume_at = self._code_line("floorsynth.out_of_scope_defects(full_paths")
+        window = "\n".join(self.lines[read_at - 1:consume_at])
+        self.assertIn('== baseline', window,
+                      "the artifact must be honoured only when its stamp matches the "
+                      "baseline this fold is judging")
+        self.assertIn("isinstance(_art, dict)", window,
+                      "an artifact of the wrong shape must re-derive, never be trusted")
 
 
 if __name__ == "__main__":  # pragma: no cover
