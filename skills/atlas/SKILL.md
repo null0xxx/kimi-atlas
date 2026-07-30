@@ -278,7 +278,14 @@ refine-pass counter).
     missing/empty fields. **Never re-ask.** Fold the answers into the packet via
     `ctxstore.advance(..., updates={...})` (packet fields are still mutable *only* here, before
     they are used).
-  - **Headless (`-p`, no human — `AskUserQuestion` cannot fire):** do **not** attempt to ask.
+  - **Headless (`-p`, no human — the ask returns a FAKE answer, never an error):** do **not**
+    attempt to ask. `kimi -p` forces `permission: "auto"`, which DENIES `AskUserQuestion` with
+    *"Make a reasonable decision and continue without asking the user"*, and installs a null
+    question handler that otherwise returns `isError:false` with
+    `{"answers":{},"note":"User dismissed the question without answering."}` — so the tool fires
+    and never raises (measured: `references/live-validation.md:34`). Asking here would stamp a
+    record naming a *User* onto a run no human attended. **This is a prohibition, not an
+    impossibility:** nothing stops the call, so *you* must not make it.
     Fill deterministic defaults and record them as explicit assumptions: `verify_cmd` ←
     `runcheck.discover_verify_cmd("", ".")`; `scope_paths` ← `["."]`; `success_criteria` ← a single
     criterion derived from `intent` (e.g. "the change matches the request and its tests pass").
@@ -430,7 +437,8 @@ Then branch on the run mode:
   stage-order fold skips a ledger that carries it). This `AskUserQuestion` is a **sanctioned
   pause** (Completion Invariant gate 2). The
   coder edits the real tree directly, so **`review_root = "."`**.
-- **Headless (`-p`, no human):** you **cannot** ask, so you **must isolate**. Never apply to the
+- **Headless (`-p`, no human):** you **must not** ask — the ask does not fail, it returns a fake
+  "User dismissed" answer (see CLARIFY above) — so you **must isolate**. Never apply to the
   user's working tree or default branch. Confine the coder:
   - **Target is a git repo:** create an isolated worktree/branch off `baseline_sha` and give the
     coder that path as its only writable root —

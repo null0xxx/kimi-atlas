@@ -90,8 +90,14 @@ def run_headless(task_id: str, workdir: pathlib.Path, *, timeout: int = 1500,
     """Materialise the task and drive atlas over it non-interactively (``kimi -p``).
 
     Returns the newest ``.atlas/<session>`` run dir written under the task repo, or None if
-    none appeared. The human gate is never answered headless — we only need the ledger
-    (verdict + diff.patch), which atlas writes before pausing at OUTPUT.
+    none appeared. We only need the ledger (verdict + diff.patch), which atlas writes at OUTPUT.
+
+    CORRECTED 2026-07-30. This docstring used to claim the human gate goes unanswered here and
+    that atlas pauses at OUTPUT. Both are wrong: ``kimi -p`` forces ``permission: "auto"``
+    and installs a null question handler, so ``AskUserQuestion`` fires, never errors, and
+    auto-resolves — the run reaches OUTPUT **without blocking**
+    (``references/live-validation.md:34``). Nothing here depends on the difference, but the claim
+    was load-bearing somewhere else and is corrected at every site.
     """
     d = workdir / task_id
     tasks.materialize(task_id, d, as_git=True)
