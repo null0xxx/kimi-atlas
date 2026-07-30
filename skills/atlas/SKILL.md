@@ -449,49 +449,8 @@ a default that fails toward the safe side. The human still sees everything at th
 either way; the only thing that changes is that an unattended run can no longer write the tree it
 was never authorised to touch.
 
-**H2 — SHOW THE HUMAN THEIR OWN DIRT AT THIS GATE, BEFORE ANY WORK IS SPENT.** In the real-tree
-lane, `out_of_scope_defects` fires one blocking HIGH per pre-existing dirty or untracked file the
-user owns — their scratch notes, a downloaded CSV, an edited doc — and today they learn this only
-after the coder has run, both refine passes have burned, and the run has ended `⚠️ UNVERIFIED` on
-a tree where nobody did anything wrong.
-
-**Everything needed to prevent that is already here.** `baseline_sha` was recorded at INIT, this
-gate already offers **Adjust scope**, and — after S3 — this arm is only reachable when a human has
-answered. So compute what *would* fire, and put it in the preview you are already showing:
-
-```
-PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 - <<'PY'
-from scripts import ctxstore, difftool, floorsynth
-run = "${KIMI_SESSION_ID}"
-st = ctxstore.get_state(".atlas", run)
-_b = (st.get("baseline_sha") or "").strip()
-_paths = (difftool.change_paths(_b, ".")
-          if _b and difftool.git_tree_has_baseline(".", _b) else [])
-_would = floorsynth.out_of_scope_defects(_paths, st["scope_paths"])
-print("PREEXISTING_OUT_OF_SCOPE=%d" % len(_would))
-for _d in _would:
-    print("  " + _d["location"])
-PY
-```
-
-**If the count is non-zero, say so in the preview, plainly and without alarm:** these files are
-already changed in your tree, they sit outside the frozen `scope_paths`, and **as things stand this
-run will end ⚠️ UNVERIFIED because of them** — offer **Adjust scope** to include them, or Approve
-knowing the outcome. It costs 0.03 s on a thousand-file repository, so it is not a trade.
-
-**What this does NOT do, stated plainly because the last release had to correct an overclaim.** It
-does not make the predicate smarter and it does not demote anything: if the human approves without
-widening scope, those defects still fire and the run still ends `⚠️ UNVERIFIED`. That is CORRECT —
-the surface really is unreviewed and executed. What changes is that a person who is provably present
-now decides **before** the work rather than being told after it, and no refine pass is spent
-discovering something the gate could have shown for free. The remaining half of H2 — telling a
-coder-authored change apart from pre-existing dirt *inside* the fold — still needs the content-hashed
-pre-coder snapshot in `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md`, and this does not
-substitute for it.
-
 Then branch:
-- **Interactive (a human answered):** present the plan preview — **including the pre-existing
-  out-of-scope list above when it is non-empty** — and call **one**
+- **Interactive (a human answered):** present the plan preview and call **one**
   `AskUserQuestion` — Approve / Adjust scope / Cancel. On *Adjust*, revise the plan (still pre-CODE)
   and re-present once. On *Cancel*, record the sanctioned jump —
   `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", cancelled=True)` —

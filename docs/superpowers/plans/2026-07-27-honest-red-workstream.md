@@ -95,7 +95,7 @@ fixture that depicts H2. `grep -rl "out-of-scope" tests/corpus/` finds nothing i
 
 ---
 
-## 3. H2 — pre-existing user dirt. **FIRST HALF BUILT 2026-07-30; the fold half still deferred.**
+## 3. H2 — pre-existing user dirt. Designed, NOT built. Deliberately deferred.
 
 **Verified live:**
 
@@ -188,8 +188,7 @@ absent, unreadable, stale or mismatched record must fall back to current behavio
 | ~~2~~ | ~~**R1** — derive the changed-path list **before** `runcheck`~~ **DONE** — taken in the Step-2 block, before the build, in the SAME process, so §5's storage question never arose | small | Cheapest remedy of the three, shares item 1's decision, and removes most of the denylist's load. **Not** ranked first on frequency — see the §0 amendment |
 | ~~3~~ | ~~**S3**~~ **DONE** — not by naming a mode (a judge showed no such mode exists) but by replacing the inference *"is a human present?"* with the fact *"did a human answer?"*. `review_root = "."` now requires a recorded approval; absence isolates | small–medium | Independent of both |
 | **4** | **`_RESIDUE_SEGMENTS`** — reconsider once §2 lands; much of its load disappears | small | It is a denylist against an open world and should not be the thing holding the predicate silent |
-| ~~5a~~ | ~~**H2**~~ **FIRST HALF DONE** — the pre-CODE gate now shows the human their own pre-existing dirt and offers the existing *Adjust scope*, so the waste happens before the work, not after. Needed no snapshot, no storage, no new state | small | S3 made this arm reachable only when a human has answered, so a person is provably there to decide |
-| **5b** | **H2, fold half** — telling a coder-authored change from pre-existing dirt INSIDE the fold still needs the content-hashed pre-coder snapshot in `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md` | large | Still gated on §5, and still pays with a trusted input that cannot be authenticated at uid 0 |
+| **5** | **H2** — build `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md` **only** if its revisit condition (§3a) is met | large | Smaller half; forgeable trusted input; plan preserved either way |
 
 **Not on this list, deliberately:** deleting or wholesale-demoting the predicate. It is the cheapest
 option and it is named in §3a as the plan's own preferred competitor, but it trades toward a false

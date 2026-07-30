@@ -530,12 +530,7 @@ class TestEveryHeredocParses(unittest.TestCase):
         # 13 with the v1.5.2.1 plan-preview persist block (C1: a multi-line
         # preview cannot live in a one-line Python literal, so it is now read
         # from a path in argv like every other foreign-text sink).
-        # 14 with H2's pre-CODE dirt probe, which computes what out_of_scope_defects
-        # WOULD fire and shows it to the human at the gate they are already answering.
-        # This count is deliberately literal: it is the only thing standing between an
-        # intentional new executable block and one that arrived unnoticed, so a bump
-        # must be a decision someone wrote down, never a number someone edited.
-        self.assertEqual(len(bodies), 14)
+        self.assertEqual(len(bodies), 13)
         for i, b in enumerate(bodies):
             with self.subTest(block=i):
                 ast.parse(b.replace("${KIMI_SESSION_ID}", "SID")
