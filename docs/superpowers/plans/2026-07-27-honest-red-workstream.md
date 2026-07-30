@@ -157,7 +157,36 @@ settled for another reason and the marginal cost drops.
 
 ---
 
-## 4. S3 — the run mode is UNDEFINED, and this may outrank both
+## 4. S3 — the run mode is UNDEFINED. **BLOCKED ON H2. v2 WITHDRAWN 2026-07-30.**
+
+> **Two attempts, both dead. Read
+> [the S3 v2 challenge ledger](2026-07-30-s3v2-challenge-ledger.md) before writing a third.**
+>
+> **v1** was built and reverted: it recorded the approval with an out-of-order
+> `advance(…,"TRIAGED",…)`, manufacturing a blocking `stale-verdict` CRITICAL on every honest
+> interactive run.
+>
+> **v2** never left the page. A 6-lens challenge run *before* any code was written returned four
+> independent BLOCKERs and one `DO_NOT_BUILD`. Its premise is false on the shipped runtime:
+> `kimi -p` forces `permission: "auto"` and installs a null question handler, so
+> `AskUserQuestion` **never errors** — it returns either *"make a reasonable decision and continue
+> without asking the user"* or a success payload claiming a **User** dismissed it. Branching on
+> *"did an answer come back?"* would therefore hand **every** headless run the real tree,
+> deterministically. `references/live-validation.md:34` already recorded this from a measured live
+> run; `references/kimi-runtime.md:79` and `bench/runner.py:93` assert the opposite. **That
+> three-way contradiction is now its own work item.**
+>
+> **THE ORDERING IN §6 WAS WRONG: S3 must not land before H2.** Measured on one git fixture with
+> two ordinary untracked files — `review_root='.'` yields **2 blocking HIGH → UNVERIFIED**, the
+> isolated worktree yields **0**. Making the interactive arm deterministic routes ~100% of
+> answered runs into that lane, where improvisation sends only 4 of 12 today. It authors no new
+> emitter; it makes an existing one fire — the exact pattern the v1.5.4 ledger named as the
+> hazard, which v2 cited as its defence.
+>
+> **A third attempt starts from the work item as recorded at §6, not from re-keying the gate:**
+> *name the auto-permission mode and make the mode deterministic.* All four observed
+> `review_root="."` runs were auto-permission — a lane the SKILL does not name, since its branch
+> is a binary Interactive/Headless and auto is neither.
 
 **Measured:** the word `dirty` appears **0 times** in `skills/atlas/SKILL.md`. There is no
 `git status` anywhere in the PRE-CODE gate. **The gate never consults tree state at all**, and the
