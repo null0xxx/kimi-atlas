@@ -234,7 +234,11 @@ something a second site actually consumes, which is precisely what F-8 said was 
    its edit range are each independently fatal.
 2. **S3 is blocked on H2.** Recorded here because the workstream had the order the other way
    round.
-3. **The `-p` contradiction is its own work item** — three places in the repo disagree about
-   whether `AskUserQuestion` can fire headless, and the measured answer contradicts the one the
-   SKILL's own gate is written against.
+3. ~~**The `-p` contradiction is its own work item**~~ — **CLOSED `ab32c2f`.** It was worse than
+   the challenge reported: **five** live sites, not three (`SKILL.md:281`, `SKILL.md:433`,
+   `references/kimi-runtime.md` §9, `PLAN.md:53`, `bench/runner.py`). All now state the mechanism
+   rather than merely retracting, and `SKILL.md:433`'s *"you **cannot** ask"* became *"you **must
+   not** ask"* — the modality was the whole error. The instruction is unchanged: headless still
+   must not ask and must isolate. Pinned by `tests/test_headless_ask_is_not_impossible.py`, whose
+   four pins were each verified to die under a named mutation.
 4. **The next S3 attempt starts from "name the auto lane"**, not from re-keying the gate.
