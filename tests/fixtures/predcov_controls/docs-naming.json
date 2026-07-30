@@ -1,0 +1,17 @@
+{
+  "branch_line": 114,
+  "branch_source": "if docs_clean:",
+  "derivation": "The single-flag branch. The key is present in BOTH arms deliberately: the SKILL reads ev.get('docs_clean', True), so an absent key would land on the silent side by default -- which is why the adapter refuses an evidence dict that lacks it rather than scoring it as a clean docs floor.",
+  "emitter": "docs-naming",
+  "fires": {
+    "ev": {
+      "docs_clean": false
+    }
+  },
+  "function": "synth_docs",
+  "silent": {
+    "ev": {
+      "docs_clean": true
+    }
+  }
+}

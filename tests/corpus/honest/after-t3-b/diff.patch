@@ -1,0 +1,56 @@
+diff --git a/parseport.py b/parseport.py
+index 18af19e..52107fb 100644
+--- a/parseport.py
++++ b/parseport.py
+@@ -2,5 +2,12 @@
+ 
+ 
+ def parse_port(text: str) -> int:
+-    """Return the port as an int."""
+-    return int(text)
++    """Return the port as an int.
++
++    Raises ValueError if the text is not numeric or the value is
++    outside the valid TCP port range 1-65535.
++    """
++    port = int(text)
++    if not 1 <= port <= 65535:
++        raise ValueError(f"port out of range 1-65535: {port}")
++    return port
+diff --git a/test_parseport.py b/test_parseport.py
+index 4800ac7..e36c3bd 100644
+--- a/test_parseport.py
++++ b/test_parseport.py
+@@ -7,6 +7,32 @@ class TestParsePort(unittest.TestCase):
+     def test_parses_a_normal_port(self):
+         self.assertEqual(parse_port("8080"), 8080)
+ 
++    def test_accepts_lowest_valid_port(self):
++        self.assertEqual(parse_port("1"), 1)
++
++    def test_accepts_highest_valid_port(self):
++        self.assertEqual(parse_port("65535"), 65535)
++
++    def test_rejects_non_numeric_input(self):
++        with self.assertRaises(ValueError):
++            parse_port("abc")
++
++    def test_rejects_empty_string(self):
++        with self.assertRaises(ValueError):
++            parse_port("")
++
++    def test_rejects_zero(self):
++        with self.assertRaises(ValueError):
++            parse_port("0")
++
++    def test_rejects_negative_port(self):
++        with self.assertRaises(ValueError):
++            parse_port("-1")
++
++    def test_rejects_port_above_maximum(self):
++        with self.assertRaises(ValueError):
++            parse_port("65536")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

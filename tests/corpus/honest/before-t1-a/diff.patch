@@ -1,0 +1,45 @@
+diff --git a/slugify.py b/slugify.py
+index a23bf10..618d66c 100644
+--- a/slugify.py
++++ b/slugify.py
+@@ -4,3 +4,8 @@
+ def normalize(text: str) -> str:
+     """Collapse whitespace and lowercase."""
+     return " ".join(text.split()).lower()
++
++
++def slugify(text: str) -> str:
++    """Lowercase and join whitespace-separated words with hyphens."""
++    return "-".join(text.split()).lower()
+diff --git a/test_slugify.py b/test_slugify.py
+index 8d8892e..697b690 100644
+--- a/test_slugify.py
++++ b/test_slugify.py
+@@ -1,6 +1,6 @@
+ import unittest
+ 
+-from slugify import normalize
++from slugify import normalize, slugify
+ 
+ 
+ class TestNormalize(unittest.TestCase):
+@@ -8,5 +8,19 @@ class TestNormalize(unittest.TestCase):
+         self.assertEqual(normalize("  Hello   World "), "hello world")
+ 
+ 
++class TestSlugify(unittest.TestCase):
++    def test_joins_words_with_single_hyphen(self):
++        self.assertEqual(slugify("Hello   World Again"), "hello-world-again")
++
++    def test_strips_and_collapses_whitespace(self):
++        self.assertEqual(slugify("  Leading\tand\nTrailing  "), "leading-and-trailing")
++
++    def test_empty_string_returns_empty_slug(self):
++        self.assertEqual(slugify(""), "")
++
++    def test_whitespace_only_returns_empty_slug(self):
++        self.assertEqual(slugify("   \t\n "), "")
++
++
+ if __name__ == "__main__":
+     unittest.main()

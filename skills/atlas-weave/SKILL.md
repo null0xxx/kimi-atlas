@@ -32,9 +32,19 @@ plus the outer-loop specifics:
    TodoList`. Script calls run through **`Bash`**
    (`PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "import scripts.<mod> …"`); the user
    is asked through **`AskUserQuestion`**; subagents through **`Agent`**.
-2. **Role-file dispatch (read → strip → prepend).** For every subagent: `Read`
-   `${KIMI_SKILL_DIR}/../../agents/<role>.md`, strip its YAML frontmatter, prepend the body to the
-   task packet, call `Agent(subagent_type=<mapped built-in>, prompt=…)`. Mapping: `planner → plan`,
+2. **Role-file dispatch (BY REFERENCE — you never open the role file).** For every subagent the
+   prompt **opens** with this line and nothing before it:
+   > *Your role is defined in `${KIMI_SKILL_DIR}/../../agents/<role>.md`. `Read` that file as
+   > your first act, strip its YAML frontmatter, and follow its body as your role for this
+   > task. Do not begin the packet below until you have done so.*
+
+   Then the task packet: `Agent(subagent_type=<mapped built-in>, prompt=<role reference + packet>)`.
+   **You (the root) do not `Read` the role file, and never paste a role body into a prompt** — the
+   same contract `skills/atlas/SKILL.md` and `.kimi-plugin/plugin.json`'s `skillInstructions` state.
+   Weave held the opposite contract until a blind adversarial review found that `agents/planner.md`
+   and `agents/integration-critic.md` — which only weave dispatches — had been rewritten to tell
+   their reader they arrived by reference, while weave still pasted them into the prompt: the role
+   file stated a falsehood and the root copied it verbatim. Mapping: `planner → plan`,
    `integration-critic → plan`, and each node runs the **inner atlas** via `context-scout → explore`,
    `elite-coder → coder`, the 3 critics `→ plan`.
 3. **A node IS an inner atlas sub-run.** You dispatch each ready node as a normal atlas run whose

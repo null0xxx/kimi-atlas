@@ -1,0 +1,6 @@
+{"run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "INIT", "ts": "2026-07-26T19:22:07Z"}
+{"run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "INTENT_CAPTURED", "ts": "2026-07-26T19:22:07Z"}
+{"archetype": "feature", "run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "TRIAGED", "ts": "2026-07-26T19:22:23Z"}
+{"agent": "context-scout", "run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "GROUNDED", "ts": "2026-07-26T19:23:40Z"}
+{"agent": "elite-coder", "run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "CODED", "status": "COMPLETE", "ts": "2026-07-26T19:25:54Z"}
+{"run_id": "session_ef761280-8c6e-4ae1-bbe3-f7922eeba1e4", "stage": "VERIFIED", "ts": "2026-07-26T19:30:58Z", "verdict": "OK"}

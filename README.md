@@ -216,7 +216,7 @@ skills/atlas/               the single-change root orchestrator (state machine)
 skills/atlas-weave/         the multi-agent meta-machine (decompose → integrate → aggregate)
 skills/atlas-resume/        graph-aware, compaction-surviving resume
 skills/<name>/              115 vendored official skill packages (manifest-anchored)
-agents/*.md                 role files (documentation-only frontmatter; body prepended by the SKILL)
+agents/*.md                 role files (documentation-only frontmatter; read by the subagent itself)
 scripts/*.py                the PURE decision cores + the deterministic I/O "hands" (importable, unit-tested)
 scripts/skillextract.py     zip → skills/<name>/ extractor + manifest builder + --verify (audit-gated)
 scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree
@@ -305,6 +305,10 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 - [`docs/superpowers/plans/2026-07-25-security-remediation-master-plan.md`](docs/superpowers/plans/2026-07-25-security-remediation-master-plan.md) — the executable handoff for that remediation: the v1.5.2 TDD tasks in full, the v1.5.3/v1.5.4 task specs, the process that has caught eleven CRITICALs across three releases, and the six fixes that were proposed, measured and refuted
 - [`docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md`](docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md) — the v1.5.2.1 hotfix: seven defects live in the shipped v1.5.2, one CRITICAL (model text reaching a Python source literal) and three that manufacture a RED on ordinary honest runs
 - [`docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md`](docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md) — **read this first**: the single source of what is done, what is open, and what happens next; why the sequencing changed (every fix shipped as a new blocking predicate, and predicate count tracks injected defects 1:1), and the phased plan that follows from it
+- [`docs/superpowers/plans/2026-07-26-phase0-packet-by-reference-plan.md`](docs/superpowers/plans/2026-07-26-phase0-packet-by-reference-plan.md) — Phase 0: stop the root re-emitting 31,216 B of agent role bodies every pass. **Its −14.3% prediction was FALSIFIED — built, run 12×, measured +4.0%** (§4b); the resident-bytes cost lever is withdrawn with it, because those bytes are cache reads and the change buys turns to remove them. Kept for the measurement and the method
+- [`docs/superpowers/plans/2026-07-26-phase1-coverage-plan.md`](docs/superpowers/plans/2026-07-26-phase1-coverage-plan.md) — Phase 1: the report-only predicate-coverage experiment that tests the roadmap's own diagnosis — the denominator fixed by execution at ten, the firing rule that decides the answer, and the committed prediction stated so it can fail
+- [`docs/superpowers/plans/2026-07-27-honest-red-workstream.md`](docs/superpowers/plans/2026-07-27-honest-red-workstream.md) — **the honest-RED workstream**: why `out_of_scope_defects` fires on clean and honest trees, the measurement showing the run's own build output is the larger source, the run-mode under-specification found alongside it, and the ordered list of what is left to do
+- [`docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md`](docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md) — the designed-but-deferred H2 fix: a content-and-mode pre-coder snapshot used as an input filter, six-lens challenged (15 CRITICAL folded, three of four designs rejected outright)
 - [`references/skill-registry.md`](references/skill-registry.md) — registry schema, selection algorithm, override semantics, rebuild
 - [`references/live-validation.md`](references/live-validation.md) — the live-on-Kimi-3 validation reports
 - [`references/kimi-runtime.md`](references/kimi-runtime.md) · [`references/orchestration.md`](references/orchestration.md) — runtime facts and orchestration notes

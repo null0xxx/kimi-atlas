@@ -1,0 +1,3398 @@
+{
+  "arms": {
+    "dirty": {
+      "counts": true,
+      "item_ids": [
+        "dirty/changelog-50-57"
+      ],
+      "items": 1,
+      "role": "the one shape the record documents as an honest false RED"
+    },
+    "failopen": {
+      "caveat": "an emitter with no item here has NO DOCUMENTED fail-open input; it is rendered '\u2014 (none documented)' and never as zero fail-opens. Authoring a should-fire input for the other emitters would be authoring the finding, which is the failure mode this phase exists to expose",
+      "closed_since": [
+        "stale-verdict"
+      ],
+      "counts": false,
+      "covered_elsewhere": [
+        "docs-naming"
+      ],
+      "emitters_with_no_documented_fail_open": [
+        "critic-missing",
+        "critic-stale",
+        "dimension-dissent",
+        "empty-diff",
+        "evidence-incomplete",
+        "out-of-scope",
+        "runcheck"
+      ],
+      "item_ids": [
+        "failopen/critic-schema",
+        "failopen/docs-naming",
+        "failopen/stale-verdict"
+      ],
+      "items": 3,
+      "observations": [
+        {
+          "covered_by": [],
+          "defect_ids": [],
+          "emitter": "critic-schema",
+          "expectation_sources": [
+            "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:97",
+            "scripts/quality.py::enforce_critic_schema"
+          ],
+          "function": "merge_and_validate",
+          "injection": "H4 \u2014 a critic forges a floor-namespace id and is classified plugin-authored",
+          "schema_errors": [],
+          "should_fire_because": "enforce_critic_schema checks that id is PRESENT, never its VALUE, so a prompt-injected critic takes a floor id and its fix travels as a trusted instruction; the schema floor is the only predicate positioned to see it",
+          "silent_at_head": true,
+          "status": "STILL OPEN"
+        },
+        {
+          "covered_by": [
+            "evidence-incomplete"
+          ],
+          "defect_ids": [],
+          "emitter": "docs-naming",
+          "expectation_sources": [
+            "CHANGELOG.md:356",
+            "scripts/floorsynth.py::script_defects_from docstring (MANDATORY_FLAG_KEYS)"
+          ],
+          "function": "synth_docs",
+          "injection": "v1.5.0 \u2014 a dropped docs_clean key failed OPEN on the docs floor",
+          "schema_errors": [],
+          "should_fire_because": "the evidence carries no docs_clean at all, so the docs floor was never evaluated; the SKILL reads ev.get('docs_clean', True) and the default IS the answer",
+          "silent_at_head": true,
+          "status": "COVERED BY ANOTHER PREDICATE"
+        },
+        {
+          "covered_by": [],
+          "defect_ids": [
+            "stale-verdict"
+          ],
+          "emitter": "stale-verdict",
+          "expectation_sources": [
+            "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:120",
+            "scripts/floorsynth.py::stale_verdict_defects docstring (condition (c))"
+          ],
+          "function": "stale_verdict_defects",
+          "injection": "H6 \u2014 an honest crash after advance(REFINE) resumes at OUTPUT and prints a green",
+          "schema_errors": [],
+          "should_fire_because": "the V7-forced refine never re-entered CODED, so no verification covers the tree as it stands; at v1.5.1 this ledger was SILENT and final_status printed OK",
+          "silent_at_head": false,
+          "status": "CLOSED SINCE"
+        }
+      ],
+      "role": "\u00a75.4: inputs a predicate SHOULD fire on. Reported alone; it does not move the primary denominator, because a fire count cannot see a silence and this arm is made of silences",
+      "still_open": [
+        "critic-schema"
+      ]
+    },
+    "historical": {
+      "counts": true,
+      "item_ids": [
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ],
+      "items": 4,
+      "role": "release intervals from this repo's own tags \u2014 real changed .md, and a whole-tree scope nobody authored"
+    },
+    "honest": {
+      "counts": true,
+      "item_ids": [
+        "honest/after-t1-a",
+        "honest/after-t1-b",
+        "honest/after-t2-a",
+        "honest/after-t2-b",
+        "honest/after-t3-b",
+        "honest/before-t1-a",
+        "honest/before-t1-b",
+        "honest/before-t2-a",
+        "honest/before-t2-b",
+        "honest/before-t3-a",
+        "honest/before-t3-b"
+      ],
+      "items": 11,
+      "role": "recorded runs, rc=0 and a ledger ending at OUTPUT \u2014 the counting arm"
+    },
+    "interrupted": {
+      "counts": false,
+      "item_ids": [
+        "interrupted/after-t3-a"
+      ],
+      "items": 1,
+      "role": "the non-vacuity control, and nothing else; never counts"
+    }
+  },
+  "corpus": {
+    "by_arm": {
+      "dirty": 1,
+      "failopen": 3,
+      "historical": 4,
+      "honest": 11,
+      "interrupted": 1
+    },
+    "counting_arms": [
+      "honest",
+      "historical",
+      "dirty"
+    ],
+    "items": 20,
+    "provenance_warning": ".atlas/ was coder-writable during recording; the recorded-run artifacts are model-influenced, not machine-attested",
+    "root": "tests/corpus"
+  },
+  "degraded": false,
+  "denominator": {
+    "discovery_error": "",
+    "emitters": [
+      "critic-missing",
+      "critic-schema",
+      "critic-stale",
+      "dimension-dissent",
+      "docs-naming",
+      "empty-diff",
+      "evidence-incomplete",
+      "out-of-scope",
+      "runcheck",
+      "stale-verdict"
+    ],
+    "n": 10,
+    "rule": "one top-level def emitting a dict with \"id\" + a CONSTANT \"severity\" in rubric.BLOCKING",
+    "source": "scripts/floorsynth.py",
+    "source_sha256": "91e6ebbb251999e42b94ca8c801fbd7b91105f8bfa75c70d3b7de72bf7a76c6b"
+  },
+  "errors": [],
+  "fire_provenance": {
+    "authored": 1,
+    "by_class": {
+      "AUTHORED": 1,
+      "recorded": 1
+    },
+    "fires": [
+      {
+        "item": "dirty/changelog-50-57",
+        "kind": "documented-shape",
+        "provenance": "AUTHORED",
+        "stem": "out-of-scope"
+      },
+      {
+        "item": "honest/before-t3-a",
+        "kind": "recorded-run",
+        "provenance": "recorded",
+        "stem": "critic-stale"
+      }
+    ],
+    "recorded": 1
+  },
+  "firing_rule": "at least one defect whose id STEM is this emitter's own AND whose severity is in rubric.BLOCKING; once per emitter per item, never once per defect",
+  "items": [
+    {
+      "arm": "dirty",
+      "counts": true,
+      "dir": "tests/corpus/dirty/changelog-50-57",
+      "emitters": {
+        "critic-missing": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-schema": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-stale": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "dimension-dissent": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "docs-naming": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "empty-diff": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "evidence-incomplete": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            3
+          ],
+          "error": "",
+          "fired": true,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "stale-verdict": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        }
+      },
+      "errors": [],
+      "id": "dirty/changelog-50-57",
+      "kind": "documented-shape",
+      "label": "changelog-50-57",
+      "meta": {
+        "coder_authored": "src/calc.py",
+        "pre_existing": [
+          "NOTES.md",
+          "data/download.csv",
+          "docs/notes.md"
+        ]
+      },
+      "ownership_token": null,
+      "replay_divergent": false,
+      "scope_paths": [
+        "src"
+      ],
+      "supplies": [
+        "out-of-scope"
+      ]
+    },
+    {
+      "arm": "failopen",
+      "counts": false,
+      "dir": "tests/corpus/failopen/critic-schema",
+      "emitters": {},
+      "errors": [],
+      "failopen": {
+        "covered_by": [],
+        "defect_ids": [],
+        "emitter": "critic-schema",
+        "expectation_sources": [
+          "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:97",
+          "scripts/quality.py::enforce_critic_schema"
+        ],
+        "function": "merge_and_validate",
+        "injection": "H4 \u2014 a critic forges a floor-namespace id and is classified plugin-authored",
+        "schema_errors": [],
+        "should_fire_because": "enforce_critic_schema checks that id is PRESENT, never its VALUE, so a prompt-injected critic takes a floor id and its fix travels as a trusted instruction; the schema floor is the only predicate positioned to see it",
+        "silent_at_head": true,
+        "status": "STILL OPEN"
+      },
+      "id": "failopen/critic-schema",
+      "kind": "documented-fail-open",
+      "label": "critic-schema",
+      "ownership_token": null,
+      "replay_divergent": false
+    },
+    {
+      "arm": "failopen",
+      "counts": false,
+      "dir": "tests/corpus/failopen/docs-naming",
+      "emitters": {},
+      "errors": [],
+      "failopen": {
+        "covered_by": [
+          "evidence-incomplete"
+        ],
+        "defect_ids": [],
+        "emitter": "docs-naming",
+        "expectation_sources": [
+          "CHANGELOG.md:356",
+          "scripts/floorsynth.py::script_defects_from docstring (MANDATORY_FLAG_KEYS)"
+        ],
+        "function": "synth_docs",
+        "injection": "v1.5.0 \u2014 a dropped docs_clean key failed OPEN on the docs floor",
+        "schema_errors": [],
+        "should_fire_because": "the evidence carries no docs_clean at all, so the docs floor was never evaluated; the SKILL reads ev.get('docs_clean', True) and the default IS the answer",
+        "silent_at_head": true,
+        "status": "COVERED BY ANOTHER PREDICATE"
+      },
+      "id": "failopen/docs-naming",
+      "kind": "documented-fail-open",
+      "label": "docs-naming",
+      "ownership_token": null,
+      "replay_divergent": false
+    },
+    {
+      "arm": "failopen",
+      "counts": false,
+      "dir": "tests/corpus/failopen/stale-verdict",
+      "emitters": {},
+      "errors": [],
+      "failopen": {
+        "covered_by": [],
+        "defect_ids": [
+          "stale-verdict"
+        ],
+        "emitter": "stale-verdict",
+        "expectation_sources": [
+          "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:120",
+          "scripts/floorsynth.py::stale_verdict_defects docstring (condition (c))"
+        ],
+        "function": "stale_verdict_defects",
+        "injection": "H6 \u2014 an honest crash after advance(REFINE) resumes at OUTPUT and prints a green",
+        "schema_errors": [],
+        "should_fire_because": "the V7-forced refine never re-entered CODED, so no verification covers the tree as it stands; at v1.5.1 this ledger was SILENT and final_status printed OK",
+        "silent_at_head": false,
+        "status": "CLOSED SINCE"
+      },
+      "id": "failopen/stale-verdict",
+      "kind": "documented-fail-open",
+      "label": "stale-verdict",
+      "ownership_token": null,
+      "replay_divergent": false
+    },
+    {
+      "arm": "historical",
+      "counts": true,
+      "dir": "tests/corpus/historical/v1.4.0..v1.5.0",
+      "emitters": {
+        "critic-missing": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-schema": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-stale": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "dimension-dissent": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "evidence-incomplete": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "stale-verdict": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        }
+      },
+      "errors": [],
+      "id": "historical/v1.4.0..v1.5.0",
+      "kind": "release-interval",
+      "label": "v1.4.0..v1.5.0",
+      "meta": {
+        "changed_md": [
+          "AGENTS.md",
+          "CHANGELOG.md",
+          "README.md",
+          "docs/superpowers/plans/2026-07-24-atlas-runtime-token-optimization.md",
+          "docs/superpowers/plans/2026-07-24-runtime-token-optimization-p0-plan.md",
+          "docs/superpowers/specs/2026-07-24-runtime-token-optimization-design.md",
+          "references/skill-registry.md",
+          "references/system-map.md",
+          "skills/atlas/SKILL.md"
+        ],
+        "range": "v1.4.0..v1.5.0"
+      },
+      "ownership_token": null,
+      "replay_divergent": false,
+      "scope_paths": [
+        "."
+      ],
+      "supplies": [
+        "out-of-scope",
+        "docs-naming"
+      ]
+    },
+    {
+      "arm": "historical",
+      "counts": true,
+      "dir": "tests/corpus/historical/v1.5.0..v1.5.1",
+      "emitters": {
+        "critic-missing": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-schema": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-stale": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "dimension-dissent": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "evidence-incomplete": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "stale-verdict": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        }
+      },
+      "errors": [],
+      "id": "historical/v1.5.0..v1.5.1",
+      "kind": "release-interval",
+      "label": "v1.5.0..v1.5.1",
+      "meta": {
+        "changed_md": [
+          "AGENTS.md",
+          "CHANGELOG.md",
+          "PLAN.md",
+          "README.md",
+          "agents/context-scout.md",
+          "docs/superpowers/plans/2026-07-25-syspath-hijack-v151-plan.md",
+          "references/kimi-runtime.md",
+          "references/orchestration.md",
+          "references/system-map.md",
+          "skills/atlas-resume/SKILL.md",
+          "skills/atlas-weave/SKILL.md",
+          "skills/atlas/SKILL.md"
+        ],
+        "range": "v1.5.0..v1.5.1"
+      },
+      "ownership_token": null,
+      "replay_divergent": false,
+      "scope_paths": [
+        "."
+      ],
+      "supplies": [
+        "out-of-scope",
+        "docs-naming"
+      ]
+    },
+    {
+      "arm": "historical",
+      "counts": true,
+      "dir": "tests/corpus/historical/v1.5.1..v1.5.2",
+      "emitters": {
+        "critic-missing": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-schema": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-stale": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "dimension-dissent": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "evidence-incomplete": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "stale-verdict": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        }
+      },
+      "errors": [],
+      "id": "historical/v1.5.1..v1.5.2",
+      "kind": "release-interval",
+      "label": "v1.5.1..v1.5.2",
+      "meta": {
+        "changed_md": [
+          "AGENTS.md",
+          "CHANGELOG.md",
+          "PLAN.md",
+          "README.md",
+          "agents/code-quality-critic.md",
+          "agents/correctness-critic.md",
+          "agents/integration-critic.md",
+          "agents/security-critic.md",
+          "docs/superpowers/plans/2026-07-25-security-remediation-master-plan.md",
+          "docs/superpowers/specs/2026-07-25-security-audit-remediation-design.md",
+          "references/rubric.md",
+          "references/system-map.md",
+          "skills/atlas/SKILL.md"
+        ],
+        "range": "v1.5.1..v1.5.2"
+      },
+      "ownership_token": null,
+      "replay_divergent": false,
+      "scope_paths": [
+        "."
+      ],
+      "supplies": [
+        "out-of-scope",
+        "docs-naming"
+      ]
+    },
+    {
+      "arm": "historical",
+      "counts": true,
+      "dir": "tests/corpus/historical/v1.5.2..v1.5.2.1",
+      "emitters": {
+        "critic-missing": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-schema": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "critic-stale": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "dimension-dissent": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "evidence-incomplete": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        },
+        "stale-verdict": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "this arm supplies no input for it",
+          "state": "unmeasured"
+        }
+      },
+      "errors": [],
+      "id": "historical/v1.5.2..v1.5.2.1",
+      "kind": "release-interval",
+      "label": "v1.5.2..v1.5.2.1",
+      "meta": {
+        "changed_md": [
+          "AGENTS.md",
+          "CHANGELOG.md",
+          "README.md",
+          "agents/code-quality-critic.md",
+          "agents/correctness-critic.md",
+          "agents/integration-critic.md",
+          "agents/security-critic.md",
+          "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md",
+          "references/rubric.md",
+          "references/system-map.md",
+          "skills/atlas/SKILL.md"
+        ],
+        "range": "v1.5.2..v1.5.2.1"
+      },
+      "ownership_token": null,
+      "replay_divergent": false,
+      "scope_paths": [
+        "."
+      ],
+      "supplies": [
+        "out-of-scope",
+        "docs-naming"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/after-t1-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/after-t1-a",
+      "kind": "recorded-run",
+      "label": "after-t1-a",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "slugify.py",
+        "test_slugify.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/after-t1-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/after-t1-b",
+      "kind": "recorded-run",
+      "label": "after-t1-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "slugify.py",
+        "test_slugify.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/after-t2-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            1,
+            [
+              [
+                "critic_correctness.json",
+                1
+              ],
+              [
+                "critic_code_quality.json",
+                1
+              ],
+              [
+                "critic_security.json",
+                1
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED",
+            "REFINE",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/after-t2-a",
+      "kind": "recorded-run",
+      "label": "after-t2-a",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 2,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 1,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "rangesum.py",
+        "test_rangesum.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/after-t2-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/after-t2-b",
+      "kind": "recorded-run",
+      "label": "after-t2-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "rangesum.py",
+        "test_rangesum.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/after-t3-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/after-t3-b",
+      "kind": "recorded-run",
+      "label": "after-t3-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion 'test_parseport.py contains unit tests covering the rejected cases'; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        },
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC3",
+          "location": "success_criteria[3]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "parseport.py",
+        "test_parseport.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t1-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": null,
+          "error": "",
+          "fired": null,
+          "reason": "no full_paths in this arm",
+          "state": "unmeasured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t1-a",
+      "kind": "recorded-run",
+      "label": "before-t1-a",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "unmeasured:not-a-git-tree-with-baseline"
+      },
+      "ownership_token": null,
+      "passthrough": [],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "partial:full_paths",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "slugify.py",
+        "test_slugify.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t1-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t1-b",
+      "kind": "recorded-run",
+      "label": "before-t1-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "slugify.py",
+        "test_slugify.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t2-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t2-a",
+      "kind": "recorded-run",
+      "label": "before-t2-a",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "rangesum.py",
+        "test_rangesum.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t2-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            0,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t2-b",
+      "kind": "recorded-run",
+      "label": "before-t2-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 1,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 0,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "rangesum.py",
+        "test_rangesum.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t3-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            1,
+            [
+              [
+                "critic_correctness.json",
+                1
+              ],
+              [
+                "critic_code_quality.json",
+                1
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": true,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED",
+            "REFINE",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t3-a",
+      "kind": "recorded-run",
+      "label": "before-t3-a",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 2,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 1,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion 'unit tests for the rejected cases are added in test_parseport.py'; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC3",
+          "location": "success_criteria[3]",
+          "severity": "MEDIUM"
+        },
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC4",
+          "location": "success_criteria[4]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [
+          "critic-stale:security"
+        ],
+        "recorded_verdict": "FAIL",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [
+          "critic-stale:security"
+        ],
+        "replayed_verdict": "FAIL",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "parseport.py",
+        "test_parseport.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "honest",
+      "counts": true,
+      "dir": "tests/corpus/honest/before-t3-b",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            1,
+            [
+              [
+                "critic_correctness.json",
+                1
+              ],
+              [
+                "critic_code_quality.json",
+                1
+              ],
+              [
+                "critic_security.json",
+                1
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED",
+            "REFINE",
+            "CODED",
+            "VERIFIED"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "honest/before-t3-b",
+      "kind": "recorded-run",
+      "label": "before-t3-b",
+      "meta": {
+        "final_stage": "OUTPUT",
+        "n_evaluations_performed": 2,
+        "n_evaluations_replayed": 1,
+        "rc": 0,
+        "refine_passes": 1,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion 'test_parseport.py contains unit tests covering the rejected cases'; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC2",
+          "location": "success_criteria[2]",
+          "severity": "MEDIUM"
+        },
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC3",
+          "location": "success_criteria[3]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [],
+        "basis": "complete",
+        "divergent": false,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [],
+        "replayed_verdict": "OK",
+        "schema_errors": []
+      },
+      "replay_divergent": false,
+      "scope_paths": [
+        "parseport.py",
+        "test_parseport.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    },
+    {
+      "arm": "interrupted",
+      "counts": false,
+      "dir": "tests/corpus/interrupted/after-t3-a",
+      "emitters": {
+        "critic-missing": {
+          "dimension": [
+            "critic_code_quality.json",
+            "critic_correctness.json",
+            "critic_security.json"
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-schema": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "critic-stale": {
+          "dimension": [
+            1,
+            [
+              [
+                "critic_correctness.json",
+                0
+              ],
+              [
+                "critic_code_quality.json",
+                0
+              ],
+              [
+                "critic_security.json",
+                0
+              ]
+            ]
+          ],
+          "error": "",
+          "fired": true,
+          "reason": "",
+          "state": "measured"
+        },
+        "dimension-dissent": {
+          "dimension": [
+            [
+              "critic_correctness.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_code_quality.json",
+              [],
+              "OK",
+              false
+            ],
+            [
+              "critic_security.json",
+              [],
+              "OK",
+              false
+            ]
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "docs-naming": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "empty-diff": {
+          "dimension": [
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "evidence-incomplete": {
+          "dimension": [],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "out-of-scope": {
+          "dimension": [
+            0
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "runcheck": {
+          "dimension": [
+            true,
+            true,
+            true
+          ],
+          "error": "",
+          "fired": false,
+          "reason": "",
+          "state": "measured"
+        },
+        "stale-verdict": {
+          "dimension": [
+            "INIT",
+            "INTENT_CAPTURED",
+            "TRIAGED",
+            "GROUNDED",
+            "CODED",
+            "VERIFIED",
+            "REFINE"
+          ],
+          "error": "",
+          "fired": true,
+          "reason": "",
+          "state": "measured"
+        }
+      },
+      "errors": [],
+      "id": "interrupted/after-t3-a",
+      "kind": "recorded-run",
+      "label": "after-t3-a",
+      "meta": {
+        "final_stage": "REFINE",
+        "n_evaluations_performed": 2,
+        "n_evaluations_replayed": 1,
+        "rc": 143,
+        "refine_passes": 1,
+        "tree_paths_state": "measured"
+      },
+      "ownership_token": null,
+      "passthrough": [
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion 'test_parseport.py contains unit tests for the rejected cases'; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC3",
+          "location": "success_criteria[3]",
+          "severity": "MEDIUM"
+        },
+        {
+          "category": "REQUIREMENTS-COVERAGE",
+          "fix": "No diff token overlaps criterion \"python3 -m unittest discover -s . -p 'test_*.py' passes\"; confirm it is implemented (advisory \u2014 the CORRECTNESS critic must close this).",
+          "id": "RC4",
+          "location": "success_criteria[4]",
+          "severity": "MEDIUM"
+        }
+      ],
+      "recompute": {
+        "added_blocking_ids": [
+          "critic-stale:code-quality",
+          "critic-stale:correctness",
+          "critic-stale:security",
+          "stale-verdict"
+        ],
+        "basis": "complete",
+        "divergent": true,
+        "recorded_blocking_ids": [],
+        "recorded_verdict": "OK",
+        "removed_blocking_ids": [],
+        "replayed_blocking_ids": [
+          "critic-stale:code-quality",
+          "critic-stale:correctness",
+          "critic-stale:security",
+          "stale-verdict"
+        ],
+        "replayed_verdict": "FAIL",
+        "schema_errors": []
+      },
+      "replay_divergent": true,
+      "scope_paths": [
+        "parseport.py",
+        "test_parseport.py"
+      ],
+      "supplies": [
+        "evidence-incomplete",
+        "runcheck",
+        "docs-naming",
+        "empty-diff",
+        "out-of-scope",
+        "dimension-dissent",
+        "critic-stale",
+        "stale-verdict",
+        "critic-missing",
+        "critic-schema"
+      ]
+    }
+  ],
+  "mechanisms": {
+    "critic-missing": [],
+    "critic-schema": [],
+    "critic-stale": [
+      {
+        "counter_argument": "true-positive: equally consistent with what is on disk, an unsigned security lens means the change genuinely was not verified, the CRITICAL is warranted, and the real defect is a brittle output contract upstream. Under this reading the manufactured-RED count for this corpus is 0, not 1",
+        "derivation": "evidence-plumbing: critic_security.json is stamped pass=0 while the other two advanced to pass=1, and the transcript says the pass-1 security review ran clean and failed a bare-JSON output contract four times, so its judgment was never persisted",
+        "item": "honest/before-t3-a",
+        "mechanism": "CONTESTED"
+      }
+    ],
+    "dimension-dissent": [],
+    "docs-naming": [],
+    "empty-diff": [],
+    "evidence-incomplete": [],
+    "out-of-scope": [
+      {
+        "counter_argument": "an unreviewed file inside the executed tree is real unverified surface; out_of_scope_defects' own docstring adjudicates this as the correct terminal state",
+        "derivation": "every path this emitter flagged is recorded by the item as PRE-EXISTING (NOTES.md, data/download.csv, docs/notes.md); the file the coder actually wrote (src/calc.py) is not among them, so the match is wider than the change",
+        "item": "dirty/changelog-50-57",
+        "mechanism": "over-wide-match"
+      }
+    ],
+    "runcheck": [],
+    "stale-verdict": []
+  },
+  "passthrough": {
+    "blocking": 0,
+    "counts_toward_prediction": false,
+    "defects": 12,
+    "ids": [
+      "RC2",
+      "RC3",
+      "RC4"
+    ],
+    "items_carrying_them": 8,
+    "note": "NOT this emitter's fire and NOT in the denominator"
+  },
+  "prediction": {
+    "ceiling": "this metric can see at most 3 of the 8 recorded injections \u2014 3 are fail-opens (silences) and 2 are template-payload defects; see the failopen arm",
+    "counting_arms": [
+      "honest",
+      "historical",
+      "dirty"
+    ],
+    "denominator": 10,
+    "fired": [
+      "critic-stale",
+      "out-of-scope"
+    ],
+    "observed": 2,
+    "observed_excluding_priors": 0,
+    "priors": [
+      "out-of-scope",
+      "critic-stale"
+    ],
+    "scope": "3 independent tasks, 1 repository, 1 orchestrator, 1 model, 1 day; twelve items is not twelve observations, and this cannot produce a false-RED rate",
+    "source": "roadmap Phase 1, carried verbatim and evaluated verbatim",
+    "statement": "at least 3 of the 10 predicates fire on the honest corpus",
+    "threshold": 3,
+    "varying_denominator": 3,
+    "varying_emitters": [
+      "critic-stale",
+      "out-of-scope",
+      "stale-verdict"
+    ],
+    "verdict": "FALSIFIED",
+    "void_below_varying": 3
+  },
+  "report_only": true,
+  "rows": {
+    "critic-missing": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[\"critic_code_quality.json\", \"critic_correctness.json\", \"critic_security.json\"]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "critics_missing_defects",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "critic-schema": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "merge_and_validate",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "critic-stale": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[0, [[\"critic_correctness.json\", 0], [\"critic_code_quality.json\", 0], [\"critic_security.json\", 0]]]",
+        "[1, [[\"critic_correctness.json\", 1], [\"critic_code_quality.json\", 1], [\"critic_security.json\", 0]]]",
+        "[1, [[\"critic_correctness.json\", 1], [\"critic_code_quality.json\", 1], [\"critic_security.json\", 1]]]"
+      ],
+      "errors": [],
+      "fire_count": 1,
+      "fires": [
+        "honest/before-t3-a"
+      ],
+      "function": "critics_stale_defects",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": true,
+      "state": "SILENT+1",
+      "supply": 3,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "dimension-dissent": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[[\"critic_correctness.json\", [], \"OK\", false], [\"critic_code_quality.json\", [], \"OK\", false], [\"critic_security.json\", [], \"OK\", false]]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "dimension_dissent_defects",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "docs-naming": {
+      "counting_arm_items": 15,
+      "distinct_dimension_values": [
+        "[true]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "synth_docs",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57"
+      ]
+    },
+    "empty-diff": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[true]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "empty_diff_defect",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "evidence-incomplete": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "script_defects_from",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "out-of-scope": {
+      "counting_arm_items": 15,
+      "distinct_dimension_values": [
+        "[0]",
+        "[3]"
+      ],
+      "errors": [],
+      "fire_count": 1,
+      "fires": [
+        "dirty/changelog-50-57"
+      ],
+      "function": "out_of_scope_defects",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": true,
+      "state": "SILENT+1",
+      "supply": 2,
+      "unmeasured_items": [
+        "honest/before-t1-a"
+      ]
+    },
+    "ownership-nonce": {
+      "blocks": false,
+      "caveat": "these runs pre-date the R1 proposal, so this is a BASELINE and not a false-RED rate; what it does establish is that R1 promoted to a blocking predicate today would refuse every item in this corpus",
+      "counts_toward_prediction": false,
+      "implemented": false,
+      "kind": "runtime-observation",
+      "observation": "scripts/ctxstore.py issues no .atlas-owner at HEAD, so every recorded run is unowned",
+      "roadmap_id": "R1",
+      "runs_carrying_a_token": 0,
+      "runs_examined": 12,
+      "runtime_source": "scripts/ctxstore.py",
+      "runtime_source_readable": true,
+      "source": "scripts/ctxstore.py (text) + the recorded-run items' own directories",
+      "title": "ownership nonce (.atlas-owner)"
+    },
+    "recompute-delta": {
+      "blocks": false,
+      "caveat": "a divergence is not proof the run was wrong: the replay evaluates the TERMINAL pass only, and the pass-1 evaluations that forced a refine were overwritten in place",
+      "counts_toward_prediction": false,
+      "divergent_items": [
+        "interrupted/after-t3-a"
+      ],
+      "items_compared": 12,
+      "kind": "runtime-observation",
+      "observation": "1 of 12 replayed items disagree with their recorded verdict",
+      "partial_basis_items": [
+        "honest/before-t1-a"
+      ],
+      "roadmap_id": "R2",
+      "source": "each item's recorded merged_critic.json vs the replayed fold",
+      "title": "recompute-at-print delta"
+    },
+    "runcheck": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[true, true, true]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "synth_runcheck",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "CONSTANT",
+      "supply": 1,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    },
+    "stale-verdict": {
+      "counting_arm_items": 11,
+      "distinct_dimension_values": [
+        "[\"INIT\", \"INTENT_CAPTURED\", \"TRIAGED\", \"GROUNDED\", \"CODED\", \"VERIFIED\", \"REFINE\", \"CODED\", \"VERIFIED\"]",
+        "[\"INIT\", \"INTENT_CAPTURED\", \"TRIAGED\", \"GROUNDED\", \"CODED\", \"VERIFIED\"]"
+      ],
+      "errors": [],
+      "fire_count": 0,
+      "fires": [],
+      "function": "stale_verdict_defects",
+      "in_denominator": true,
+      "kind": "floorsynth-emitter",
+      "prior": false,
+      "state": "SILENT",
+      "supply": 2,
+      "unmeasured_items": [
+        "dirty/changelog-50-57",
+        "historical/v1.4.0..v1.5.0",
+        "historical/v1.5.0..v1.5.1",
+        "historical/v1.5.1..v1.5.2",
+        "historical/v1.5.2..v1.5.2.1"
+      ]
+    }
+  },
+  "schema": "predcov-report/1",
+  "second_measure": [
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 39130,
+      "injections": 1,
+      "injections_state": "inherited",
+      "predicate_delta": 6,
+      "predicates": 6,
+      "range": "v1.4.0..v1.5.0",
+      "whole_diff_bytes": 464501
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 32139,
+      "injections": 0,
+      "injections_state": "inherited",
+      "predicate_delta": 0,
+      "predicates": 6,
+      "range": "v1.5.0..v1.5.1",
+      "whole_diff_bytes": 191917
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 62667,
+      "injections": 7,
+      "injections_state": "inherited",
+      "predicate_delta": 4,
+      "predicates": 10,
+      "range": "v1.5.1..v1.5.2",
+      "whole_diff_bytes": 320618
+    },
+    {
+      "bytes_state": "measured",
+      "code_diff_bytes": 45243,
+      "injections": null,
+      "injections_state": "unaudited",
+      "predicate_delta": 0,
+      "predicates": 10,
+      "range": "v1.5.2..v1.5.2.1",
+      "whole_diff_bytes": 273187
+    }
+  ]
+}

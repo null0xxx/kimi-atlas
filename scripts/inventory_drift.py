@@ -60,9 +60,13 @@ EXCLUDED_BASENAMES: frozenset[str] = frozenset({"SKILL.md"})
 # git-ignored SDD tooling workspace (task briefs, implementer reports, the
 # progress ledger) and ``.atlas`` is the git-ignored atlas run-ledger workspace
 # (state.json, plan.md, diffs, critic JSONs written by a live run) — their
-# ``.md`` files are scratch, never tracked documentation.
+# ``.md`` files are scratch, never tracked documentation. ``.atl`` is the same
+# category, owned by a third party: the gentle-ai toolchain writes a 57 KB
+# ``skill-registry.md`` plus its cache into every repo it is initialised in.
+# All four are git-ignored generated scratch, so scanning them would fail the
+# gate on a file no human authored and no doc could reasonably link.
 _SKIP_SEGMENTS: frozenset[str] = frozenset(
-    {".git", "__pycache__", "node_modules", ".superpowers", ".atlas"}
+    {".git", "__pycache__", "node_modules", ".superpowers", ".atlas", ".atl"}
 )
 
 # Markdown inline-link target: the URL/path inside ``](...)``.

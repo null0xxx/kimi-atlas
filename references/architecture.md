@@ -11,7 +11,7 @@ On medium/large tasks the root agent's context fills with research, design, code
 kimi-atlas is a **no-patch overlay elevated to a real plugin**. It changes nothing in the Kimi binary; it uses only verified extension points — the `Agent` tool with built-in `coder`/`explore`/`plan` subagents, skills, hooks, on-disk state, and manifest registration — to add:
 
 1. **A root SKILL orchestrator** running a deterministic state machine (`INIT → INTENT_CAPTURED → [CLARIFY] → TRIAGED → GROUNDED → CODED → VERIFIED → [REFINE]* → OUTPUT`). It holds immutable intent, delegates, and does all synthesis and persistence inline. It never spawns nested subagents (they cannot).
-2. **Role files** (`agents/*.md`) prepended to built-in subagents — the only supported "custom agent" mechanism.
+2. **Role files** (`agents/*.md`) handed to built-in subagents **by reference** — the subagent reads its own role file; the root never loads one. This is the only supported "custom agent" mechanism.
 3. **A deterministic quality backbone** (`scripts/`) that owns the pass/fail decision as pure functions — never trusting the LLM for what code can check.
 4. **A 6-lens verification harness** (3 isolated `plan` critics + 3 deterministic gates) that must be green before "done".
 5. **On-disk state** (`ctxstore`) so the plan, ledger, and intent survive compaction, plus a `sessionStart` resume instruction.

@@ -1,0 +1,21 @@
+{
+  "branch_line": 602,
+  "branch_source": "if name in present:",
+  "derivation": "The membership branch over CRITIC_ARTIFACTS. Both arms supply THREE loaded names, so a rule counting the list rather than matching the artifact names scores them identically; the firing arm's third name is one character off, which is what an artifact that failed to load looks like from here.",
+  "emitter": "critic-missing",
+  "fires": {
+    "loaded_critics": [
+      "critic_correctness.json",
+      "critic_code_quality.json",
+      "critic_securty.json"
+    ]
+  },
+  "function": "critics_missing_defects",
+  "silent": {
+    "loaded_critics": [
+      "critic_correctness.json",
+      "critic_code_quality.json",
+      "critic_security.json"
+    ]
+  }
+}

@@ -29,12 +29,20 @@ This skill runs natively on **Kimi Code v0.23.5** (authored against it; **revali
    `SetTodoList`, `Think`, or `SendDMail` — those are fabricated and banned. Script calls run
    through **`Bash`**; the user is asked through **`AskUserQuestion`**; subagents are dispatched
    through **`Agent`**.
-2. **Role-file dispatch (read → strip → prepend).** kimi-atlas ships no custom subagent runtime.
-   For every subagent you (1) **`Read`** `${KIMI_SKILL_DIR}/../../agents/<role>.md`, (2) **strip
-   its YAML frontmatter** (the `tools:`/`model:` there are documentation only), (3) **prepend the
-   remaining body** to the task packet, (4) call `Agent(subagent_type=<mapped built-in>,
-   prompt=<role body + packet>)`. Mapping: `context-scout → explore`, `elite-coder → coder`,
-   every critic `→ plan`. Real permissions come **only** from the built-in type.
+2. **Role-file dispatch (BY REFERENCE — you never open the role file).** kimi-atlas ships no
+   custom subagent runtime. For every subagent you call
+   `Agent(subagent_type=<mapped built-in>, prompt=<role reference + packet>)`, where the prompt
+   **opens** with this line and nothing before it:
+   > *Your role is defined in `${KIMI_SKILL_DIR}/../../agents/<role>.md`. `Read` that file as
+   > your first act, strip its YAML frontmatter, and follow its body as your role for this
+   > task. Do not begin the packet below until you have done so.*
+
+   Then the task packet. Mapping: `context-scout → explore`, `elite-coder → coder`, every critic
+   `→ plan`. Real permissions come **only** from the built-in type.
+   **You (the root) do not `Read` the role file, and never paste a role body into a prompt.** Every
+   dispatched subagent has `Read`; the body reaches it once, in its own short-lived context, instead
+   of sitting resident in yours and being re-emitted on every pass. The `tools:`/`model:` frontmatter
+   is documentation only, which is why the subagent strips it.
 3. **Read-only subagents persist nothing (F2).** `explore` and `plan` have no `Write`/`Edit`, so
    the scout and every critic **RETURN their JSON as their final message and write no file**. YOU
    (the root, which has `Write`+`Bash`) persist everything via `ctxstore`.
@@ -286,10 +294,12 @@ refine-pass counter).
 - → After that call returns, proceed immediately to **GROUNDED**.
 
 ### GROUNDED
-- **Dispatch `context-scout`** via `Agent(subagent_type="explore", …)`: first `Read`
-  `${KIMI_SKILL_DIR}/../../agents/context-scout.md`, strip its frontmatter, prepend the body, then
-  append the packet (intent, repo root = cwd, `scope_paths`, and a max-files cap, e.g. 40 for a
-  small repo). The scout is **read-only and cannot write**, so it **returns a grounding digest as
+- **Dispatch `context-scout`** via `Agent(subagent_type="explore", …)`: the prompt opens with the
+  role reference — *"Your role is defined in `${KIMI_SKILL_DIR}/../../agents/context-scout.md`.
+  `Read` that file as your first act, strip its YAML frontmatter, and follow its body as your role
+  for this task."* — and then carries the packet (intent, repo root = cwd, `scope_paths`, and a
+  max-files cap, e.g. 40 for a small repo). **You do not read that file yourself.** The scout is
+  **read-only and cannot write**, so it **returns a grounding digest as
   its final message** (shape in its role file: `relevant_files` / `conventions` / `constraints` /
   `entry_points` / `conflicts` / `untrusted_excerpts` / `index`) — **you persist it**.
 - Parse the returned text as JSON. If it is not valid JSON, **retry the scout once** asking for a
@@ -437,8 +447,10 @@ Then branch on the run mode:
 ### CODED
 - **Memory guard:** before spawning, confirm ≥3 GB `available` (`free -m`); if tight, wait/serialize
   (never exceed 3 concurrent agents — here peak is orchestrator + 1 coder).
-- **Dispatch `elite-coder`** via `Agent(subagent_type="coder", …)`: `Read`
-  `${KIMI_SKILL_DIR}/../../agents/elite-coder.md`, strip frontmatter, prepend the body, then append
+- **Dispatch `elite-coder`** via `Agent(subagent_type="coder", …)`: the prompt opens with the role
+  reference — *"Your role is defined in `${KIMI_SKILL_DIR}/../../agents/elite-coder.md`. `Read` that
+  file as your first act, strip its YAML frontmatter, and follow its body as your role for this
+  task."* — and then carries
   the **full task packet** (frozen intent, `success_criteria`, `scope_paths`, `verify_cmd`,
   `debug_tokens`, `test_glob`, and the persisted **`review_root`** — the coder's **only** writable
   root, which it must stay strictly inside: `.` interactive, the isolated worktree/sandbox headless.
@@ -530,6 +542,21 @@ from scripts import ctxstore, difftool, langfloor, runcheck
 run = "${KIMI_SESSION_ID}"
 st = ctxstore.get_state(".atlas", run)
 review_root = (ctxstore.read_artifact(".atlas", run, "review_root") or ".").strip() or "."
+# E-1 -- BASELINE RESOLVABILITY, established BEFORE the evidence is taken.
+# difftool.capture never raises: if the baseline does not resolve, every _tracked_at probe
+# returns False and the whole tracked-modification channel is silently DROPPED. The diff then
+# holds none of the coder's edits to tracked files -- yet stays NON-empty if it also created one
+# new file, so empty_diff_defect cannot see it, while runcheck still executes the modified tree.
+# Six lenses would review a diff containing none of the work and the run could print a green.
+# This adds NO new blocking predicate and NO new terminal: git_tree_has_baseline is already
+# computed downstream (Step 4+5) and this routes to the could-not-verify terminal that already
+# exists. The condition is deliberately narrow -- SKILL.md:200 records baseline_sha as "" when
+# the target is not a repo, so a non-repo and a repo with no baseline are both SILENT; only a
+# RECORDED baseline that fails to resolve fires. Probed against all five cases before shipping.
+_baseline = (st.get("baseline_sha") or "").strip()
+if _baseline and not difftool.git_tree_has_baseline(review_root, _baseline):
+    print("BASELINE_UNRESOLVABLE=" + _baseline)
+    raise SystemExit(3)
 # scope_paths are relative to review_root; baseline_sha resolves inside a worktree
 # because it shares the parent repo's object DB.
 diff = difftool.capture(st["baseline_sha"], st["scope_paths"], review_root)
@@ -563,6 +590,19 @@ ctxstore.write_artifact(".atlas", run, "test_files.json", test_files)
 print("DIFF_BYTES=%d CHANGED=%d TESTS=%d" % (len(diff), len(changed_files), len(test_files)))
 PY
 ```
+
+> **If that block printed `BASELINE_UNRESOLVABLE=<sha>` (exit 3), STOP VERIFIED HERE.** A baseline
+> was recorded but does not resolve in `review_root`, so **no diff taken against it can be trusted
+> to be complete** — `difftool.capture` degrades silently, and a diff that is merely non-empty is
+> not evidence that it is whole. Do **not** run the lenses on it; a lens that reviews an incomplete
+> diff and finds nothing produces a green that cannot be substantiated, which is the one outcome
+> THE ONE GUARANTEE forbids. Go straight to **OUTPUT**:
+> `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","OUTPUT", verdict="UNVERIFIED", budget_exhausted=True)`
+> and print `⚠️ UNVERIFIED`, telling the human plainly that the recorded baseline no longer resolves
+> (a deleted branch or pruned worktree is the ordinary cause) and that **re-running against a
+> resolvable baseline is the whole remedy**. This is the **existing** could-not-verify terminal
+> (§Completion Invariant, `budget_exhausted`) — it is not a new defect id, not a new gate condition,
+> and it never appears in `merged_critic.json`.
 
 **Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`** (mem-guarded before `runcheck`). Collect
 their defects into `det_evidence.json` — the evidence the judgment critics also receive:
@@ -657,8 +697,12 @@ PY
 ≥3 GB, dispatch all THREE concurrently as one wave (≤3 — the cap); else DOWNGRADE to sequential**
 (one critic, wait, next). Never exceed 3 concurrent agents. For **each** critic — correctness
 (→CORRECTNESS lens 1), code-quality (→CODE-QUALITY lens 2), security (→SECURITY lens 3):
-1. `Read` `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md` and **strip its YAML frontmatter**.
-2. **Prepend the body**, then append the **isolated packet — ONLY**: `{frozen intent +
+1. Open the prompt with the role reference — *"Your role is defined in
+   `${KIMI_SKILL_DIR}/../../agents/<lens>-critic.md`. `Read` that file as your first act, strip its
+   YAML frontmatter, and follow its body as your role for this task."* **You do not read it
+   yourself**, and a critic reads **only its own** lens file — invariant 9 (critic isolation) binds
+   the reference exactly as it bound the pasted body.
+2. Then the **isolated packet — ONLY**: `{frozen intent +
    success_criteria, the captured `diff.patch`, that critic's single rubric lens from
    `${KIMI_SKILL_DIR}/../../references/rubric.md`, the relevant slice of `det_evidence.json`}`. Hand over **nothing else**
    (no orchestrator state, no other critic's output) — isolation is prompt-level (F6), it buys
@@ -672,7 +716,8 @@ PY
      floor is fail-open), say so explicitly so the critic knows the deterministic floor caught
      nothing and this lens rests on its own reading. Either way the SECURITY critic **still runs** —
      SAST augments the judgment eye, it never replaces it.
-3. Call `Agent(subagent_type="plan", prompt=<role body + packet>[, temperature=<distinct>])`. **Per
+3. Call `Agent(subagent_type="plan", prompt=<role reference + packet>[, temperature=<distinct>])`
+   — the reference from step 1, never a body: you do not open the role file (§2). **Per
    V5, set a DISTINCT temperature per lens if the `Agent` tool exposes one** (suggested: correctness
    `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
    already baked into each role file carries the diversity.**
@@ -1071,6 +1116,16 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
       "import json,sys; from scripts import contextgraph; g=contextgraph.project('.atlas','${KIMI_SESSION_ID}'); sys.stdout.write('[!] tool-use completeness: PARTIAL - dispatched stage(s) with no recorded tool_call marker: '+', '.join(g['partial_stages'])) if g.get('used_tools')=='PARTIAL' else None" \
       2>/dev/null || true    # empty/unreadable graph -> no line; the summary still ships
     ```
+  - **Predicate coverage (informational, NEVER a gate).** Add ONE line to the summary, AFTER
+    `status` is computed above, printed verbatim on every run as a **fixed literal**:
+    `predicate coverage: not measured for this run — the deterministic floor's blocking predicates
+    all execute here, but how often they fire on honest input is measured out of band, against a
+    recorded corpus, in the kimi-atlas repository itself; a silent floor is therefore not by itself
+    evidence that a predicate would have caught anything.` It reads **NO file** — not the ledger,
+    not the reviewed tree, not any record in either repository — interpolates nothing, computes
+    **NO** pass/fail, and adds **NO** key to `gate_results`. That constraint is the substance of the
+    line, not decoration: anything read here would enter the orchestrator's context on the very turn
+    it prints the verdict, which is exactly the class of defect this floor exists to close.
 - **Do NOT auto-apply** any change to a real tree.
   - **Interactive:** after the block, call `AskUserQuestion` — Apply / Refine further / Discard —
     **before any merge**. (Sanctioned pause 3.) Never merge without an explicit answer. If a

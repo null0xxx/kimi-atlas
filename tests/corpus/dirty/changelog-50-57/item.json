@@ -1,0 +1,23 @@
+{
+  "arm": "dirty",
+  "changed_paths_file": "tree.paths",
+  "coder_authored": "src/calc.py",
+  "documented_expectation": "three HIGH CORRECTNESS defects still emit, both refine passes still burn, and the run still ends UNVERIFIED on a tree where nobody did anything wrong",
+  "expectation_sources": [
+    "CHANGELOG.md:48-57",
+    "tests/test_v1521_regressions.py:752",
+    "scripts/floorsynth.py::out_of_scope_defects docstring (H2)"
+  ],
+  "kind": "documented-shape",
+  "note": "documented independently of this fixture; the fixture derives no expectation from the thing it pins",
+  "pre_existing": [
+    "NOTES.md",
+    "data/download.csv",
+    "docs/notes.md"
+  ],
+  "review_root_shape": ".",
+  "scope_paths": [
+    "src"
+  ],
+  "source": "CHANGELOG.md:48-57 + tests/test_v1521_regressions.py:752"
+}

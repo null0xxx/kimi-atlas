@@ -1,0 +1,29 @@
+{
+  "branch_line": 454,
+  "branch_source": "fresh = (stamp == current_pass) if stamp is not ... else (current_pass == 0)",
+  "derivation": "The currency comparison itself. Both arms carry a STAMPED critic at the same current_pass=1 and differ in one integer, so neither the no-stamp back-compat branch nor the pass-0 carve-out decides either arm.",
+  "emitter": "critic-stale",
+  "fires": {
+    "current_pass": 1,
+    "loaded_map": {
+      "critic_correctness.json": {
+        "defects": [],
+        "dimensions": {},
+        "pass": 0,
+        "verdict": "OK"
+      }
+    }
+  },
+  "function": "critics_stale_defects",
+  "silent": {
+    "current_pass": 1,
+    "loaded_map": {
+      "critic_correctness.json": {
+        "defects": [],
+        "dimensions": {},
+        "pass": 1,
+        "verdict": "OK"
+      }
+    }
+  }
+}

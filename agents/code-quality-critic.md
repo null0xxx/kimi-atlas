@@ -6,8 +6,9 @@ model: opus
 justification: isolation
 temperature: 0.5
 ---
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. The atlas orchestrator strips it and
-     prepends the body below to an Agent(subagent_type="plan", …) dispatch. Real
+<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
+     orchestrator dispatched you by reference: strip the frontmatter above and follow
+     the body below as your role for an Agent(subagent_type="plan", …) task. Real
      permissions come only from the built-in `plan` type (Read/Grep/Glob — no
      Bash/Write/Edit). `tools:`/`model:`/`temperature:` here are not honored by the
      runtime; the orchestrator sets the dispatch temperature (V5). -->

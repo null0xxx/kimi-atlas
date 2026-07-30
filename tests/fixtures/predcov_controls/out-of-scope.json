@@ -1,0 +1,27 @@
+{
+  "branch_line": 327,
+  "branch_source": "if any(path == s or path.startswith(s + \"/\") for s in scopes):",
+  "derivation": "The containment branch, reached only after _is_residue() declines the path. Both arms pass one changed path and one scope; they differ only in whether that path is under that scope. docs/notes.md is the shape CHANGELOG.md:50-57 records as an honest false RED, and it is not residue.",
+  "emitter": "out-of-scope",
+  "fires": {
+    "full_paths": [
+      "docs/notes.md"
+    ],
+    "st": {
+      "scope_paths": [
+        "scripts"
+      ]
+    }
+  },
+  "function": "out_of_scope_defects",
+  "silent": {
+    "full_paths": [
+      "scripts/predcov.py"
+    ],
+    "st": {
+      "scope_paths": [
+        "scripts"
+      ]
+    }
+  }
+}

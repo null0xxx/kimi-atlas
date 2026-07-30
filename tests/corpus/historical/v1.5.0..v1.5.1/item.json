@@ -1,0 +1,44 @@
+{
+  "arm": "historical",
+  "base": "v1.5.0",
+  "changed_md": [
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "PLAN.md",
+    "README.md",
+    "agents/context-scout.md",
+    "docs/superpowers/plans/2026-07-25-syspath-hijack-v151-plan.md",
+    "references/kimi-runtime.md",
+    "references/orchestration.md",
+    "references/system-map.md",
+    "skills/atlas-resume/SKILL.md",
+    "skills/atlas-weave/SKILL.md",
+    "skills/atlas/SKILL.md"
+  ],
+  "changed_path_count": 23,
+  "changed_paths_file": "tree.paths",
+  "diff_evidence": {
+    "file": "diff.numstat",
+    "full_diff_bytes": 191917,
+    "full_diff_sha256": "29e25da9940ef9b9d196230e346e3e584199a4c5dc5d080aa94d01a1cc947a20",
+    "kind": "numstat-summary",
+    "not_the_full_patch": true,
+    "reproduce_full_patch": "git diff v1.5.0..v1.5.1"
+  },
+  "docs_check": "scripts/check_artifact_naming.py::check_file(root, rel) over changed_md",
+  "kind": "release-interval",
+  "range": "v1.5.0..v1.5.1",
+  "scope_paths": [
+    "."
+  ],
+  "second_measure": {
+    "code_diff_bytes": 32139,
+    "code_dirs": [
+      "scripts",
+      "skills"
+    ],
+    "whole_diff_bytes": 191917
+  },
+  "source": "git tags in this repository",
+  "tip": "v1.5.1"
+}

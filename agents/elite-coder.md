@@ -5,9 +5,10 @@ tools: Bash, Read, ReadMediaFile, Glob, Grep, Write, Edit, WebSearch, FetchURL
 model: sonnet
 justification: implementation
 ---
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. The atlas orchestrator strips it and
-     prepends the body below to an Agent(subagent_type="coder", …) dispatch, followed
-     by the task packet. Real permissions come only from the built-in `coder` type.
+<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
+     orchestrator dispatched you by reference: strip the frontmatter above and follow
+     the body below as your role for an Agent(subagent_type="coder", …) task; the task
+     packet follows in your dispatch prompt. Real permissions come only from the built-in `coder` type.
      `tools:`/`model:` here are not honored by the runtime. -->
 
 # elite-coder

@@ -1,0 +1,34 @@
+{
+  "build_command": "python3 -m scripts.corpusbuild --failopen --corpus tests/corpus",
+  "built_utc": "2026-07-27T00:59:51Z",
+  "items": [
+    {
+      "bytes": 1213,
+      "kind": "authored:documented-fail-open",
+      "name": "item.json",
+      "sha256": "fbc709f46f35874cd305d381f32f5bb1fee5d2fc9ae9b2761d396e30ba6604ef",
+      "source": "CHANGELOG.md:356; scripts/floorsynth.py::script_defects_from docstring (MANDATORY_FLAG_KEYS)"
+    },
+    {
+      "bytes": 1153,
+      "kind": "authored:documented-fail-open",
+      "name": "item.json",
+      "sha256": "ac62ba100a8b957ee1f3c59f509631610a5dcfed568c7ca2a0ea19c78c317c44",
+      "source": "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:120; scripts/floorsynth.py::stale_verdict_defects docstring (condition (c))"
+    },
+    {
+      "bytes": 1627,
+      "kind": "authored:documented-fail-open",
+      "name": "item.json",
+      "sha256": "36f7ef014984bcd10374aa03553d8b962c583fa6e96281ac6eb99d13198ca7c0",
+      "source": "docs/superpowers/plans/2026-07-26-v1521-hotfix-plan.md:97; scripts/quality.py::enforce_critic_schema"
+    }
+  ],
+  "rules": [
+    "AUTHORED inputs, never captured bytes \u2014 deliberately absent from manifest.json",
+    "every item cites its expectation in a file outside the fixture",
+    "this arm does NOT move the primary denominator",
+    "an emitter with no item here has NO DOCUMENTED fail-open; that is not zero"
+  ],
+  "schema": "predcov-failopen/1"
+}

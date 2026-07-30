@@ -1,0 +1,27 @@
+diff --git a/rangesum.py b/rangesum.py
+index cee8f83..07027ef 100644
+--- a/rangesum.py
++++ b/rangesum.py
+@@ -4,6 +4,6 @@
+ def range_sum(lo: int, hi: int) -> int:
+     """Return the sum of every integer from lo to hi INCLUSIVE."""
+     total = 0
+-    for n in range(lo, hi):        # BUG: excludes hi
++    for n in range(lo, hi + 1):
+         total += n
+     return total
+diff --git a/test_rangesum.py b/test_rangesum.py
+index 08ae041..ae3a32d 100644
+--- a/test_rangesum.py
++++ b/test_rangesum.py
+@@ -7,6 +7,10 @@ class TestRangeSum(unittest.TestCase):
+     def test_single_value(self):
+         self.assertEqual(range_sum(3, 3), 3)
+ 
++    def test_inclusive_boundary(self):
++        self.assertEqual(range_sum(0, 0), 0)
++        self.assertEqual(range_sum(1, 3), 6)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

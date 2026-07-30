@@ -28,7 +28,7 @@ The read-only subagents have no `Write`/`Edit`, so they return their result as J
 
 ## Dispatch protocol
 
-For every subagent the orchestrator: (1) reads `${KIMI_SKILL_DIR}/../../agents/<role>.md`, (2) strips YAML frontmatter, (3) prepends the body to the task packet, (4) calls `Agent(subagent_type=<mapped type>, prompt=<role + packet>)`. Frontmatter `tools:`/`model:` are ignored — real permissions come only from the mapped built-in type.
+Dispatch is **by reference**: the orchestrator (1) opens the prompt with *"Your role is defined in `${KIMI_SKILL_DIR}/../../agents/<role>.md`. `Read` that file as your first act, strip its YAML frontmatter, and follow its body as your role for this task."*, (2) appends the task packet, (3) calls `Agent(subagent_type=<mapped type>, prompt=<reference + packet>)`. **The orchestrator never opens the role file itself** — the body reaches the subagent once, in its own short-lived context, instead of sitting resident in the root and being re-emitted on every pass. Frontmatter `tools:`/`model:` are ignored — real permissions come only from the mapped built-in type.
 
 ## Task packet (immutable intent)
 

@@ -1,0 +1,20 @@
+{
+  "dimensions": {
+    "CORRECTNESS": "yes",
+    "CODE-QUALITY": "yes",
+    "SECURITY": "yes",
+    "TEST-ADEQUACY": "yes",
+    "DOES-IT-RUN": "yes",
+    "REQUIREMENTS-COVERAGE": "yes"
+  },
+  "defects": [
+    {
+      "id": "Q1",
+      "category": "CODE-QUALITY",
+      "severity": "LOW",
+      "location": "test_slugify.py:15 `test_single_hyphen_between_words` (added hunk)",
+      "fix": "The assertion `assertNotIn(\"--\", slugify(\"a\\t \\n b\"))` states intent only by exclusion \u2014 it would also pass for output with zero hyphens. State the expected output directly, matching the assertEqual idiom of the neighboring tests: `self.assertEqual(slugify(\"a\\t \\n b\"), \"a-b\")`. Non-blocking clarity nit."
+    }
+  ],
+  "verdict": "OK"
+}

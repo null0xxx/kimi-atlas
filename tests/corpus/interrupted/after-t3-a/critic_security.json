@@ -1,0 +1,21 @@
+{
+  "dimensions": {
+    "CORRECTNESS": "yes",
+    "CODE-QUALITY": "yes",
+    "SECURITY": "yes",
+    "DOES-IT-RUN": "yes",
+    "REQUIREMENTS-COVERAGE": "yes",
+    "TEST-ADEQUACY": "yes"
+  },
+  "defects": [
+    {
+      "id": "S1",
+      "category": "SECURITY",
+      "severity": "MEDIUM",
+      "location": "parseport.py:9 `port = int(text)`",
+      "fix": "The deterministic semgrep SAST floor caught nothing (sast_defects = []), so this rests on my own reading of the diff. No injection sink, secret, unsafe filesystem path, or untrusted-content-as-instructions flow exists in the change \u2014 the only external input is `text`, which flows solely into `int()` and a range comparison. However, `int(text)` is looser than the frozen intent's 'reject non-numeric input': it silently accepts non-digit forms such as underscore separators (`int(\"8_0\") == 80`), a leading `+` (`\"+80\"`), surrounding whitespace (`\" 8080 \"`), and non-ASCII Unicode decimal digits (e.g. Arabic-Indic `\"\u0668\u0660\u0668\u0660\"` \u2192 8080). If any caller or upstream validator assumes strict ASCII-digit input, these forms bypass that assumption \u2014 a defense-in-depth validation-looseness gap with no concrete exploit path in this isolated scope, hence MEDIUM not HIGH. Fix: gate on a strict check before conversion, e.g. `if not text.isascii() or not text.isdigit(): raise ValueError(...)` (or `re.fullmatch(r\"[0-9]+\", text)`), then apply the existing 1-65535 range check."
+    }
+  ],
+  "verdict": "OK",
+  "pass": 0
+}

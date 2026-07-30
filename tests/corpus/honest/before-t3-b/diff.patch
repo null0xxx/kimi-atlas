@@ -1,0 +1,70 @@
+diff --git a/parseport.py b/parseport.py
+index 18af19e..404507e 100644
+--- a/parseport.py
++++ b/parseport.py
+@@ -2,5 +2,10 @@
+ 
+ 
+ def parse_port(text: str) -> int:
+-    """Return the port as an int."""
+-    return int(text)
++    """Return the port as an int, or raise ValueError if invalid."""
++    if not isinstance(text, str) or not text.isascii() or not text.isdigit():
++        raise ValueError(f"port must be numeric, got {text!r}")
++    port = int(text)
++    if not 1 <= port <= 65535:
++        raise ValueError(f"port must be between 1 and 65535, got {port}")
++    return port
+diff --git a/test_parseport.py b/test_parseport.py
+index 4800ac7..dcbeff9 100644
+--- a/test_parseport.py
++++ b/test_parseport.py
+@@ -7,6 +7,48 @@ class TestParsePort(unittest.TestCase):
+     def test_parses_a_normal_port(self):
+         self.assertEqual(parse_port("8080"), 8080)
+ 
++    def test_accepts_boundary_ports(self):
++        self.assertEqual(parse_port("1"), 1)
++        self.assertEqual(parse_port("65535"), 65535)
++
++    def test_rejects_non_numeric_input(self):
++        for bad in ("abc", "", "8.0.8.0", "80.5", "0x50"):
++            with self.subTest(text=bad):
++                with self.assertRaises(ValueError):
++                    parse_port(bad)
++
++    def test_rejects_underscore_separated_digits(self):
++        with self.assertRaises(ValueError):
++            parse_port("1_000")
++
++    def test_rejects_unicode_digits(self):
++        with self.assertRaises(ValueError):
++            parse_port("٨٠٨٠")
++
++    def test_rejects_whitespace_padded_input(self):
++        with self.assertRaises(ValueError):
++            parse_port(" 8080 ")
++
++    def test_rejects_sign_prefixed_input(self):
++        with self.assertRaises(ValueError):
++            parse_port("+80")
++
++    def test_rejects_non_string_input(self):
++        with self.assertRaises(ValueError):
++            parse_port(None)
++
++    def test_rejects_port_below_range(self):
++        for bad in ("0", "-1", "-65535"):
++            with self.subTest(text=bad):
++                with self.assertRaises(ValueError):
++                    parse_port(bad)
++
++    def test_rejects_port_above_range(self):
++        for bad in ("65536", "100000", "9999999999"):
++            with self.subTest(text=bad):
++                with self.assertRaises(ValueError):
++                    parse_port(bad)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
