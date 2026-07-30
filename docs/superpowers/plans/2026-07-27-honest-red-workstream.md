@@ -5,8 +5,9 @@
 > `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md`, which remains valid as a *design* for
 > one half of the problem but was written before the measurements in §2 and §3 existed.
 
-**State at writing (2026-07-27):** branch `feat/phase0-packet-by-reference` @ `554b63a` · `make ci`
-EXIT 0 · 1682 tests · 40 tracked docs · working tree clean. Nothing in this document is built.
+**State at writing (2026-07-27; corrected 2026-07-30):** branch `feat/phase0-packet-by-reference` · `make ci`
+EXIT 0. Nothing in this document is built. §2 was corrected after a dual blind review; see the
+amendments dated 2026-07-30.
 
 ---
 
@@ -16,8 +17,15 @@ EXIT 0 · 1682 tests · 40 tracked docs · working tree clean. Nothing in this d
 to know is *"what did the coder change outside scope?"*. Those two questions differ by exactly two
 populations: **pre-existing user dirt (H2)** and **build output the verification run itself writes
 (R1)**. Both are honest REDs — the failure this project's governing rule calls *worse than the bug it
-closes*. R1 is the larger of the two and fires on the documented main path. Neither is closed. A
-third finding (§4) is independent of both and may be more urgent than either.
+closes*. Neither is closed. A third finding (§4) is independent of both and may be more urgent than
+either.
+
+> **AMENDED 2026-07-30.** This paragraph used to assert *"R1 is the larger of the two"*. That rested
+> on the 7-defect figure §2 has now withdrawn, and **the ranking does not survive the correction**:
+> both populations require a narrow `scope_paths`, and which one bites more often depends on facts
+> nobody here has measured — how often a user's tree is dirty versus how often a project's build
+> rewrites a tracked file. **No ordering between H2 and R1 is claimed.** §6 still lists R1 first,
+> now on the grounds that its remedy is far cheaper and shares §5's decision, not on frequency.
 
 ---
 
@@ -35,17 +43,29 @@ very test that would catch the bug — is executed but unreviewed. **Do not dele
 
 ---
 
-## 2. R1 — the run's own build output. THE LARGER PROBLEM. Not closed.
+## 2. R1 — the run's own build output. Real, narrower than first claimed. Not closed.
 
-**Measured, by execution:**
+**CORRECTED 2026-07-30 — the first version of this section overstated the blast radius, and
+both blind judges caught it independently.** It reported *"7 blocking HIGH"* from a list including
+coverage.xml, build.log and .env. That figure was obtained by calling `out_of_scope_defects`
+with a **constructed path list**, bypassing `difftool.change_paths` — which is exactly the weakness
+§7 already named as the weakest link here. Going through the real function changes the answer:
+`change_paths`' untracked channel is `git ls-files --others --exclude-standard`, which **honours
+`.gitignore`**, so in any project that ignores its build output those names never reach the lens.
+
+**Re-measured end to end** on a git repo whose `.gitignore` lists coverage.xml, build.log, .env,
+with a build that writes all three, adds a non-ignored junit-results.xml, and rewrites the tracked
+package-lock.json:
 
 ```
-out_of_scope_defects(['coverage.xml','build.log','junit-results.xml','pytest-report.json',
-                      'package-lock.json','go.sum','.env','src/a.py'], ['src'])
-  ->  7 blocking HIGH        on a perfectly CLEAN tree
+difftool.change_paths(baseline, tree)  ->  ['junit-results.xml', 'package-lock.json']
+out_of_scope_defects(those, ['src'])   ->  2 blocking HIGH
 ```
 
-`floorsynth._is_residue` returns **False** for every one of those.
+**So R1 is real but narrower than claimed.** What genuinely fires is (a) **tracked files the build
+rewrites** — package-lock.json, poetry.lock, *.snap, committed codegen — which the
+`git diff --name-only` channel reports regardless of any ignore rule, and (b) new files the project
+does not ignore. `floorsynth._is_residue` returns **False** for all of those.
 
 **The mechanism, verified by line number:** `runcheck.run` executes `verify_cmd` at
 `skills/atlas/SKILL.md:602`; `difftool.change_paths` re-derives the changed-path list at
@@ -95,8 +115,10 @@ designs were rejected outright.** Read it before re-opening the topic — it wil
 
 ### 3a. Why it is DEFERRED rather than built
 
-1. **It buys the smaller half.** H2 has **zero measured exposures** in 12 real runs; R1 fires in
-   11 of 11 evaluable runs but for the denylist.
+1. **It is the more expensive remedy, not the more valuable one.** H2 has **zero measured
+   exposures** in 12 real runs. R1's replay figure (11 of 11, with `_is_residue` stubbed) measures
+   the denylist's load, not R1's real-world rate. **Neither number ranks the two against each
+   other** — see the §0 amendment.
 2. **It pays with a trusted input that cannot be authenticated.** Measured by the panel: `id -u` is
    `0`, the coder carries `Bash`+`Write`+`Edit`, and path confinement in this system is **prose
    only** — from inside the isolated worktree, `echo … > ../snapshot.json` returns `rc=0`.
@@ -163,7 +185,7 @@ absent, unreadable, stale or mismatched record must fall back to current behavio
 | # | Item | Size | Why this order |
 |---|---|---|---|
 | **1** | **Settle §5** — where pre-coder/pre-build state lives, with the fail-to-RED rule | small, design | Both remedies block on it; deciding once unblocks both |
-| **2** | **R1** — derive the changed-path list **before** `runcheck`, persist per §5 | small | Largest honest-RED source; hits the documented main path; removes most of the denylist's load |
+| **2** | **R1** — derive the changed-path list **before** `runcheck`, persist per §5 | small | Cheapest remedy of the three, shares item 1's decision, and removes most of the denylist's load. **Not** ranked first on frequency — see the §0 amendment |
 | **3** | **S3** — name the auto-permission mode in `skills/atlas/SKILL.md` and make the mode deterministic | small–medium | Independent of both; today the run mode is decided by improvisation |
 | **4** | **`_RESIDUE_SEGMENTS`** — reconsider once §2 lands; much of its load disappears | small | It is a denylist against an open world and should not be the thing holding the predicate silent |
 | **5** | **H2** — build `docs/superpowers/plans/2026-07-27-h2-dirty-tree-plan.md` **only** if its revisit condition (§3a) is met | large | Smaller half; forgeable trusted input; plan preserved either way |
@@ -176,9 +198,13 @@ GREEN and that decision belongs to the owner, not to a work item.
 
 ## 7. What would make this document wrong
 
-- **If R1's 7-defect result does not reproduce** on a real project whose build writes to the tree,
-  §2 is overstated and item 2 drops in priority. It was measured on a constructed path list, not on
-  an end-to-end run — that is the weakest link here and it is stated as such.
+- **~~If R1's 7-defect result does not reproduce…~~ IT DID NOT, and §2 is corrected.** This section
+  named that figure as the weakest link because it came from a constructed path list rather than an
+  end-to-end run. A dual blind review found the same thing independently, and re-measuring through
+  `difftool.change_paths` gave **2**, not 7 — `--exclude-standard` honours `.gitignore`. R1 stays on
+  the list because the tracked-file half is untouched by any ignore rule, but it is a narrower
+  problem than this document first claimed. **The falsification worked; the claim was wrong; the
+  record is amended rather than defended.**
 - **If H2 is observed firing on a real user run**, §3a's deferral is wrong and item 5 moves up.
 - **If the 12-run corpus is a poor proxy** — and it is: 3 tiny tasks, 1 repository, 1 model, one
   afternoon, and `tests/corpus/` records **terminal evaluations only** — then every frequency claim
