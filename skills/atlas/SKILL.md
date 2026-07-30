@@ -1177,8 +1177,15 @@ CODED/VERIFIED/REFINE loop uses; it is `git`/ledger plumbing, never a new stage 
   PY
   ```
   If `missing` is non-empty, an earlier transition's `advance` was skipped. **Record the missing
-  mandatory key(s) only** (note them in the status / call `advance` for each) — do **NOT** re-execute
-  the stage's work: re-running CODED would mutate the diff after VERIFIED and void the gate.
+  mandatory key(s) only** — note them in the status — and do **NOT** re-execute the stage's work:
+  re-running CODED would mutate the diff after VERIFIED and void the gate.
+  **Never "repair" the gap by calling `advance` for the missing stage.** `ctxstore.advance` has one
+  mechanism, `st["current_state"] = stage`, so that call rewinds a terminated, human-gated run to a
+  non-terminal state and hands it back to the resume path — and it appends a ledger line out of
+  order, which `floorsynth.stale_verdict_defects` folds into a blocking CRITICAL at OUTPUT, after
+  REFINE, where nothing can remedy it. Measured: `current_state` `OUTPUT` → `GROUNDED`, the run
+  becomes resumable again, and the fold returns one `stale-verdict` CRITICAL. A missing key is a
+  reporting fact, never something to write over.
 - **Present the labelled STOP block** (this is the deliverable — never the raw diff):
   - Status header: **`✅ VERIFIED`** (status `OK`) or **`⚠️ UNVERIFIED`** (status `UNVERIFIED`).
   - If `⚠️ UNVERIFIED`: list the **residual blocking (CRITICAL/HIGH) defects** from
