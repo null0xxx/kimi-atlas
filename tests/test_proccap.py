@@ -339,12 +339,23 @@ class TestBoundedDrainAndScopeTeardown(unittest.TestCase):
     # kills the 45 s / unbounded defect by a wide margin.
     _WALL_BUDGET_S = 20
 
-    def _fixture_cmd(self, pidfile):
+    def _fixture_cmd(self, pidfile, via_systemd_run=False):
         # Backgrounds a setsid descendant that holds the inherited stdout pipe
         # open, then hangs the leader so the timeout path triggers.
+        #
+        # ``systemd-run``'s own command-line handling unescapes "$$" to a
+        # literal "$" (systemd.service(5)'s specifier syntax: "$$" is how a
+        # literal dollar sign survives, same as "%%" for a literal percent) —
+        # this happens BEFORE the wrapped shell ever runs, so a single literal
+        # "$$" meant for the shell's own PID variable never reaches it intact.
+        # Doubling to "$$$$" survives systemd's one round of unescaping and
+        # leaves a genuine "$$" for the shell to expand. Measured directly:
+        # ``systemd-run --user --scope -- sh -c 'echo $$'`` prints a bare "$";
+        # with "$$$$" it prints a real pid.
+        dollar_pid = "$$$$" if via_systemd_run else "$$"
         return (
-            "setsid sh -c 'echo $$ > %s; exec sleep 30' >&1 & "
-            "echo early-output; sleep 30" % pidfile
+            "setsid sh -c 'echo %s > %s; exec sleep 30' >&1 & "
+            "echo early-output; sleep 30" % (dollar_pid, pidfile)
         )
 
     def _drive(self, argv, cwd):
@@ -373,7 +384,7 @@ class TestBoundedDrainAndScopeTeardown(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             pidfile = os.path.join(tmp, "setsid.pid")
-            cmd = self._fixture_cmd(pidfile)
+            cmd = self._fixture_cmd(pidfile, via_systemd_run=True)
             argv = proccap._build_wrapper(cmd, 2048, proccap._BACKEND_CGROUP)
             res, wall = self._drive(argv, tmp)
             self.assertLess(wall, self._WALL_BUDGET_S)

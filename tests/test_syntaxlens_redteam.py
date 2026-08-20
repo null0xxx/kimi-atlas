@@ -145,7 +145,7 @@ class TestHermeticEnvIsReallyApplied(unittest.TestCase):
 
         self.assertIn("env", captured)                       # the launcher was actually reached
         self.assertEqual(captured["env"], nativefloor._hermetic_env())
-        self.assertEqual(set(captured["env"]), {"PATH", "HOME", "LANG", "TMPDIR"})
+        self.assertEqual(set(captured["env"]), {"PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"})
         for key in hostiles:                                 # no hostile hook reached the child
             self.assertNotIn(key, captured["env"])
 

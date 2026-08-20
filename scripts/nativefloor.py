@@ -72,7 +72,10 @@ _BASENAME_STEM = "input"
 _STDERR_TAIL_CHARS = 4000
 
 # The exact, minimal keys of the hermetic child environment (SECURITY-INVARIANT §3).
-_HERMETIC_ENV_KEYS = ("PATH", "HOME", "LANG", "TMPDIR")
+# XDG_RUNTIME_DIR is required for `systemd-run --user --scope` (the cgroup memory
+# backend) to reach the caller's own D-Bus session bus; without it the launch fails
+# closed with "Failed to connect to user scope bus" rather than silently escalating.
+_HERMETIC_ENV_KEYS = ("PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR")
 
 # Fail-open (never-a-defect) skip reasons, for readers of the result dict.
 _SKIP_TOOL_ABSENT = "tool-absent"
@@ -107,7 +110,8 @@ def tool_path(name: str) -> str | None:
 def _hermetic_env() -> dict[str, str]:
     """Return the child environment, BUILT FROM SCRATCH (SECURITY-INVARIANT §3).
 
-    Exactly the keys in :data:`_HERMETIC_ENV_KEYS` (``{PATH, HOME, LANG, TMPDIR}``) —
+    Exactly the keys in :data:`_HERMETIC_ENV_KEYS`
+    (``{PATH, HOME, LANG, TMPDIR, XDG_RUNTIME_DIR}``) —
     each read from the parent when set, else a safe per-key default. The keyset is
     DERIVED by iterating :data:`_HERMETIC_ENV_KEYS`, so that tuple is the SINGLE
     source of truth: the built env can never silently diverge from the documented
@@ -119,7 +123,16 @@ def _hermetic_env() -> dict[str, str]:
     """
     tmp = tempfile.gettempdir()
     # Safe default per key, applied only when the parent does not set that key.
-    defaults = {"PATH": os.defpath, "HOME": tmp, "LANG": "C.UTF-8", "TMPDIR": tmp}
+    # XDG_RUNTIME_DIR's default mirrors systemd's own convention (/run/user/<uid>);
+    # getuid() is POSIX-only, so fall back to tmp on platforms without it (harmless
+    # there — the systemd-run cgroup backend only ever gets selected on Linux).
+    defaults = {
+        "PATH": os.defpath,
+        "HOME": tmp,
+        "LANG": "C.UTF-8",
+        "TMPDIR": tmp,
+        "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else tmp,
+    }
     return {key: os.environ.get(key, defaults[key]) for key in _HERMETIC_ENV_KEYS}
 
 

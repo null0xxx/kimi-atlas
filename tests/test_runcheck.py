@@ -21,7 +21,7 @@ def _cgroup_backend_works() -> bool:
         return False
     try:
         proc = subprocess.run(
-            ["systemd-run", "--scope", "--quiet",
+            ["systemd-run", "--user", "--scope", "--quiet",
              "-p", "MemoryMax=64M", "--", "true"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

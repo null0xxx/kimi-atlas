@@ -120,7 +120,7 @@ def _build_wrapper(cmd: str, mem_limit_mb: int, backend: str) -> list[str]:
     mb = int(mem_limit_mb)
     if backend == _BACKEND_CGROUP:
         return [
-            "systemd-run", "--scope", "--quiet",
+            "systemd-run", "--user", "--scope", "--quiet",
             "-p", f"MemoryMax={mb}M",
             "--", "sh", "-c", cmd,
         ]
@@ -149,7 +149,7 @@ def _build_wrapper_argv(argv: list[str], mem_limit_mb: int, backend: str) -> lis
     mb = int(mem_limit_mb)
     if backend == _BACKEND_CGROUP:
         return [
-            "systemd-run", "--scope", "--quiet",
+            "systemd-run", "--user", "--scope", "--quiet",
             "-p", f"MemoryMax={mb}M",
             "--", *argv,
         ]
@@ -184,7 +184,7 @@ def _probe_cgroup_backend() -> bool:
     """
     try:
         proc = subprocess.run(
-            ["systemd-run", "--scope", "--quiet",
+            ["systemd-run", "--user", "--scope", "--quiet",
              "-p", "MemoryMax=64M", "--", "true"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -299,6 +299,31 @@ def _inject_scope_unit(argv: list[str]) -> tuple[list[str], str | None]:
     return argv, None
 
 
+def _find_scope_cgroup_procs(unit: str) -> str | None:
+    """Locate ``<unit>.scope``'s ``cgroup.procs`` under ``/sys/fs/cgroup`` (best-effort).
+
+    The scope's parent slice differs by launch mode and host layout —
+    ``system.slice`` for a system-manager scope, or something shaped like
+    ``user.slice/user-<uid>.slice/user@<uid>.service/app.slice`` for a
+    ``--user`` scope (the exact nesting varies by systemd version/config) —
+    so the path is located by a depth-bounded search rather than hardcoded to
+    either. Read-only; only ever called with a unit WE named at launch (the
+    caller validates the name first), so this never walks looking for an
+    attacker-chosen or unvalidated target.
+    """
+    target = f"{unit}.scope"
+    root = "/sys/fs/cgroup"
+    try:
+        for dirpath, dirnames, _filenames in os.walk(root):
+            if os.path.basename(dirpath) == target:
+                return os.path.join(dirpath, "cgroup.procs")
+            if dirpath[len(root):].count(os.sep) >= 8:
+                dirnames[:] = []  # bound the walk depth
+    except OSError:
+        return None
+    return None
+
+
 def _teardown_transient_scope(unit: str | None) -> None:
     """SIGKILL every pid still in the named transient scope (best-effort).
 
@@ -315,7 +340,9 @@ def _teardown_transient_scope(unit: str | None) -> None:
         return
     if not re.fullmatch(r"atlas-proccap-\d+-\d+", unit):
         return  # never tear down anything but a unit WE named (defense in depth)
-    procs_path = f"/sys/fs/cgroup/system.slice/{unit}.scope/cgroup.procs"
+    procs_path = _find_scope_cgroup_procs(unit)
+    if procs_path is None:
+        return
     try:
         with open(procs_path, encoding="ascii") as fh:
             pids = [int(x) for x in fh.read().split()]

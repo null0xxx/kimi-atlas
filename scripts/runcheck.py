@@ -151,7 +151,7 @@ def _probe_cgroup_backend() -> bool:
     """
     try:
         proc = subprocess.run(
-            ["systemd-run", "--scope", "--quiet",
+            ["systemd-run", "--user", "--scope", "--quiet",
              "-p", "MemoryMax=64M", "--", "true"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

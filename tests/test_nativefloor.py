@@ -85,15 +85,18 @@ class TestHermeticEnv(unittest.TestCase):
         # tuple is the ONE source of truth — the built env can never silently drift
         # from the documented SECURITY-INVARIANT §3 keyset.
         self.assertEqual(set(nativefloor._hermetic_env()), set(nativefloor._HERMETIC_ENV_KEYS))
-        self.assertEqual(nativefloor._HERMETIC_ENV_KEYS, ("PATH", "HOME", "LANG", "TMPDIR"))
+        self.assertEqual(
+            nativefloor._HERMETIC_ENV_KEYS,
+            ("PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"),
+        )
 
-    def test_env_is_exactly_the_four_keys(self):
+    def test_env_is_exactly_the_five_keys(self):
         hostiles = ("NODE_OPTIONS", "RUBYOPT", "PHP_INI_SCAN_DIR", "LD_PRELOAD", "BASH_ENV")
         for h in hostiles:
             os.environ[h] = "/evil"
         try:
             env = nativefloor._hermetic_env()
-            self.assertEqual(set(env), {"PATH", "HOME", "LANG", "TMPDIR"})
+            self.assertEqual(set(env), {"PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"})
             for h in hostiles:
                 self.assertNotIn(h, env)
         finally:

@@ -119,26 +119,35 @@ def _plan_jobs(changed_files: dict, cwd: str, lint_cmd: str | None) -> list[dict
 # The child env, built from scratch (spec §1.2). Mirrors nativefloor._hermetic_env
 # but adds a throwaway HOME/TMPDIR (passed in) and Go isolation knobs (harmless to
 # non-Go tools; they block cgo/toolchain fetch for a GATED Go linter).
-_HERMETIC_KEYS = ("PATH", "HOME", "LANG", "TMPDIR",
+# XDG_RUNTIME_DIR is required for `systemd-run --user --scope` (the cgroup tier in
+# _harden_argv) to reach the caller's own D-Bus session bus.
+_HERMETIC_KEYS = ("PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR",
                   "CGO_ENABLED", "GOTOOLCHAIN", "GOFLAGS")
 
 
 def _hermetic_env(home: str, tmpdir: str) -> dict:
-    """Return the from-scratch child env: {PATH,HOME,LANG,TMPDIR} + Go knobs (pure).
+    """Return the from-scratch child env: {PATH,HOME,LANG,TMPDIR,XDG_RUNTIME_DIR} + Go knobs (pure).
 
     NOT ``os.environ.copy()`` minus a denylist — a fresh dict, so hostile hooks
     (GITHUB_TOKEN/NPM_TOKEN/AWS_*/NODE_OPTIONS/RUBYOPT/LD_PRELOAD) simply do not
-    exist in the child. HOME/TMPDIR are the caller's throwaway dirs. The Go knobs
-    block the cgo/toolchain/module-fetch vector (X-09) for a GATED Go linter:
-    ``-mod=readonly`` (NOT ``-mod=vendor``, which would false-error a non-vendored
-    repo) forbids go.mod edits; ``GOTOOLCHAIN=local`` + network-off are the real
-    fetch blocks.
+    exist in the child. HOME/TMPDIR are the caller's throwaway dirs. XDG_RUNTIME_DIR
+    is read from the parent (with systemd's own /run/user/<uid> convention as a
+    fallback) so the cgroup tier's `systemd-run --user --scope` can actually connect;
+    without it the launch fails closed rather than silently escalating to the system
+    manager. The Go knobs block the cgo/toolchain/module-fetch vector (X-09) for a
+    GATED Go linter: ``-mod=readonly`` (NOT ``-mod=vendor``, which would false-error
+    a non-vendored repo) forbids go.mod edits; ``GOTOOLCHAIN=local`` + network-off
+    are the real fetch blocks.
     """
     return {
         "PATH": os.environ.get("PATH", os.defpath),
         "HOME": home,
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "TMPDIR": tmpdir,
+        "XDG_RUNTIME_DIR": os.environ.get(
+            "XDG_RUNTIME_DIR",
+            f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else tmpdir,
+        ),
         "CGO_ENABLED": "0",
         "GOTOOLCHAIN": "local",
         "GOFLAGS": "-mod=readonly",
@@ -228,7 +237,7 @@ def _harden_argv(workload_argv: list, mem_mb: int) -> list:
     inner = ["unshare", "-n", *workload_argv] if _netns_available() else list(workload_argv)
     if _cgroup_cap_available() and mem_mb and mem_mb > 0:
         return [
-            "systemd-run", "--scope", "--quiet",
+            "systemd-run", "--user", "--scope", "--quiet",
             "-p", f"MemoryMax={int(mem_mb)}M",
             "-p", f"TasksMax={_TASKS_MAX}",
             "--", *inner,
