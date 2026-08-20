@@ -1,7 +1,7 @@
 """The manifest version and every doc that states it must agree.
 
 WHY THIS EXISTS. Cutting v1.5.3 exposed a gap: **nothing pinned the version**. `make ci`
-passed identically before and after bumping `.kimi-plugin/plugin.json` from `1.5.2.1` to
+passed identically before and after bumping `.claude-plugin/plugin.json` from `1.5.2.1` to
 `1.5.3`, so the four places that state the current version were kept in step entirely by
 hand. A release that shipped with `README.md` still telling users to pin the previous tag
 would have been green all the way through the gate.
@@ -27,7 +27,7 @@ if str(_ROOT) not in sys.path:
 
 from scripts import plugin_meta  # noqa: E402
 
-_MANIFEST = _ROOT / ".kimi-plugin" / "plugin.json"
+_MANIFEST = _ROOT / ".claude-plugin" / "plugin.json"
 
 
 class TestVersionConsistency(unittest.TestCase):

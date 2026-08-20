@@ -1,0 +1,16 @@
+{
+  "_description": "REFERENCE ONLY — this file is inert documentation, not live configuration. This stage does not apply it to the current session. It is a snippet an END USER copies into their OWN user-scope Claude Code settings (e.g. ~/.claude/settings.json or a project's .claude/settings.local.json) when running the kimi-atlas plugin against a DIFFERENT target repo of theirs, so the plugin's backbone Bash calls (script invocations under the plugin root, and the isolated git-worktree rollback machinery) do not trigger a permission prompt on every single call.",
+  "_usage": "Copy the value of the \"permissions\" key below into the \"permissions\" object of your own settings.json (merging with any rules you already have) — do not copy the _description/_usage fields themselves.",
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m scripts.*)",
+      "Bash(python3 scripts/*.py *)",
+      "Bash(git worktree add *)",
+      "Bash(git worktree remove *)",
+      "Bash(git worktree list*)",
+      "Bash(git -C * rev-parse *)",
+      "Bash(git -C * status*)",
+      "Bash(git -C * diff*)"
+    ]
+  }
+}

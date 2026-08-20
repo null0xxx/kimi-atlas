@@ -1,4 +1,4 @@
-"""Read metadata from the ``.kimi-plugin/plugin.json`` manifest.
+"""Read metadata from the ``.claude-plugin/plugin.json`` manifest.
 
 Pure helpers only — no CLI. :func:`read_version` returns the top-level
 ``"version"`` string of the manifest at the given path; a missing file raises

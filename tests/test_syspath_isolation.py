@@ -880,7 +880,6 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
         "PLAN.md",
         "skills/atlas-weave/SKILL.md",
         "skills/atlas-resume/SKILL.md",
-        ".kimi-plugin/plugin.json",
     )
 
     # Files that INVOKE the interpreter in a cwd the plugin does not control,
@@ -891,7 +890,6 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
     # that the guarded line is the invoking line.
     INVOKING_FILES = {
         "agents/context-scout.md": 1,
-        "scripts/install.sh": 2,
         "hooks/guard-destructive.sh": 2,
         "hooks/telemetry.sh": 1,
         "probe/probe_loopcontrol.sh": 1,

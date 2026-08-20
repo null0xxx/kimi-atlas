@@ -19,18 +19,24 @@ Two halves are pinned here:
   the body -- and under the new contract the SUBAGENT reads that file as its first act,
   so the very first thing it would read is a description of a mechanism that no longer
   happens. `TestEveryLiveContractStatement` below pins all of them.
+
+  Retirement note (Stage 1 of the Kimi Code -> Claude Code migration): the
+  `.kimi-plugin/plugin.json` half of this file, `TestPluginManifestDispatchesByReference`,
+  is gone. Its subject was the manifest's `skillInstructions` field, a Kimi-runtime
+  mechanism injected into every session; Claude Code's `.claude-plugin/plugin.json` has
+  no equivalent field by design, so there is nothing left to read it from. The dispatch
+  contract this class helped guard is still pinned in full by `TestSkillDispatchesByReference`
+  below, which never touched the manifest.
 * STRUCTURE -- every role path the contract names actually resolves on disk. This is
   the failure the change makes possible: under the old contract a typo'd path broke
   loudly in the root, and under the new one it silently yields a role-less subagent.
 """
-import json
 import pathlib
 import re
 import unittest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SKILL = _ROOT / "skills" / "atlas" / "SKILL.md"
-_PLUGIN_JSON = _ROOT / ".kimi-plugin" / "plugin.json"
 
 # Every way the root can be told to carry a role BODY, not just the one word.
 #
@@ -125,34 +131,14 @@ class TestSkillDispatchesByReference(unittest.TestCase):
         )
 
 
-class TestPluginManifestDispatchesByReference(unittest.TestCase):
-    """`skillInstructions` is injected into EVERY session and must not lag SKILL.md."""
-
-    def setUp(self):
-        self.instructions = json.loads(
-            _PLUGIN_JSON.read_text(encoding="utf-8"))["skillInstructions"]
-
-    def test_manifest_does_not_tell_the_root_to_prepend(self):
-        self.assertIsNone(
-            _ROOT_SIDE_PREPEND.search(self.instructions),
-            "plugin.json's skillInstructions still carries the prepend contract. This "
-            "text is injected into every session, so it reinstates the root-side read "
-            "even when SKILL.md is correct -- the two sites must change together",
-        )
-
-    def test_manifest_still_routes_every_role_to_its_subagent_type(self):
-        """Deleting the prepend clause must not take the routing table with it."""
-        for role, subagent_type in (("context-scout", "explore"),
-                                    ("elite-coder", "coder"),
-                                    ("correctness-critic", "plan")):
-            self.assertIn(role, self.instructions,
-                          f"{role} lost its routing in skillInstructions")
-            self.assertIn(subagent_type, self.instructions)
-
-    def test_manifest_tells_the_subagent_to_read_its_own_role(self):
-        self.assertIn("agents/", self.instructions,
-                      "skillInstructions no longer points anywhere for role bodies")
-        self.assertIn(_ROLE_REFERENCE, self.instructions)
+# TestPluginManifestDispatchesByReference retired here (Stage 1, Kimi Code ->
+# Claude Code migration): it asserted against `.kimi-plugin/plugin.json`'s
+# `skillInstructions` field, a Kimi-runtime session-injection mechanism that
+# Claude Code's `.claude-plugin/plugin.json` has no equivalent for. There is
+# now exactly one live copy of the dispatch-by-reference contract --
+# `skills/atlas/SKILL.md`, pinned above by `TestSkillDispatchesByReference` --
+# so the drift this class guarded against can no longer occur. Mirrors the
+# retirement of `tests/test_install_sh.py` alongside `scripts/install.sh`.
 
 
 class TestEveryReferencedRolePathResolves(unittest.TestCase):

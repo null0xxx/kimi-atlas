@@ -3,7 +3,7 @@
 #
 # ============================ DISABLED BY DEFAULT ============================
 # This is the ONLY kimi-atlas hook that can BLOCK a tool call, and it is NOT
-# wired into `.kimi-plugin/plugin.json` `hooks[]`. It ships as a documented
+# wired into `.claude-plugin/plugin.json` `hooks[]`. It ships as a documented
 # opt-in. To ENABLE it — only AFTER the P4b probe (`probe/probe_hook_block.sh`,
 # risk R6) has confirmed which blocking contract Kimi v0.23.5 actually honors —
 # add a manifest entry:

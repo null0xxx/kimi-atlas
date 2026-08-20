@@ -1,0 +1,17 @@
+{
+  "description": "kimi-atlas hook registrations (wrapper format for Claude Code plugins).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

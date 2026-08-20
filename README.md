@@ -100,7 +100,7 @@ The four fields are the contract: `verify_cmd:` the command that must pass, `suc
 
 ## Using the 115 skills
 
-The plugin ships **115 official Kimi skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. Because `.kimi-plugin/plugin.json` declares `skills: ./skills/`, they are **platform-registered**: Kimi Code sees every one of them in its skill listing, can auto-trigger them from their descriptions, and you can invoke any of them explicitly with `/skill:<name>`.
+The plugin ships **115 official Kimi skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. Because `.claude-plugin/plugin.json` declares `skills: ./skills/`, they are **platform-registered**: Kimi Code sees every one of them in its skill listing, can auto-trigger them from their descriptions, and you can invoke any of them explicitly with `/skill:<name>`.
 
 | Category | Count | Examples |
 |---|---|---|
@@ -211,7 +211,7 @@ Full design + the 6-lens challenge record: [`docs/superpowers/specs/2026-07-20-a
 ## Repository layout
 
 ```
-.kimi-plugin/plugin.json    manifest (skills dir, interface, skillInstructions, hooks)
+.claude-plugin/plugin.json  manifest (skills dir, interface, skillInstructions, hooks)
 skills/atlas/               the single-change root orchestrator (state machine)
 skills/atlas-weave/         the multi-agent meta-machine (decompose → integrate → aggregate)
 skills/atlas-resume/        graph-aware, compaction-surviving resume

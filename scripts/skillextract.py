@@ -2,7 +2,7 @@
 
 The 117 skill archives under ``Skills/<Category>/`` are a one-time import
 source: this module extracts them **byte-identically** into ``skills/<name>/``
-packages (``.kimi-plugin/plugin.json`` declares ``"skills": "./skills/"``, so
+packages (Claude Code auto-discovers ``skills/`` at the plugin root, so
 the extracted tree is what a git install registers) and anchors the result with
 a committed sha256 manifest (``references/skills-manifest.json``). Zip content
 is third-party **UNTRUSTED DATA** (SAFE-2): member bytes are copied verbatim,

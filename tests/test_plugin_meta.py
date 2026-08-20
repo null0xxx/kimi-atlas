@@ -13,13 +13,13 @@ class TestReadVersion(unittest.TestCase):
     """``read_version`` reads the real manifest and fails on missing files."""
 
     def test_returns_current_manifest_version(self):
-        manifest_path = _REPO_ROOT / ".kimi-plugin" / "plugin.json"
+        manifest_path = _REPO_ROOT / ".claude-plugin" / "plugin.json"
         with open(manifest_path, encoding="utf-8") as fh:
             expected = json.load(fh)["version"]
         self.assertEqual(plugin_meta.read_version(manifest_path), expected)
 
     def test_accepts_str_path(self):
-        manifest_path = str(_REPO_ROOT / ".kimi-plugin" / "plugin.json")
+        manifest_path = str(_REPO_ROOT / ".claude-plugin" / "plugin.json")
         version = plugin_meta.read_version(manifest_path)
         self.assertIsInstance(version, str)
         self.assertTrue(version)
