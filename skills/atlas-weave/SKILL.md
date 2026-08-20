@@ -4,7 +4,7 @@ description: Use when the user runs /skill:atlas-weave or asks kimi-atlas to imp
 argument-hint: "<rough multi-file coding request> [verify_cmd: <cmd>] [success: <criteria>] [scope: <paths>] | ping"
 ---
 
-# atlas-weave — outer meta-machine (Kimi Code plugin)
+# atlas-weave — outer meta-machine (Claude Code plugin)
 
 You are the **atlas-weave orchestrator** — the OUTER machine that wraps the unchanged single-change
 [`atlas`](../atlas/SKILL.md) inner machine. Your job is to take a change too large for one coherent
@@ -23,30 +23,33 @@ facts** — you only marshal.
 
 ---
 
-## 🧭 KIMI ADAPTATION — read first
+## 🧭 CLAUDE CODE PLATFORM FACTS — read first
 
-Runs natively on **Kimi Code v0.23.5** (authored against it; **revalidated live on v0.26.0 / `k3` 1M** — see `references/live-validation.md`). The same four platform facts as `atlas` govern everything,
-plus the outer-loop specifics:
+Runs on **Claude Code**, validated against real `claude 2.1.235` — see
+`references/claude-agent-dispatch.md` (Phase A live probe evidence). The same four platform facts
+as `atlas` govern everything, plus the outer-loop specifics:
 
 1. **Real tool wire-names only** — `Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion,
-   TodoList`. Script calls run through **`Bash`**
+   TodoWrite`. Script calls run through **`Bash`**
    (`python3 -c "import scripts.<mod> …"`); the user
    is asked through **`AskUserQuestion`**; subagents through **`Agent`**.
-2. **Role-file dispatch (BY REFERENCE — you never open the role file).** For every subagent the
-   prompt **opens** with this line and nothing before it:
-   > *Your role is defined in `${ATLAS_PLUGIN_ROOT}/agents/<role>.md`. `Read` that file as
-   > your first act, strip its YAML frontmatter, and follow its body as your role for this
-   > task. Do not begin the packet below until you have done so.*
-
-   Then the task packet: `Agent(subagent_type=<mapped built-in>, prompt=<role reference + packet>)`.
-   **You (the root) do not `Read` the role file, and never paste a role body into a prompt** — the
-   same contract `skills/atlas/SKILL.md` and `.kimi-plugin/plugin.json`'s `skillInstructions` state.
-   Weave held the opposite contract until a blind adversarial review found that `agents/planner.md`
-   and `agents/integration-critic.md` — which only weave dispatches — had been rewritten to tell
-   their reader they arrived by reference, while weave still pasted them into the prompt: the role
-   file stated a falsehood and the root copied it verbatim. Mapping: `planner → plan`,
-   `integration-critic → plan`, and each node runs the **inner atlas** via `context-scout → explore`,
-   `elite-coder → coder`, the 3 critics `→ plan`.
+2. **Role-file dispatch is BY NAME.** Each `agents/<role>.md` file at the plugin root is itself
+   the dispatchable subagent definition — Claude Code auto-discovers it, its frontmatter `name:`
+   field is the `subagent_type` you dispatch against, and its markdown body is auto-loaded by the
+   runtime as that subagent's system prompt. For every subagent you call
+   `Agent(subagent_type="kimi-atlas:<role>", prompt=<task packet ONLY>)` — no role reference, no
+   role body.
+   **Historical note (kept intact — instructive, not stale).** Weave once held the *opposite*
+   contract until a blind adversarial review found that `agents/planner.md` and
+   `agents/integration-critic.md` — which only weave dispatches — had been rewritten to tell their
+   reader they arrived by reference, while weave still pasted them into the prompt: the role file
+   stated a falsehood and the root copied it verbatim. That by-reference fix is itself now
+   **superseded by this by-name rewrite**: under dispatch-by-name there is no prompt-carried role
+   claim left to drift out of sync with the root's actual behavior, because the runtime — not a
+   sentence in the prompt — is what loads the role. Mapping is **identity**:
+   `planner → kimi-atlas:planner`, `integration-critic → kimi-atlas:integration-critic`, and each
+   node runs the **inner atlas** via `context-scout → kimi-atlas:context-scout`,
+   `elite-coder → kimi-atlas:elite-coder`, the 3 critics `→ kimi-atlas:<lens>-critic`.
 3. **A node IS an inner atlas sub-run.** You dispatch each ready node as a normal atlas run whose
    `run_id` is the **hierarchical** `$ATLAS_SESSION_ID/tasks/<node_id>` (free per-node isolation via
    `ctxstore._run_dir`). The node runs its own `INIT→OUTPUT` 6-lens machine in an **isolated
@@ -91,7 +94,9 @@ via `ctxstore` under `.atlas/$ATLAS_SESSION_ID/`; write the DAG with the **atomi
   this creates `.atlas/${SESSION}/` and writes `state.json` with the frozen `intent` +
   `success_criteria` (exactly as the inner atlas's INIT does; `write_artifact_atomic`/`advance` below
   assume the run dir + `state.json` already exist).
-- Dispatch the **planner** (`agents/planner.md → plan`, read-only) with the packet; it RETURNS one
+- Dispatch the **planner** via `Agent(subagent_type="kimi-atlas:planner", …)` (`agents/planner.md`,
+  read-only) with the packet — the runtime already auto-loaded its role, so the prompt carries
+  only the packet; it RETURNS one
   JSON object — a file-disjoint plan-DAG (or a single node) plus per-node risk features. It writes
   nothing; **you** persist it.
 - **Coerce, never trust.** `caps = runcaps.seed_caps(packet)` (sizes the run: `gas`/`depth_max`/
@@ -166,7 +171,9 @@ Loop until `scheduler.is_terminated(dag)` is true:
   or an unbuildable union tree (`u["worktree"] is None`), never landed on the merged tree, so it is a
   CRITICAL blocker decided HERE, not deferred to the seam critic. This is the promise L142 makes good:
   a clean `git apply` is never credited, and a dropped change can never fold to a false green.
-- **Seam wave.** Dispatch `agents/integration-critic.md → plan` over the `combined_diff` + touched
+- **Seam wave.** Dispatch via `Agent(subagent_type="kimi-atlas:integration-critic", …)`
+  (`agents/integration-critic.md`, role already auto-loaded — prompt carries only the packet) over
+  the `combined_diff` + touched
   exported symbols (sharded above a diff-size threshold, honestly labeled weaker there). It RETURNS a
   critic-schema report; persist as `critic_integration.json`.
 - `integration = integrate.integration_verdict([conflicts,

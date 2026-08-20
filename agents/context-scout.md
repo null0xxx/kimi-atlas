@@ -5,11 +5,11 @@ tools: Read, Grep, Glob, Bash
 model: sonnet
 justification: asymmetry
 ---
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
-     orchestrator dispatched you by reference: strip the frontmatter above and follow
-     the body below as your role for an Agent(subagent_type="explore", …) task. Real
-     permissions come only from the built-in `explore` type (read-only + read-only Bash;
-     no Write/Edit). `tools:`/`model:` here are not honored by the runtime. -->
+<!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:context-scout", …).
+     Claude Code auto-loads this body as the subagent's system prompt; the frontmatter above
+     (`tools:`/`model:`) IS the real, enforced permission set — Read, Grep, Glob, and read-only-use
+     Bash; no Write/Edit. You are a subagent: you cannot spawn subagents, ask the user, or manage
+     TODOs. -->
 
 # context-scout
 

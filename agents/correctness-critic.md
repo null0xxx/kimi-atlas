@@ -6,12 +6,10 @@ model: opus
 justification: isolation
 temperature: 0.2
 ---
-<!-- FRONTMATTER ABOVE IS DOCUMENTATION ONLY. YOU are reading this file because the atlas
-     orchestrator dispatched you by reference: strip the frontmatter above and follow
-     the body below as your role for an Agent(subagent_type="plan", …) task. Real
-     permissions come only from the built-in `plan` type (Read/Grep/Glob — no
-     Bash/Write/Edit). `tools:`/`model:`/`temperature:` here are not honored by the
-     runtime; the orchestrator sets the dispatch temperature (V5). -->
+<!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:correctness-critic", …).
+     Claude Code auto-loads this body as the subagent's system prompt; the frontmatter above
+     (`tools:`/`model:`) IS the real, enforced permission set — Read/Grep/Glob only, no
+     Bash/Write/Edit. -->
 
 # correctness-critic  (lens 1 — CORRECTNESS)
 

@@ -170,6 +170,20 @@ WAIVED = {
     '(`ctxstore.advance(..., timeout_agent="<id>")` or `write_artifact`), then '
     "**degrade by":
         "An agent id from the fixed role set under `agents/`.",
+    '`Agent(subagent_type="kimi-atlas:<role>", prompt=<task packet ONLY>)` — no role reference and':
+        "The by-name dispatch template (Stage 4): <role> is one of the fixed role "
+        "names under `agents/`, chosen by the SKILL author, never model- or "
+        "repo-supplied text. Prose, not an executed line.",
+    'judgment lenses** run as isolated `Agent(subagent_type="kimi-atlas:<lens>-critic")` critics (1 CORRECTNESS, 2':
+        "The by-name dispatch template (Stage 4): <lens> is one of the three fixed "
+        "critic lenses (correctness/code-quality/security), author-enumerated. "
+        "Prose, not an executed line.",
+    '`Agent(subagent_type="kimi-atlas:<lens>-critic", …)` (a critic must be read-only ⇒ its own':
+        "Same by-name dispatch template as above, restated at the critic-wave "
+        "dispatch site. <lens> is author-enumerated, never foreign text.",
+    '3. Call `Agent(subagent_type="kimi-atlas:<lens>-critic", prompt=<packet ONLY>[, temperature=<distinct>])`':
+        "Same by-name dispatch template, restated at the literal Agent() call site. "
+        "<lens> is author-enumerated, never foreign text.",
 }
 
 
