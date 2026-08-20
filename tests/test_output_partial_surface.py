@@ -13,7 +13,7 @@ This test pins the additive, informational surfacing the OUTPUT prose now encode
    exists with that exact two-parameter signature (import+inspect discipline: the
    cited symbol is not a fiction).
 2. **Prose pin** — the OUTPUT stage reads `contextgraph.project(".atlas",
-   "${KIMI_SESSION_ID}")` (the same ledger coordinates the rest of the SKILL uses)
+   "$ATLAS_SESSION_ID")` (the same ledger coordinates the rest of the SKILL uses)
    and surfaces `partial_stages`/`used_tools` in the human summary, alongside the
    existing `missing_stages` completeness reporting.
 3. **Behavioral pin** — `project(...)` on a crafted on-disk ledger where a stage
@@ -80,10 +80,10 @@ class TestOutputStageSurfacesCompleteness(unittest.TestCase):
         self.assertIn("PARTIAL", self.output)
 
     def test_output_uses_real_ledger_coordinates(self):
-        # base=".atlas", run_id="${KIMI_SESSION_ID}" — the same coordinates every
+        # base=".atlas", run_id="$ATLAS_SESSION_ID" — the same coordinates every
         # ctxstore call in the SKILL uses; no invented base/run_id.
         self.assertIn(".atlas", self.output)
-        self.assertIn("${KIMI_SESSION_ID}", self.output)
+        self.assertIn("$ATLAS_SESSION_ID", self.output)
 
     def test_output_surfacing_is_informational_not_a_gate(self):
         # Additive DATA about the run; degrades to nothing and never gates.

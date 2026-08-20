@@ -129,40 +129,39 @@ WAIVED = {
     '[scope: <paths>] | ping"':
         "YAML frontmatter shown to the user as the slash-command's argument hint. "
         "Never executed, never parsed as Python.",
-    'PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c '
-    '"from scripts import <mod>; ..."':
+    'python3 -c "from scripts import <mod>; ..."':
         "The script-call convention template. <mod> is a plugin module name chosen by "
         "the SKILL author; no model-, user- or repo-supplied text can reach it.",
-    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","CLARIFY", '
+    '`ctxstore.advance(".atlas","$ATLAS_SESSION_ID","CLARIFY", '
     'updates={"clarify_resolution":"<what was asked/assumed>"})`.':
         "A one-line summary the ORCHESTRATOR composes itself, not verbatim foreign "
         "text. CLARIFY is bookkeeping, not a gate: a broken quote is an immediately "
         "visible error, never a forged green.",
-    '- `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","TRIAGED", archetype="<class>")`.':
+    '- `ctxstore.advance(".atlas","$ATLAS_SESSION_ID","TRIAGED", archetype="<class>")`.':
         "One of four author-enumerated archetype words (bugfix/feature/refactor/test).",
-    '> `ctxstore.write_artifact(".atlas","${KIMI_SESSION_ID}","review_root", "<root>")`.':
+    '> `ctxstore.write_artifact(".atlas","$ATLAS_SESSION_ID","review_root", "<root>")`.':
         "A path the orchestrator itself selects — '.', '.atlas/<run_id>/worktree', or a "
         "sandbox it created. Not target- or model-supplied.",
     '**`review_root = "<that sandbox dir>"`**; unattended coder runs are permitted '
     "**only** against":
         "Prose describing the value, not an executable line.",
-    '- `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","CODED", agent="elite-coder", '
+    '- `ctxstore.advance(".atlas","$ATLAS_SESSION_ID","CODED", agent="elite-coder", '
     'status="<coder STATUS>")`.':
         "The coder's enumerated status token.",
-    '- `ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", '
+    '- `ctxstore.advance(".atlas","$ATLAS_SESSION_ID","VERIFIED", '
     'verdict="<provisional_status>")`.':
         "One of the enumerated verdict words computed by the FROZEN pure gate.",
-    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","VERIFIED", '
+    '`ctxstore.advance(".atlas","$ATLAS_SESSION_ID","VERIFIED", '
     'verdict="<provisional_status>", updates={"checkpoints": '
-    'dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") '
+    'dict(ctxstore.get_state(".atlas","$ATLAS_SESSION_ID").get("checkpoints") '
     'or {}, VERIFIED="<sha>")})`':
         "The passing-VERIFIED checkpoint riding the VERIFIED transition's own advance "
         "(H3/H-1). <provisional_status> is an enumerated verdict word from the FROZEN "
         "pure gate and <sha> is a hex git ref the orchestrator just created — both "
         "machine-generated, neither foreign text.",
-    '`ctxstore.advance(".atlas","${KIMI_SESSION_ID}","REFINE", '
+    '`ctxstore.advance(".atlas","$ATLAS_SESSION_ID","REFINE", '
     'updates={"checkpoints": '
-    'dict(ctxstore.get_state(".atlas","${KIMI_SESSION_ID}").get("checkpoints") '
+    'dict(ctxstore.get_state(".atlas","$ATLAS_SESSION_ID").get("checkpoints") '
     'or {}, CODED="<sha>")})`':
         "The pre-re-dispatch CODED checkpoint riding the REFINE transition's own "
         "advance (H3/H-1: it may not ride CODED's, which fires before any lens runs). "
@@ -251,7 +250,7 @@ class TestEverySinkReadsAFile(unittest.TestCase):
         self.assertEqual(len(blocks), 1,
                          "expected exactly one executed block containing %r, found %d"
                          % (needle, len(blocks)))
-        return ast.parse(blocks[0].replace("${KIMI_SESSION_ID}", "SID")), blocks[0]
+        return ast.parse(blocks[0].replace("$ATLAS_SESSION_ID", "SID")), blocks[0]
 
     @staticmethod
     def _read_calls(tree):
@@ -283,7 +282,7 @@ class TestEverySinkReadsAFile(unittest.TestCase):
         self._assert_reads_from_argv("quality.enforce_critic_schema")
 
     def test_the_grounding_digest_block_reads_its_text_from_argv(self):
-        self._assert_reads_from_argv('write_artifact(".atlas", "${KIMI_SESSION_ID}", "context.json"')
+        self._assert_reads_from_argv('write_artifact(".atlas", "$ATLAS_SESSION_ID", "context.json"')
 
     def test_the_init_packet_block_reads_its_text_from_argv(self):
         self._assert_reads_from_argv("ctxstore.init_run")
@@ -299,7 +298,7 @@ class TestEverySinkReadsAFile(unittest.TestCase):
         break-out wide open) without ever mentioning ``r'''``.
         """
         for needle in ("quality.enforce_critic_schema",
-                       'write_artifact(".atlas", "${KIMI_SESSION_ID}", "context.json"',
+                       'write_artifact(".atlas", "$ATLAS_SESSION_ID", "context.json"',
                        "ctxstore.init_run", '"plan.md"'):
             with self.subTest(block=needle):
                 tree, _src = self._tree(needle)
@@ -382,7 +381,7 @@ class TestFailOpenProbes(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         d = pathlib.Path(tmp.name)
-        run_dir = d / ".atlas" / "${KIMI_SESSION_ID}"
+        run_dir = d / ".atlas" / "$ATLAS_SESSION_ID"
         run_dir.mkdir(parents=True)
         src = d / "critic.raw.json"
         if write_payload:

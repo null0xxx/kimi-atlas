@@ -358,7 +358,9 @@ def graph_lookup(base: str, run_id: str) -> str:
 
     The INJECTION read path is ALWAYS fresh — it recomputes via ``project`` (an
     unconditional rebuild-from-ledger) rather than ``load_or_rebuild``. Within one run
-    ``run_id`` (``${KIMI_SESSION_ID}``) is constant, so a cache-when-valid read would
+    ``run_id`` (sourced from Claude Code's SessionStart hook, persisted session-wide as
+    ``$ATLAS_SESSION_ID`` by ``hooks/init-env.sh`` -- no longer Kimi CLI's SKILL-body
+    ``${KIMI_SESSION_ID}`` substitution) is constant, so a cache-when-valid read would
     serve the FIRST-pass graph on every later lookup — feeding a REFINE re-dispatch a
     STALE graph missing the error/tool_call events appended since. ``build`` is pure,
     deterministic and cheap, and ``project`` re-writes the byte-identical cache when the

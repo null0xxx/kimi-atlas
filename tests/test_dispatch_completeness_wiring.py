@@ -74,15 +74,15 @@ class TestSkillRecordsStageTaggedMarkers(unittest.TestCase):
         )
 
     def test_marker_run_dir_is_the_run_directory_not_base_plus_run(self):
-        # ctxevents.record's first arg is the RUN directory .atlas/${KIMI_SESSION_ID},
+        # ctxevents.record's first arg is the RUN directory .atlas/$ATLAS_SESSION_ID,
         # NOT the (base, run_id) pair ctxstore/contextgraph take. Pin the correct seam.
         for header, nxt in (("### GROUNDED", "### PRE-CODE HUMAN GATE"),
                             ("### CODED", "### VERIFIED")):
             section = _section(self.text, header, nxt)
             self.assertRegex(
                 section,
-                r'ctxevents\.record\(\s*["\']\.atlas/\$\{KIMI_SESSION_ID\}["\']',
-                f"{header} marker must target run dir .atlas/${{KIMI_SESSION_ID}}",
+                r'ctxevents\.record\(\s*["\']\.atlas/\$ATLAS_SESSION_ID["\']',
+                f"{header} marker must target run dir .atlas/$ATLAS_SESSION_ID",
             )
 
 

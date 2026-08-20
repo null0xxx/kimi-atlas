@@ -159,10 +159,10 @@ class TestEveryReferencedRolePathResolves(unittest.TestCase):
             self.assertGreater(len(path.read_bytes()), 0, f"agents/{role}.md is empty")
 
     def test_every_role_path_named_in_the_skill_resolves(self):
-        """Resolve `${KIMI_SKILL_DIR}/../../agents/<role>.md` for every literal cited."""
+        """Resolve `${ATLAS_PLUGIN_ROOT}/agents/<role>.md` for every literal cited."""
         text = _SKILL.read_text(encoding="utf-8")
         cited = set(re.findall(
-            r"\$\{KIMI_SKILL_DIR\}/\.\./\.\./agents/([A-Za-z0-9._<>-]+)\.md", text))
+            r"\$\{ATLAS_PLUGIN_ROOT\}/agents/([A-Za-z0-9._<>-]+)\.md", text))
         self.assertTrue(cited, "the SKILL cites no role file at all")
         for name in cited:
             if "<" in name:          # `<role>` / `<lens>-critic` are templates

@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/telemetry.sh\"",
             "timeout": 10
           }
         ]

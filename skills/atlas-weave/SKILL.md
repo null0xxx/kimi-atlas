@@ -30,11 +30,11 @@ plus the outer-loop specifics:
 
 1. **Real tool wire-names only** — `Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion,
    TodoList`. Script calls run through **`Bash`**
-   (`PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "import scripts.<mod> …"`); the user
+   (`python3 -c "import scripts.<mod> …"`); the user
    is asked through **`AskUserQuestion`**; subagents through **`Agent`**.
 2. **Role-file dispatch (BY REFERENCE — you never open the role file).** For every subagent the
    prompt **opens** with this line and nothing before it:
-   > *Your role is defined in `${KIMI_SKILL_DIR}/../../agents/<role>.md`. `Read` that file as
+   > *Your role is defined in `${ATLAS_PLUGIN_ROOT}/agents/<role>.md`. `Read` that file as
    > your first act, strip its YAML frontmatter, and follow its body as your role for this
    > task. Do not begin the packet below until you have done so.*
 
@@ -48,7 +48,7 @@ plus the outer-loop specifics:
    `integration-critic → plan`, and each node runs the **inner atlas** via `context-scout → explore`,
    `elite-coder → coder`, the 3 critics `→ plan`.
 3. **A node IS an inner atlas sub-run.** You dispatch each ready node as a normal atlas run whose
-   `run_id` is the **hierarchical** `${KIMI_SESSION_ID}/tasks/<node_id>` (free per-node isolation via
+   `run_id` is the **hierarchical** `$ATLAS_SESSION_ID/tasks/<node_id>` (free per-node isolation via
    `ctxstore._run_dir`). The node runs its own `INIT→OUTPUT` 6-lens machine in an **isolated
    worktree** over its `scope_paths`, and **reports its completion** — the orchestrator (which holds the
    stamped lease) forms the fenced receipt from that outcome (SCHEDULE step 5). The node writes its own
@@ -82,7 +82,7 @@ are the coverage contract for the whole run.
 
 Canonical outer stages: `DECOMPOSED → BUDGETED → SCHEDULE* → INTEGRATE → AGGREGATE → OUTPUT`
 (`SCHEDULE` repeats per wave until the pool drains). Persist every transition and the `plan.dag.json`
-via `ctxstore` under `.atlas/${KIMI_SESSION_ID}/`; write the DAG with the **atomic**
+via `ctxstore` under `.atlas/$ATLAS_SESSION_ID/`; write the DAG with the **atomic**
 `ctxstore.write_artifact_atomic` so a crash mid-write never leaves a torn DAG.
 
 ### DECOMPOSED — plan the DAG (1 fenced LLM decision)

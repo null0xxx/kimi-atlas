@@ -63,10 +63,10 @@ class TestCodedStageGraphInjection(unittest.TestCase):
         self.assertIn("no-injection", self.coded)
 
     def test_uses_real_ledger_coordinates(self):
-        # base=".atlas", run_id="${KIMI_SESSION_ID}" — the same coordinates every
+        # base=".atlas", run_id="$ATLAS_SESSION_ID" — the same coordinates every
         # ctxstore call in the SKILL uses; no invented base/run_id.
         self.assertIn(".atlas", self.coded)
-        self.assertIn("${KIMI_SESSION_ID}", self.coded)
+        self.assertIn("$ATLAS_SESSION_ID", self.coded)
 
     def test_recurs_on_refine_redispatch(self):
         # A REFINE loop re-enters CODED, so the graph is recomputed (reflecting the

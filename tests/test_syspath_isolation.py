@@ -11,7 +11,7 @@ variable is inherited, it must be stripped again at the seam where the plugin
 launches the TARGET's own code -- otherwise ``python3 -m unittest discover`` and
 uninstalled-package ``pytest`` runs go RED for a reason unrelated to the change.
 
-Seven independent pins live here:
+Eight independent pins live here:
 
 * :class:`TestFixDoesNotLeakIntoTargetBuilds` -- BEHAVIOURAL, the containment.
 * :class:`TestEverySeamContainsTheSwitch` -- BEHAVIOURAL, per-seam. It pins the
@@ -34,9 +34,19 @@ Seven independent pins live here:
 * :class:`TestTheFloorGuardHaltsTheRun` -- BEHAVIOURAL, and the only pin that
   asserts what the INIT floor guard *does* rather than that it exists. It runs
   the shipped INIT block as written, in a hostile tree, with the isolation on
-  and off.
+  and off. Ported to the Claude Code convention (below): the block itself no
+  longer carries its own ``PYTHONSAFEPATH=1`` switch, so "isolation on/off" is
+  now simulated by setting/omitting it in the child's environment -- the exact
+  knob ``hooks/init-env.sh`` controls session-wide on the real runtime.
 * :class:`TestSkillPinsSafePath` (Task 2) / :class:`TestConventionIsSweptEverywhere`
   (Task 3) -- TEXTUAL, so a future edit cannot silently drop the variable.
+* :class:`TestSessionWideIsolationReplacesThePerInvocationPrefix` -- Claude Code
+  port pin. Kimi CLI's ``${KIMI_SKILL_DIR}``-prefixed per-invocation switch is
+  unbound and dead under Claude Code (PORT-1); ``hooks/init-env.sh`` now exports
+  ``PYTHONSAFEPATH=1``/``PYTHONPATH`` session-wide instead, once, at
+  SessionStart. This pins BOTH halves of that port: the dead prefix must never
+  reappear at a ``python3`` call site in either SKILL, and the hook that now
+  carries the isolation must actually export it.
 """
 from __future__ import annotations
 
@@ -54,8 +64,17 @@ from unittest import mock
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SKILL = _ROOT / "skills" / "atlas" / "SKILL.md"
+_WEAVE_SKILL = _ROOT / "skills" / "atlas-weave" / "SKILL.md"
+_INIT_ENV = _ROOT / "hooks" / "init-env.sh"
 
-# The exact prefix every python3 invocation in the atlas SKILL must carry.
+# The Kimi CLI-era per-invocation prefix (``${KIMI_SKILL_DIR}`` unbound under
+# Claude Code). It must NEVER appear at a ``python3`` call site any more: Claude
+# Code's SessionStart hook (``hooks/init-env.sh``) now exports both variables
+# session-wide instead, so a reintroduced prefix here would only SHADOW the
+# session's correct values with a broken relative path (PORT-1). This constant
+# is kept under its original name because :class:`TestTheFloorGuardHaltsTheRun`
+# and :class:`TestConventionIsSweptEverywhere` still reference it by that name;
+# its role changed from "must be present" to "must be absent."
 _SAFE_PREFIX = 'PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.."'
 
 
@@ -377,40 +396,46 @@ class TestSkillPinsSafePath(unittest.TestCase):
         self.lines = self.text.splitlines()
         self.logical = _logical_lines(self.text)
 
-    def test_every_python_invocation_carries_safe_path(self):
-        """EVERY interpreter token in a JOINED invocation must be immediately
-        preceded by the full prefix.
+    def test_no_python_invocation_carries_the_dead_prefix(self):
+        """PORT-1 regression guard: NO interpreter token may be immediately
+        preceded by the Kimi CLI-era per-invocation prefix any more.
 
-        Two mutations motivate each half. Scanning physical lines let a
-        continuation split the invocation (``prefix … python3 \\`` / ``-E -c``),
-        so the lines are joined first. Joining alone, however, only asks whether
-        the prefix appears SOMEWHERE in the logical line -- which a second,
-        unprefixed invocation on the continuation (``prefix … python3 -c "x" \\``
-        / ``; python3 -c "<hostile>"``) satisfies for free. Requiring adjacency
-        for every occurrence closes both, and also kills a later override
-        (``prefix PYTHONSAFEPATH= python3 …``) that a containment check would miss.
+        Under Claude Code, ``${KIMI_SKILL_DIR}`` is unbound, so a reintroduced
+        prefix here would not merely be redundant -- it would evaluate to a
+        broken relative PYTHONPATH that SHADOWS the correct, already-exported,
+        session-wide PYTHONPATH ``hooks/init-env.sh`` set at SessionStart,
+        breaking ``from scripts import <mod>`` resolution on every call it
+        touches. This inverts the pre-port pin (which required the prefix
+        adjacent to every ``python3`` token); it now forbids it there instead.
+        Scanning JOINED logical lines closes the same continuation-splitting
+        gap the original pin closed (``prefix … python3 \\`` / ``-E -c``).
         """
         offenders = []
         for i, line in self.logical:
             for m in re.finditer(r"\bpython3\b", line):
-                if not re.search(re.escape(_SAFE_PREFIX) + r"\s+$", line[:m.start()]):
+                if re.search(re.escape(_SAFE_PREFIX) + r"\s+$", line[:m.start()]):
                     offenders.append((i, line.strip()))
-        self.assertEqual(offenders, [], f"unguarded python3 invocation(s): {offenders}")
+        self.assertEqual(offenders, [],
+                         f"dead per-invocation prefix regressed: {offenders}")
 
-    def test_no_bare_pythonpath_invocation_survives(self):
-        """Physical lines DELIBERATELY, not joined: the prefix is a single
-        contiguous token sequence that no invocation splits, so per-line here is
-        strictly the stronger reading -- joining would let a bare PYTHONPATH on
-        one physical line be excused by a full prefix on its continuation."""
+    def test_no_kimi_skill_dir_pythonpath_form_survives(self):
+        """Physical lines DELIBERATELY, not joined -- see the sibling above for
+        why joining would be the weaker reading here too. Neither the bare form
+        nor the (now dead) fully-prefixed form of a ``${KIMI_SKILL_DIR}``-keyed
+        PYTHONPATH may survive anywhere in the shipped SKILL: the token is
+        unbound under Claude Code, so either shape is equally broken."""
         bare = 'PYTHONPATH="${KIMI_SKILL_DIR}/../.."'
         for i, line in enumerate(self.lines, 1):
-            if bare in line:
-                self.assertIn(_SAFE_PREFIX, line, f"SKILL.md:{i} has a bare PYTHONPATH")
+            self.assertNotIn(bare, line, f"SKILL.md:{i} still carries a "
+                             f"${{KIMI_SKILL_DIR}}-keyed PYTHONPATH override")
 
-    def test_the_invocations_were_not_simply_deleted(self):
-        """Anti-vacuity guard ONLY: the siblings above are trivially satisfiable by
-        removing every invocation. This does not independently verify the prefix."""
-        self.assertGreaterEqual(self.text.count(_SAFE_PREFIX), 17)
+    def test_python_invocations_survive_the_prefix_removal(self):
+        """Anti-vacuity guard ONLY: the sibling above is trivially satisfiable by
+        deleting every invocation outright rather than just its dead prefix.
+        Pins the same 17-invocation floor the pre-port suite pinned via
+        ``_SAFE_PREFIX`` occurrences, now counted on the bare ``python3`` token
+        instead (the prefix this used to count is gone by design)."""
+        self.assertGreaterEqual(len(re.findall(r"\bpython3\b", self.text)), 17)
 
     def test_no_invocation_discards_the_environment(self):
         """Both flags are forbidden, for DIFFERENT measured reasons.
@@ -711,13 +736,16 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
     the two outcomes that matter: with the isolation ON the guard stays quiet
     and the block still does its job, and with it OFF the run stops at rc 2 with
     the token opening stdout and the target's module never executing.
-    """
 
-    #: The exact prefix the SKILL puts on the block. Removing it reproduces the
-    #: orchestrating model retyping the command WITHOUT the switch -- the
-    #: transcription hazard the runtime guard exists for, and the way to reach
-    #: the hazard path without editing the guard under assertion.
-    SWITCH = "PYTHONSAFEPATH=1 "
+    PORT-1 (Claude Code): the block itself no longer carries a per-invocation
+    ``PYTHONSAFEPATH=1`` switch of its own -- that convention is dead
+    (``${KIMI_SKILL_DIR}`` is unbound here) and ``hooks/init-env.sh`` now
+    exports the isolation session-wide instead, once, at SessionStart. So
+    "isolation on" vs. "off" can no longer be reached by mutating text INSIDE
+    the block; it is now purely a property of the CHILD PROCESS ENVIRONMENT,
+    exactly as it is on the real runtime. ``_run(..., session_isolated=...)``
+    is that knob.
+    """
 
     #: Marks the tree on import and then gets out of the way, so what the BLOCK
     #: does next is the finding rather than a crash.
@@ -750,24 +778,28 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
     def marker(self) -> pathlib.Path:
         return self.target / "PWNED-BY-TARGET"
 
-    def _run(self, command: str):
+    def _run(self, command: str, *, session_isolated: bool):
         """Execute `command` through ``sh`` with the TARGET tree as the cwd.
 
         The script is written OUTSIDE the hostile tree so it cannot perturb what
-        is under assertion, and both ``PYTHON*`` path variables are dropped from
-        the inherited environment: letting the TEST RUNNER supply the isolation
-        the block must carry itself is the one vacuity that would make every
-        assertion here meaningless.
+        is under assertion. Both ``PYTHON*`` path variables are ALWAYS dropped
+        from the inherited environment first -- letting the TEST RUNNER supply
+        the isolation for free is the one vacuity that would make every
+        assertion here meaningless -- then, when ``session_isolated`` is True,
+        re-added explicitly. That is the Claude Code shape of this test: the
+        block carries no switch of its own any more, so ``session_isolated``
+        stands in for whatever ``hooks/init-env.sh`` did (or did not) export
+        into this shell before the SKILL ran.
         """
         script = pathlib.Path(self._aux.name) / "init.sh"
-        script.write_text(
-            command.replace("${KIMI_SKILL_DIR}", str(_ROOT / "skills" / "atlas")),
-            encoding="utf-8",
-        )
+        script.write_text(command, encoding="utf-8")
         env = dict(os.environ)
         env.pop("PYTHONSAFEPATH", None)
         env.pop("PYTHONPATH", None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        if session_isolated:
+            env["PYTHONSAFEPATH"] = "1"
+            env["PYTHONPATH"] = str(_ROOT)
         return subprocess.run(
             ["sh", str(script)], cwd=str(self.target), env=env,
             capture_output=True, text=True, timeout=120,
@@ -778,23 +810,27 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
 
         A fence scan that returned the wrong block -- or a stripped one -- would
         let both behavioural cases pass while testing something other than what
-        ships. Costs no child interpreter."""
-        self.assertIn(_SAFE_PREFIX, self.command, "the block lost the safe prefix")
+        ships. Costs no child interpreter. The first assertion is PORT-1's
+        regression guard: the dead per-invocation prefix must never reappear on
+        this exact block (see :data:`_SAFE_PREFIX`)."""
+        self.assertNotIn(_SAFE_PREFIX, self.command,
+                         "the block regressed the dead per-invocation prefix")
         self.assertIn("<<'PY'", self.command, "the block lost its heredoc")
         self.assertIn(_FLAG_CHECK, self.command, "the block lost the floor guard")
         self.assertIn("ATLAS-PRECONDITION-FAILED", self.command)
         self.assertIn("SystemExit(2)", self.command)
 
     def test_the_guard_is_silent_and_the_block_still_works_with_isolation_on(self):
-        """The block AS SHIPPED, in the hostile tree: rc 0, no abort token, the
-        target's module never runs, and the resume check returns the real
-        interrupted run.
+        """The block AS SHIPPED, in the hostile tree, with the session carrying
+        the isolation (as ``hooks/init-env.sh`` does on the real runtime): rc 0,
+        no abort token, the target's module never runs, and the resume check
+        returns the real interrupted run.
 
         This half is what kills the dropped-``not`` mutant, which is invisible to
         every textual and structural pin: with the test inverted the guard fires
         on every healthy interpreter, so the shipped orchestrator aborts EVERY
         run at INIT and atlas is dead on arrival for all users."""
-        proc = self._run(self.command)
+        proc = self._run(self.command, session_isolated=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertNotIn("ATLAS-PRECONDITION-FAILED", proc.stdout + proc.stderr)
         self.assertFalse(self.marker.exists(),
@@ -805,7 +841,10 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
                          % proc.stdout)
 
     def test_the_guard_halts_before_the_target_executes_with_isolation_off(self):
-        """The hazard path: the model retypes the command without the switch.
+        """The hazard path: the SessionStart hook never ran (or never reached
+        this shell), so PYTHONSAFEPATH/PYTHONPATH are simply absent -- the
+        Claude Code equivalent of the model retyping the command without the
+        switch under the old, per-invocation convention.
 
         This half kills both SILENT mutants. ``rc == 2`` is the fail-closed
         contract -- printing the token and running on hands the target code
@@ -814,9 +853,7 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
         module, not after it. Neither is implied by the other: the ``pass``
         mutant prints the token and creates the marker at rc 0, the ``and False``
         mutant prints nothing and creates it."""
-        hazard = self.command.replace(self.SWITCH, "", 1)
-        self.assertNotIn(self.SWITCH, hazard, "the switch was not actually dropped")
-        proc = self._run(hazard)
+        proc = self._run(self.command, session_isolated=False)
         self.assertEqual(proc.returncode, 2,
                          "the guard did not halt the run: rc=%d %r"
                          % (proc.returncode, proc.stdout + proc.stderr))
@@ -869,8 +906,17 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
     invocation that runs in an untrusted cwd, must carry the safe form.
 
     The hijack existed because the convention itself was unsafe and had been
-    copied into six documents. Pinning the atlas SKILL alone would let the next
+    copied into five documents. Pinning the atlas SKILL alone would let the next
     author reintroduce the bare form straight from the docs.
+
+    ``skills/atlas-weave/SKILL.md`` is deliberately ABSENT from
+    :data:`DOC_SOURCES` (PORT-1): it no longer teaches the ``${KIMI_SKILL_DIR}``-
+    prefixed convention in prose at all -- its one call site now reads plain
+    ``python3 -c "import scripts.<mod> …"``, same as the atlas SKILL. That
+    invariant (the dead prefix must never reappear) is pinned instead by
+    :class:`TestSessionWideIsolationReplacesThePerInvocationPrefix`, which
+    checks both ported SKILLs together against the one convention that now
+    actually carries the isolation, ``hooks/init-env.sh``.
     """
 
     # Files that teach the PYTHONPATH convention in prose.
@@ -878,7 +924,6 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
         "references/orchestration.md",
         "AGENTS.md",
         "PLAN.md",
-        "skills/atlas-weave/SKILL.md",
         "skills/atlas-resume/SKILL.md",
     )
 
@@ -985,6 +1030,52 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
             with self.subTest(file=rel):
                 self.assertEqual(unguarded, [], f"{rel}: invocation may write bytecode")
                 self.assertEqual(len(guarded), self.INVOKING_FILES[rel])
+
+
+class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
+    """PORT-1 (Claude Code): the two halves of the ported isolation convention,
+    pinned TOGETHER because either alone is an incomplete guarantee.
+
+    Deleting the dead per-invocation prefix from ``skills/atlas/SKILL.md`` and
+    ``skills/atlas-weave/SKILL.md`` is only safe if ``hooks/init-env.sh`` really
+    took over supplying ``PYTHONSAFEPATH=1``/``PYTHONPATH`` session-wide.
+    Pinning only the SKILLs' absence-of-prefix would pass on a hook that quietly
+    lost one of those exports; pinning only the hook's exports would pass even
+    if a SKILL regressed the dead ``${KIMI_SKILL_DIR}``-keyed prefix back in --
+    which does not merely duplicate the hook's export, it SHADOWS it with a
+    broken relative path, because ``${KIMI_SKILL_DIR}`` is unbound under Claude
+    Code (see the module docstring and :data:`_SAFE_PREFIX`).
+    """
+
+    def test_neither_ported_skill_carries_the_dead_prefix(self):
+        for skill in (_SKILL, _WEAVE_SKILL):
+            text = skill.read_text(encoding="utf-8")
+            with self.subTest(skill=str(skill.relative_to(_ROOT))):
+                self.assertNotIn(
+                    _SAFE_PREFIX, text,
+                    "the dead ${KIMI_SKILL_DIR} per-invocation prefix regressed")
+                self.assertNotIn(
+                    'PYTHONPATH="${KIMI_SKILL_DIR}', text,
+                    "a ${KIMI_SKILL_DIR}-keyed PYTHONPATH override survives")
+
+    def test_init_env_hook_exports_the_isolation_session_wide(self):
+        text = _INIT_ENV.read_text(encoding="utf-8")
+        self.assertIn(
+            "CLAUDE_PLUGIN_ROOT", text,
+            "hooks/init-env.sh no longer reads the plugin root from Claude "
+            "Code's own $CLAUDE_PLUGIN_ROOT")
+        self.assertIn(
+            "export ATLAS_PLUGIN_ROOT=", text,
+            "hooks/init-env.sh no longer exports ATLAS_PLUGIN_ROOT, the stable "
+            "reference both ported SKILLs now use in place of ${KIMI_SKILL_DIR}")
+        self.assertIn(
+            'export PYTHONPATH=\\"${PLUGIN_ROOT}', text,
+            "hooks/init-env.sh no longer extends PYTHONPATH with the plugin "
+            "root session-wide -- every bare python3 invocation in both "
+            "ported SKILLs depends on this to resolve `from scripts import`")
+        self.assertIn(
+            "export PYTHONSAFEPATH=1", text,
+            "hooks/init-env.sh no longer exports PYTHONSAFEPATH=1 session-wide")
 
 
 class TestHooksSurviveAHostileCwd(unittest.TestCase):

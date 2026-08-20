@@ -131,7 +131,7 @@ class _RunDirMixin:
         into the Python. The block CONSUMES the scratch file, so each call gets
         a fresh one.
         """
-        body = _VALIDATE_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        body = _VALIDATE_BLOCK.replace("$ATLAS_SESSION_ID", "RUN")
         body = body.replace('NAME = "critic_correctness.json"', 'NAME = "%s"' % name)
         self.assertNotIn("<the critic's returned JSON text>", body,
                          "the Step-3.4 block still interpolates model text (C1)")
@@ -141,7 +141,7 @@ class _RunDirMixin:
                               cwd=root, env=env, capture_output=True, text=True)
 
     def _gate(self, root, env):
-        body = _STEP45_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        body = _STEP45_BLOCK.replace("$ATLAS_SESSION_ID", "RUN")
         proc = subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -156,7 +156,7 @@ class _RunDirMixin:
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def _output(self, root, env):
-        body = _OUTPUT_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        body = _OUTPUT_BLOCK.replace("$ATLAS_SESSION_ID", "RUN")
         proc = subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -241,7 +241,7 @@ class TestRefineSkipsOrchestratorDefects(_RunDirMixin, unittest.TestCase):
         proc = subprocess.run([sys.executable, "-c", init], cwd=root, env=env,
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        body = _REFINE_BLOCK.replace("${KIMI_SESSION_ID}", "RUN")
+        body = _REFINE_BLOCK.replace("$ATLAS_SESSION_ID", "RUN")
         proc = subprocess.run([sys.executable, "-c", body], cwd=root, env=env,
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -542,7 +542,7 @@ class TestStep34PassesTheOrchestratorNamespace(unittest.TestCase):
 
     def _tree(self):
         import ast
-        return ast.parse(_VALIDATE_BLOCK.replace("${KIMI_SESSION_ID}", "SID"))
+        return ast.parse(_VALIDATE_BLOCK.replace("$ATLAS_SESSION_ID", "SID"))
 
     def test_the_call_passes_reserved_ids_by_keyword(self):
         import ast

@@ -126,8 +126,9 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
     # own wrapper line supplies -- ``PYTHONSAFEPATH=1 PYTHONPATH=<plugin root>``
     # -- plus an existing run directory, because ``ctxstore.write_artifact``
     # writes into ``<base>/<run_id>/`` and never creates it. ``run`` inside the
-    # block is the literal ``${KIMI_SESSION_ID}`` (the shell expands it in
-    # production), so that is the directory name the fixture creates. rc == 0
+    # block is the literal ``$ATLAS_SESSION_ID`` (the Claude Code SessionStart
+    # hook exports it in production), so that is the directory name the
+    # fixture creates. rc == 0
     # consequently means parsed + dup-key-checked + schema-valid + pass-stamped
     # + persisted, not merely "compiled".
 
@@ -148,7 +149,7 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         d = pathlib.Path(tmp.name)
-        run_dir = d / ".atlas" / "${KIMI_SESSION_ID}"
+        run_dir = d / ".atlas" / "$ATLAS_SESSION_ID"
         run_dir.mkdir(parents=True)
         payload = d / "critic.raw.json"
         payload.write_bytes(payload_bytes)
@@ -342,7 +343,7 @@ class TestH3CheckpointShapeIsNotAManufacturedRed(unittest.TestCase):
         """Run one extracted call, with only the run-local values substituted."""
         src = (calls[stage]
                .replace('".atlas"', repr(base))
-               .replace('"${KIMI_SESSION_ID}"', repr(rid))
+               .replace('"$ATLAS_SESSION_ID"', repr(rid))
                .replace('"<sha>"', repr(sha))
                .replace('"<provisional_status>"', repr(status)))
         self.assertNotIn("<", src, "a placeholder survived substitution: %s" % src)

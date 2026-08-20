@@ -6,7 +6,7 @@
 
 ## Conventions
 
-- **Persistence base:** `.atlas/` in the target working directory (PLAN OD-3; fall back to `${KIMI_CODE_HOME}/atlas-runs/wd_<sha>/` when the target is not a git repo). **run_id:** `${KIMI_SESSION_ID}` (DS-2).
+- **Persistence base:** `.atlas/` in the target working directory (PLAN OD-3; fall back to `${ATLAS_PLUGIN_ROOT}/atlas-runs/wd_<sha>/` when the target is not a git repo). **run_id:** `$ATLAS_SESSION_ID` (DS-2 — persisted session-wide by the Claude Code SessionStart hook, `hooks/init-env.sh`, from the event JSON's `session_id` field).
 - **Script calls:** `Bash` with `PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.."` so `from scripts import <mod>` resolves against the plugin and **not** against the untrusted target's working directory, and the scripts find `references/schemas.json` relative to themselves.
 - **Resume:** on start the orchestrator resumes the newest `.atlas/*/state.json` whose `current_state` is non-terminal (not `OUTPUT`/`DONE`), continuing from the stage after its last ledger entry rather than restarting.
 
