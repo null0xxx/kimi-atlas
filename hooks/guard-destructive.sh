@@ -3,15 +3,17 @@
 #
 # ============================ DISABLED BY DEFAULT ============================
 # This is the ONLY kimi-atlas hook that can BLOCK a tool call, and it is NOT
-# wired into `.claude-plugin/plugin.json` `hooks[]`. It ships as a documented
-# opt-in. To ENABLE it — only AFTER the P4b probe (`probe/probe_hook_block.sh`,
-# risk R6) has confirmed which blocking contract Kimi v0.23.5 actually honors —
-# add a manifest entry:
-#     { "event": "PreToolUse", "matcher": "Bash",
-#       "command": "sh \"$KIMI_PLUGIN_ROOT/hooks/guard-destructive.sh\"",
-#       "timeout": 10 }
-# Because a blocking PreToolUse hook loads GLOBALLY for every Kimi session, it
-# stays opt-in until the contract is proven in a throwaway KIMI_CODE_HOME (OPS-2).
+# wired into hooks/hooks.json. It ships as a documented opt-in. To ENABLE it,
+# add an entry under the "PreToolUse" key of hooks/hooks.json (wrapper format):
+#     { "matcher": "Bash",
+#       "hooks": [ { "type": "command",
+#         "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/guard-destructive.sh\"",
+#         "timeout": 10 } ] }
+# Because a blocking PreToolUse hook loads GLOBALLY for every Claude Code
+# session once the plugin is installed, it stays opt-in by deliberate design —
+# not because the blocking contract is in doubt (see DUAL DENY EMISSION below,
+# now confirmed), but because a denylist-based guard is inherently best-effort
+# and an operator should choose it explicitly rather than inherit it silently.
 # ============================================================================
 #
 # CONTRACT: read the event JSON on stdin; if tool_name == "Bash" AND the command
@@ -22,38 +24,33 @@
 # allow is recoverable; a false global block is not. (There is deliberately NO
 # `trap 'exit 0' EXIT` here, because that would override the deny `exit 2`.)
 #
-# INTERPRETER ISOLATION (v1.5.1, HARDENING): both JSON reads below carry
-# `PYTHONSAFEPATH=1`, because CPython otherwise puts the interpreter's OWN working
-# directory on `sys.path` ahead of the stdlib. Under the SHIPPED runtime that
-# directory is the PLUGIN root, not the session's — `references/kimi-runtime.md`
-# §7 records "cwd=pluginRoot" for manifest-registered hooks (re-probed on Kimi CLI
-# v0.28.1) — and the installed plugin root holds no top-level Python file, so
-# nothing shadows the stdlib there. For a manifest-wired hook this is defence in
-# depth, NOT a reachable ACE.
+# INTERPRETER ISOLATION (v1.5.1, HARDENING, carried forward unchanged): both JSON
+# reads below carry `PYTHONSAFEPATH=1`, because CPython otherwise puts the
+# interpreter's OWN working directory on `sys.path` ahead of the stdlib. Hook
+# execution cwd for a manifest-registered Claude Code command hook (plugin root
+# vs. project root) is unconfirmed for Claude Code — no live probe of this
+# specific fact has been run against the real CLI; this hardening is kept
+# regardless of that answer, per the blueprint's own risk mitigation for this
+# item. `PYTHONDONTWRITEBYTECODE=1` rides along so an
+# unexpected import never leaves `__pycache__/` in a tree this hook is only
+# supposed to observe.
 #
-# It still matters HERE in particular: this hook is opt-in and is most naturally
-# enabled through the user's Kimi config.toml `[[hooks]]`, which inherits the
-# SESSION's cwd — the configuration the reproduction uses. In that configuration a
-# repository containing a bare `json` shadow module executes arbitrary code on the
-# first tool use and (because that import can exit the interpreter) leaves an empty
-# tool_name behind, which fail-open then reads as "not Bash" and ALLOWS. Reproduced
-# on `rm -rf /`: exit 0. With the switch: DENY, exit 2.
-# `PYTHONDONTWRITEBYTECODE=1` rides along because the same import wrote
-# `__pycache__/` into a tree this hook is only supposed to observe.
-#
-# DUAL DENY EMISSION — the two documented Kimi blocking mechanisms are mutually
-# exclusive on exit code (exit 2  vs  exit 0 + JSON), so we emit BOTH signals and
-# exit 2:
-#   (a) human-readable reason on stderr, then `exit 2`   ← classic block signal
+# DUAL DENY EMISSION — Claude Code's PreToolUse hook is CONFIRMED to honor BOTH
+# blocking signals (docs.claude.com/hooks: exit 2 blocks "whether or not you
+# print JSON", and a `{"hookSpecificOutput":{"permissionDecision":"deny",...}}`
+# JSON body is the documented structured-deny shape), so this hook continues to
+# emit BOTH, unconditionally, and exit 2:
+#   (a) human-readable reason on stderr, then `exit 2`   ← confirmed block signal
 #   (b) {"hookSpecificOutput":{"permissionDecision":"deny",...}} on stdout
-# `probe/probe_hook_block.sh` (P4b, R6) is what CONFIRMS which of the two Kimi
-# honors. Until then we exit 2 (the strong, non-zero block) while also printing
-# the permissionDecision JSON, so the deny is expressed whichever path wins. If
-# the probe shows Kimi requires exit 0 for the JSON path, flip the exit below.
+# This is belt-and-suspenders now that both paths are confirmed honored, not a
+# hedge against an unresolved question — no behavior change was made here to
+# reflect that (Stage 2's mandate for this file is header/comment rewrite only).
 #
-# Invoked as: sh "$KIMI_PLUGIN_ROOT/hooks/guard-destructive.sh"
+# Invoked as: sh "$CLAUDE_PLUGIN_ROOT/hooks/guard-destructive.sh"
 
-# Recursion guard: never police a nested atlas `kimi -p` child.
+# Recursion guard (name kept unchanged on purpose — do not rename it; a rename
+# risks colliding with .githooks/pre-commit's unrelated ATLAS_NO_HOOK guard):
+# never police a possible future nested atlas CLI child.
 [ -n "${KIMI_ATLAS_NO_HOOK:-}" ] && exit 0
 
 INPUT="$(cat 2>/dev/null || printf '%s' '{}')"
@@ -138,12 +135,13 @@ if [ -n "$REASON" ]; then
     DENY="kimi-atlas guard-destructive: DENY — command matches the destructive denylist: ${REASON}."
     # (a) stderr reason for the exit-2 blocking contract.
     printf '%s\n' "$DENY" >&2
-    # (b) permissionDecision JSON on stdout for the exit-0 blocking contract.
-    #     REASON is a fixed ASCII phrase with no quotes/backslashes, so this hand
-    #     -built JSON is always valid.
+    # (b) permissionDecision JSON on stdout — the structured deny shape Claude
+    #     Code documents for PreToolUse. REASON is a fixed ASCII phrase with no
+    #     quotes/backslashes, so this hand-built JSON is always valid.
     printf '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$DENY"
-    # Exit 2 = the strong block signal; P4b confirms whether Kimi honors this or
-    # the exit-0 JSON path (see header).
+    # Exit 2 is CONFIRMED to block regardless of the JSON body (see header); it
+    # is emitted here as the authoritative signal, with the JSON as a
+    # belt-and-suspenders structured reason alongside it.
     exit 2
 fi
 

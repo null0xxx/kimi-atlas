@@ -5,6 +5,16 @@ description: Use at session start (and after compaction) to resume an interrupte
 
 # atlas-resume — on-disk run resumption (F1 / P11)
 
+**Invoke this skill directly (`/kimi-atlas:atlas-resume`) whenever you suspect an unfinished run —
+this manual invocation is the MANDATORY, load-bearing recovery path, never merely a backup to an
+assumed-working hook.** A `SessionStart` hook (`hooks/session-resume.sh`) also exists and prints a
+pointer when it finds an unfinished `.atlas/*/state.json`; a live probe against a real Claude Code
+CLI empirically confirmed that hook's stdout does land in a started session's context (see
+`probe/probe_cc_sessionstart_injection.sh`), but only for the `startup` source, on one CLI version,
+via one throwaway scratch plugin — not a guarantee across every build, every one of the hook's five
+registered sources, or every real user's plugin-loading configuration. Do not wait for that pointer
+to appear before resuming by hand; run this skill on suspicion alone.
+
 This is a **pure instruction**. It injects **no live state** — it only tells you *where the durable
 ledger lives on disk* so you can find it yourself. kimi-atlas keeps its authoritative run state on
 disk (never in context), because the full orchestrator prompt is **not guaranteed to survive

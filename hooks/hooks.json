@@ -1,5 +1,5 @@
 {
-  "description": "kimi-atlas hook registrations (wrapper format for Claude Code plugins).",
+  "description": "kimi-atlas hook registrations (wrapper format for Claude Code plugins). Every blocking PreToolUse guard stays opt-in and disabled by default -- see hooks/*.sh headers for the manual enable path; this manifest registers only fail-open, observe-only, or pointer-only hooks.",
   "hooks": {
     "PostToolUse": [
       {
@@ -8,6 +8,64 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/telemetry.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/init-env.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "startup,resume,clear,compact,fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/hooks/session-resume.sh\"",
             "timeout": 10
           }
         ]

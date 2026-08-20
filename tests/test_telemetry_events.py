@@ -58,6 +58,58 @@ class TelemetryEventTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertFalse(self.hooks.exists())
 
+    def test_post_tool_use_failure_tagged_as_error_unconditionally(self):
+        # PostToolUseFailure is a distinct Claude Code event (split from Kimi's
+        # single combined payload); its exact error-carrying field is not
+        # documented, so every invocation must be tagged kind="error"
+        # regardless of whether an error/stderr-shaped field is present at all.
+        r = _run({"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                  "cwd": self.cwd, "tool_response": {}})
+        self.assertEqual(r.returncode, 0)
+        rec = self._last()
+        self.assertEqual(rec["kind"], "error")
+        self.assertEqual(rec["event"], "PostToolUseFailure")
+
+    def test_post_tool_use_failure_with_error_field_still_tagged_error(self):
+        r = _run({"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                  "cwd": self.cwd, "tool_response": {"error": "boom"}})
+        self.assertEqual(r.returncode, 0)
+        rec = self._last()
+        self.assertEqual(rec["kind"], "error")
+        self.assertEqual(rec["payload"]["untrusted_error"], "boom")
+
+    def test_subagent_stop_tagged_with_last_assistant_message(self):
+        # SubagentStop's final-output field is "last_assistant_message"
+        # (Claude Code docs), a different field name/shape than the
+        # tool_response/tool_result read for PostToolUse.
+        r = _run({"hook_event_name": "SubagentStop", "cwd": self.cwd,
+                  "agent_id": "agent-1",
+                  "last_assistant_message": "the subagent's final answer"})
+        self.assertEqual(r.returncode, 0)
+        rec = self._last()
+        self.assertEqual(rec["kind"], "subagent_stop")
+        self.assertEqual(rec["payload"]["untrusted_output"],
+                          "the subagent's final answer")
+        self.assertEqual(rec["agent_id"], "agent-1")
+
+    def test_subagent_stop_without_last_assistant_message_is_untagged(self):
+        r = _run({"hook_event_name": "SubagentStop", "cwd": self.cwd,
+                   "agent_id": "agent-1"})
+        self.assertEqual(r.returncode, 0)
+        rec = self._last()
+        self.assertNotIn("kind", rec)
+        self.assertNotIn("payload", rec)
+
+    def test_subagent_start_recorded_without_kind_or_payload(self):
+        r = _run({"hook_event_name": "SubagentStart", "cwd": self.cwd,
+                  "agent_id": "agent-2", "agent_type": "Explore"})
+        self.assertEqual(r.returncode, 0)
+        rec = self._last()
+        self.assertEqual(rec["event"], "SubagentStart")
+        self.assertEqual(rec["agent_id"], "agent-2")
+        self.assertNotIn("kind", rec)
+        self.assertNotIn("payload", rec)
+
 
 if __name__ == "__main__":
     unittest.main()
