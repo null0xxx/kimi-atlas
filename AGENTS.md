@@ -127,10 +127,18 @@ not sufficient — everything must stay green on all three lanes.
 
 ## Open items (as of v1.5.3.1)
 
-> **The authoritative ledger is now
-> [`docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md`](docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md)** —
-> what is done, the 17 open defect items, the disposition of every unbuilt plan and in-flight branch, and
-> the phased sequence. Read it before starting anything. The items below remain accurate but are a subset.
+> **For the Kimi Code → Claude Code CLI migration** (in progress since 2026-08-20), the authoritative
+> document is
+> [`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md`](docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md)
+> — the 5-stage dependency-ordered plan, risk register, and acceptance criteria, plus a status overlay
+> tracking actual progress against it. Read it before touching anything migration-related.
+>
+> For pre-migration (Kimi-era) defect work, the ledger is
+> [`docs/superpowers/plans/2026-07-31-open-defect-surface.md`](docs/superpowers/plans/2026-07-31-open-defect-surface.md)
+> — this superseded the older
+> [`2026-07-26-roadmap-and-plan-inventory.md`](docs/superpowers/plans/2026-07-26-roadmap-and-plan-inventory.md)
+> and was itself abandoned mid-stream when work pivoted to the migration; only item A1 is done. The items
+> below remain accurate but are a subset.
 
 - **D1–D7 fix run** — ordered + risk-assessed in
   [`docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md`](docs/superpowers/plans/2026-07-19-skills-era-hardening-analysis.md):
