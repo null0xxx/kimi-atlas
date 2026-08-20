@@ -477,13 +477,18 @@ Stage 4's own gating condition (its two live probes) is **already satisfied** (�
 
 This section is maintained separately from the body above; the body is the original artifact content, verbatim.
 
+### Migration readiness vs. §15's two Conditions for READY
+
+- **Condition 1** (Stage 3's 3-scenario live rollback validation) — **satisfied**, 2026-08-20. See Stage 3 row below and `references/rollback-sanction-live-validation.md`.
+- **Condition 2** (Stage 5's live 5-fixture negative-gate run) — not yet reachable; Stage 5 hasn't started and depends on Stages 2/3/4 all being complete first (§9).
+
 ### Stage-by-stage status
 
 | Stage | Blueprint status | Actual status (git, 2026-08-20) |
 |---|---|---|
 | 1 — Foundation | Spec'd in full | **Done** — `c9e6b41`, `28c536d`, `038d93f` |
 | 2 — Hooks & lifecycle | Spec'd in full (`hooks/session-resume.sh`, SessionStart-injection probe, PostToolUseFailure/SubagentStart/SubagentStop registration) | **Not started.** No commit touches `hooks/session-resume.sh` or registers PostToolUseFailure/SubagentStart/SubagentStop. |
-| 3 — Orchestrator core | Spec'd in full, incl. the 3-scenario live rollback validation as the non-negotiable safety condition | **Partially done, with a divergence.** `ad08b6e` ported run_id/session-sourcing — but see "Divergence" below, it does not match this blueprint's design. `ef91c92` (this session) fixed an unrelated real bug (`systemd-run --scope` polkit auth) discovered along the way — valuable, but not part of this blueprint's original Stage 3 scope. **The 3-scenario live real-git rollback validation — the single non-negotiable condition for the whole migration — has NOT been run.** |
+| 3 — Orchestrator core | Spec'd in full, incl. the 3-scenario live rollback validation as the non-negotiable safety condition | **Core work + the safety-critical validation both done, with one still-open divergence.** `ad08b6e` ported run_id/session-sourcing — see "Divergence" below, it does not match this blueprint's design. `ef91c92` fixed an unrelated real bug (`systemd-run --scope` polkit auth) discovered along the way. **The 3-scenario live real-git rollback validation — §15's single non-negotiable condition — ran 2026-08-20 directly through Claude Code's own Bash tool (not just unittest) and PASSED all three scenarios: primary-tree refusal (exit 2, zero ledger writes), worktree rollback success (real git reset, correct two-phase markers), and `resume_rollback` refusal on the primary tree with the intent correctly left open. Full transcript: `references/rollback-sanction-live-validation.md`. `scripts/rollback_driver.py` was not modified.** |
 | 4 — Subagent dispatch | Phase A done 2026-08-19 (`references/claude-agent-dispatch.md`); Phase B/C spec'd in full | **Phase A done. Phase B/C done** — `6c3669b` (this session), independently re-derived the same by-name dispatch conclusion this blueprint already reached via its own probe, then executed the rewrite. The one thing still missing: **the live enforcement negative-test** (a critic's attempted Write/Bash structurally refused by the host) — flagged as open by both this blueprint and this session's own work. |
 | 5 — Verification harness & packaging | Spec'd in full (3-file SKILL.md rename incl. atlas-resume, runcheck timeout fix, `check_cc_migration_residue.py`, live 5-fixture negative-gate run) | **Not started.** |
 
