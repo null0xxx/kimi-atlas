@@ -1,6 +1,6 @@
 ---
 name: atlas-weave
-description: Use when the user runs /skill:atlas-weave or asks kimi-atlas to implement a LARGER, multi-file change by decomposing it into a file-disjoint plan-DAG of nodes, running each node as an isolated inner atlas sub-run (≤3 at a time), and merging them through a combined-tree differential gate. The multi-agent extension of atlas; degrades byte-identically to a single atlas run on a 1-node DAG.
+description: Use when the user runs /kimi-atlas:atlas-weave or asks kimi-atlas to implement a LARGER, multi-file change by decomposing it into a file-disjoint plan-DAG of nodes, running each node as an isolated inner atlas sub-run (≤3 at a time), and merging them through a combined-tree differential gate. The multi-agent extension of atlas; degrades byte-identically to a single atlas run on a 1-node DAG.
 argument-hint: "<rough multi-file coding request> [verify_cmd: <cmd>] [success: <criteria>] [scope: <paths>] | ping"
 ---
 
@@ -18,7 +18,7 @@ scheduling, disjointness, cycle, differential, and gate decision is a **pure fun
 facts** — you only marshal.
 
 > If the argument is exactly `ping` (or empty), reply with the single line
-> `kimi-atlas-weave orchestrator loaded OK — /skill:atlas-weave <rough multi-file request>` and
+> `kimi-atlas-weave orchestrator loaded OK — /kimi-atlas:atlas-weave <rough multi-file request>` and
 > stop. Everything below is for a real request.
 
 ---
@@ -202,7 +202,7 @@ Loop until `scheduler.is_terminated(dag)` is true:
 
 ---
 
-## Live dogfood (manual, in Kimi)
+## Live dogfood (manual, in Claude Code)
 
 The deterministic composition of this whole pipeline is proven mechanically by
 `scripts/dogfood_weave.py` (a real temp git repo + scripted node diffs: it asserts a clean multi-file
@@ -210,10 +210,10 @@ change greens, a hidden same-file overlap and a combined-tree regression each BL
 degrades to atlas). That proof runs in CI and needs **no** live agents.
 
 The **live quality/throughput delta** (real coders on a real multi-file task) is a manual measurement
-— it needs the Kimi agent runtime, not the CI env. To record it honestly:
+— it needs the Claude Code agent runtime, not the CI env. To record it honestly:
 
 1. Pick a real multi-file change with ≥2 file-disjoint parts and a runnable `verify_cmd`.
-2. Run it once through `/skill:atlas` (single-shot) and once through `/skill:atlas-weave`; capture
+2. Run it once through `/kimi-atlas:atlas` (single-shot) and once through `/kimi-atlas:atlas-weave`; capture
    wall-clock, token spend, and the final verdict for each.
 3. Report the Q (verdict + human-review findings) and T (time/tokens) delta. Do **not** fabricate a
    number — if a live run was not performed, say so; the shipped proof is the deterministic

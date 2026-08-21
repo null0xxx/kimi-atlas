@@ -181,7 +181,7 @@ WAIVED = {
     '`Agent(subagent_type="kimi-atlas:<lens>-critic", …)` (a critic must be read-only ⇒ its own':
         "Same by-name dispatch template as above, restated at the critic-wave "
         "dispatch site. <lens> is author-enumerated, never foreign text.",
-    '3. Call `Agent(subagent_type="kimi-atlas:<lens>-critic", prompt=<packet ONLY>[, temperature=<distinct>])`':
+    '3. Call `Agent(subagent_type="kimi-atlas:<lens>-critic", prompt=<packet ONLY>)`':
         "Same by-name dispatch template, restated at the literal Agent() call site. "
         "<lens> is author-enumerated, never foreign text.",
 }

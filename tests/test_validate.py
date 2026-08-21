@@ -13,6 +13,7 @@ def _task_packet(**over):
         "baseline_sha": "abc123",
         "debug_tokens": ["TODO"],
         "test_glob": "tests/test_*.py",
+        "invocation_form": "headless",
     }
     base.update(over)
     return base
@@ -56,7 +57,37 @@ class TestValidateTaskPacket(unittest.TestCase):
 
     def test_empty_object_reports_all_missing(self):
         errs = validate.validate({}, "task-packet")
-        self.assertEqual(len(errs), 7)
+        self.assertEqual(len(errs), 8)
+
+    def test_invocation_form_accepts_interactive(self):
+        self.assertEqual(
+            validate.validate(_task_packet(invocation_form="interactive"), "task-packet"), []
+        )
+
+    def test_invocation_form_accepts_headless(self):
+        self.assertEqual(
+            validate.validate(_task_packet(invocation_form="headless"), "task-packet"), []
+        )
+
+    def test_invocation_form_rejects_unknown_value(self):
+        errs = validate.validate(_task_packet(invocation_form="banana"), "task-packet")
+        self.assertIn("field invocation_form must be one of ['interactive', 'headless']", errs)
+
+    def test_invocation_form_missing_is_reported(self):
+        pkt = _task_packet()
+        del pkt["invocation_form"]
+        errs = validate.validate(pkt, "task-packet")
+        self.assertIn("missing field: invocation_form", errs)
+
+    def test_invocation_form_wrong_type_reported_once_not_double_reported(self):
+        # A non-str invocation_form fails the type check (required-field loop);
+        # the values-membership loop must not ALSO fire a redundant error for it.
+        errs = validate.validate(_task_packet(invocation_form=["headless"]), "task-packet")
+        self.assertIn("field invocation_form must be str", errs)
+        self.assertNotIn(
+            "field invocation_form must be one of ['interactive', 'headless']", errs
+        )
+        self.assertEqual(len(errs), 1)
 
 
 class TestValidateContext(unittest.TestCase):

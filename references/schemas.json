@@ -7,7 +7,11 @@
       "verify_cmd": "str",
       "baseline_sha": "str",
       "debug_tokens": "list",
-      "test_glob": "str"
+      "test_glob": "str",
+      "invocation_form": "str"
+    },
+    "values": {
+      "invocation_form": ["interactive", "headless"]
     }
   },
   "context": {

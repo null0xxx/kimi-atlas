@@ -1,6 +1,6 @@
 ---
 name: atlas
-description: Use when the user runs /skill:atlas or asks kimi-atlas to turn a rough coding request into elite, verified, human-gated implemented code — drives the deterministic INIT→OUTPUT state machine, dispatches the coder/scout/critic subagents, and never ships unverified.
+description: Use when the user runs /kimi-atlas:atlas or asks kimi-atlas to turn a rough coding request into elite, verified, human-gated implemented code — drives the deterministic INIT→OUTPUT state machine, dispatches the coder/scout/critic subagents, and never ships unverified.
 argument-hint: "<rough coding request> [verify_cmd: <cmd>] [success: <criteria>] [scope: <paths>] | ping"
 ---
 
@@ -15,7 +15,7 @@ ask the user, or manage TODOs. You **never auto-apply** a change to a real tree;
 human-gated or confined to an isolated sandbox.
 
 > If the argument is exactly `ping` (or empty), reply with the single line
-> `kimi-atlas orchestrator loaded OK — /skill:atlas <rough coding request>` and stop. Everything
+> `kimi-atlas orchestrator loaded OK — /kimi-atlas:atlas <rough coding request>` and stop. Everything
 > below is for a real request.
 
 ---
@@ -33,7 +33,10 @@ below:
    through **`Bash`**; the user is asked through **`AskUserQuestion`**; subagents are dispatched
    through **`Agent`**; a `Bash` call launched with `run_in_background:true` is polled through
    **`BashOutput`** (VERIFIED Step 2 uses this — `runcheck`'s own internal timeout outlives the
-   `Bash` tool's own per-call ceiling, so it must never run as one synchronous call).
+   `Bash` tool's own per-call ceiling, so it must never run as one synchronous call). **Named risk:**
+   `Bash` inherits the invoking shell's rc-file aliases/functions at session start — an ambient env
+   surface no other tool carries — so a `Bash` call can silently run something other than the literal
+   command it appears to run.
 2. **Role-file dispatch is BY NAME.** Each `${ATLAS_PLUGIN_ROOT}/agents/<role>.md` file at the plugin root is itself
    the dispatchable subagent definition: Claude Code auto-discovers it, its frontmatter `name:`
    field is the `subagent_type` you dispatch against, and its markdown body is auto-loaded by the
@@ -209,6 +212,16 @@ refine-pass counter).
   `verify_cmd:` / `success:` / `scope:` clauses the user supplied; default `debug_tokens` to
   `["TODO","FIXME","XXX"]` (plus any language-appropriate debug print like `console.log`/`print(`)
   and `test_glob` to the target's test convention (e.g. `test_*.py`, `*.test.js`).
+- **Determine `invocation_form` ONCE, here, and record it on the packet (G37 mitigation).**
+  Value is exactly `"interactive"` or `"headless"` — a positive `"headless"` signal is the same
+  one already named at CLARIFY/PRE-CODE below (`-p`/print-mode invocation, no human able to answer
+  an `AskUserQuestion`); default to `"interactive"` when no such signal is present. This is the
+  **structural** replacement for the old anti-pattern of re-inferring headless-vs-interactive
+  contextually at every later stage: CLARIFY/PRE-CODE/OUTPUT below should read this **already-frozen**
+  field rather than re-deciding it independently each time. `validate.py`'s `"task-packet"` schema
+  now requires this field and rejects any value other than the two above — an empty or invalid
+  `invocation_form` fails the same `validate.validate(packet, "task-packet")` check every other
+  packet field already fails under (see CLARIFY? below).
 - **Record `baseline_sha`** = current git HEAD of the target (`""` if not a repo), and **protect
   the tracked tree** by appending `.atlas/` to `.git/info/exclude` (a per-clone ignore that never
   touches the user's `.gitignore` — OPS-4):
@@ -244,7 +257,8 @@ refine-pass counter).
     "verify_cmd": "the explicit verify_cmd, or an empty string",
     "baseline_sha": "the BASELINE_SHA printed above",
     "debug_tokens": ["TODO", "FIXME", "XXX"],
-    "test_glob": "test_*.py"
+    "test_glob": "test_*.py",
+    "invocation_form": "interactive or headless, decided above -- never omitted"
   }
   ```
   Then freeze the run **from that path** — the path is an argument, nothing is interpolated:
@@ -279,6 +293,13 @@ refine-pass counter).
   st = ctxstore.get_state(".atlas", "$ATLAS_SESSION_ID")
   packet = {k: st.get(k) for k in ("intent","success_criteria","scope_paths","verify_cmd","baseline_sha")}
   packet.setdefault("debug_tokens", []); packet.setdefault("test_glob", "")
+  # invocation_form was decided once at INIT (see above) and is NOT persisted into
+  # ctxstore's state.json (state.json only freezes the "context" schema's fields,
+  # a narrower set than "task-packet"); re-supply the SAME value you recorded at
+  # INIT here -- never re-infer it. This placeholder default exists only so this
+  # snippet type-checks in isolation; the real orchestrator call substitutes the
+  # actual decided value.
+  packet.setdefault("invocation_form", "interactive")
   errs = validate.validate(packet, "task-packet")
   empty = [f for f in ("verify_cmd","success_criteria","scope_paths") if not st.get(f)]
   print(json.dumps({"schema_errors": errs, "empty_or_missing": empty}))
@@ -289,7 +310,12 @@ refine-pass counter).
   - **Interactive:** ask **ONE batched** `AskUserQuestion` (≤3 questions) covering exactly the
     missing/empty fields. **Never re-ask.** Fold the answers into the packet via
     `ctxstore.advance(..., updates={...})` (packet fields are still mutable *only* here, before
-    they are used).
+    they are used). **Caveat (UNCONFIRMED, matching the headless caveat below):** whether Claude
+    Code's `AskUserQuestion` actually supports a single grouped multi-question call — as opposed to
+    one question per call — has not been live-probed on this platform; §4's own "confirmed" platform
+    fact elsewhere describes `AskUserQuestion` as "singular schema, one question per call." Do not
+    silently assert the batched form works; if it does not, fall back to asking the ≤3 questions as
+    separate sequential calls within the same CLARIFY step.
   - **Headless (`-p`, no human — the ask returns a FAKE answer, never an error):** do **not**
     attempt to ask. This was **measured for Kimi CLI specifically**: `kimi -p` forces
     `permission: "auto"`, which DENIES `AskUserQuestion` with
@@ -847,12 +873,11 @@ lens 3, `subagent_type="kimi-atlas:security-critic"`):
      floor is fail-open), say so explicitly so the critic knows the deterministic floor caught
      nothing and this lens rests on its own reading. Either way the SECURITY critic **still runs** —
      SAST augments the judgment eye, it never replaces it.
-3. Call `Agent(subagent_type="kimi-atlas:<lens>-critic", prompt=<packet ONLY>[, temperature=<distinct>])`
+3. Call `Agent(subagent_type="kimi-atlas:<lens>-critic", prompt=<packet ONLY>)`
    — the task packet from step 2, never a role reference or role body: the role is already loaded
-   by dispatch identity (§2). **Per
-   V5, set a DISTINCT temperature per lens if the `Agent` tool exposes one** (suggested: correctness
-   `0.2`, code-quality `0.5`, security `0.3`); **if it does not, the distinct adversarial framing
-   already baked into each role file carries the diversity.**
+   by dispatch identity (§2). The `Agent` tool exposes no `temperature` parameter (confirmed
+   platform fact, §4) — the distinct adversarial framing already baked into each role file is what
+   carries diversity across lenses, not a per-lens temperature.
 4. Each critic **RETURNS its `critic` JSON as its final message and WRITES NOTHING** (read-only
    `plan` — F2; the ROOT persists). A critic's judgment is validated **where it is produced,
    BEFORE persistence** (S4): parse with duplicate-key rejection, then

@@ -71,7 +71,7 @@ relative path instead of reinforcing them.
     untrusted — remove it (`uniontree.cleanup` / `git worktree remove --force`); the re-dispatched
     node will re-create a clean one at its baseline.
 
-7g. **Re-enter the outer machine.** Resume `/skill:atlas-weave` at **SCHEDULE** (the frontier is now
+7g. **Re-enter the outer machine.** Resume `/kimi-atlas:atlas-weave` at **SCHEDULE** (the frontier is now
     re-derived) with the **same** `run_id` and the same frozen packet + `success_criteria` (never
     re-derive them). Continue draining the pool → INTEGRATE → AGGREGATE → OUTPUT. Honor every gate:
     never auto-apply the union; stop at the OUTPUT gate exactly as a fresh run would.
@@ -85,7 +85,7 @@ relative path instead of reinforcing them.
     (never re-derive), the `stages` ledger + `current_state`, `refine_passes`, `verify_cmd`,
     `scope_paths`, `baseline_sha`, and `log.jsonl`.
 
-5s. **Resume from the last recorded stage.** Re-enter the `/skill:atlas` state machine at the stage
+5s. **Resume from the last recorded stage.** Re-enter the `/kimi-atlas:atlas` state machine at the stage
     **after** the last one recorded `done`, in the **same** run (same `run_id`). Do not start a new
     run, re-run completed stages, or re-capture intent. The pass counter is the count of `REFINE`
     entries in the ledger, read from disk, never from memory.
