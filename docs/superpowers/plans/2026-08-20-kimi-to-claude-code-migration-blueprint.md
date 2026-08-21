@@ -215,7 +215,7 @@ Verdict legend: **KEEP** unmodified · **ADAPT** rename/reshape, same behavior �
 | skills/atlas/SKILL.md (root orchestrator) | ADAPT | Medium | Packaging shell carries over near 1:1; prose needs rewriting for tool wire-names. |
 | skills/atlas-weave/SKILL.md | REBUILD | High | Its whole reason for existing is a deterministic halting-proof scheduler — architecturally matches `Workflow`, a different execution primitive. Deferred to Phase 2 by default. |
 | 120+ generic vendored skill dirs | KEEP | Low | Identical directory-of-SKILL.md convention on both hosts. |
-| references/skill-registry.json + skillregistry.py | REMOVE | Low | Claude Code auto-discovers frontmatter off disk natively. |
+| references/skill-registry.json + skillregistry.py | KEEP/ADAPT *(verdict corrected 2026-08-21, was REMOVE)* | Low | **Correction:** these files are load-bearingly called by `skills/atlas/SKILL.md`'s GROUNDED-stage `skillselect.select(...)` call for advisory skill *ranking* — a genuinely different mechanism from the skill *auto-discovery* this original REMOVE rationale addressed. Claude Code does auto-discover frontmatter off disk natively for loading, but that fact does not make this ranking feature redundant. Do not delete these files; they remain in active use. |
 | scripts/install.sh + installed.json registry | REPLACE (native plugin loading) | Low | Kimi's atomic registry format is confirmed Kimi-specific. Two research passes disagreed on this verdict (one scored REPLACE/Low, another REBUILD/Medium); resolved in favor of REPLACE, matching Stage 1's actual implementation (deletion, no replacement script authored). |
 
 ### 6.7 CI/CD, install scripts, test infra, env vars
@@ -324,6 +324,10 @@ Stage 2 → Stage 5 is a **direct, hard edge**: Stage 5 consumes Stage 2's `hook
 
 **Exit criteria**: `make ci` green · `make test` green with the exact documented delta · all new files committed · both live-verification checks passed against a real Claude Code CLI at least once · zero diff outside the declared file inventory.
 
+**2026-08-21 reconciliation notes (per `references/full-blueprint-audit-2026-08-21.md`, G21/G22 — appended, not rewriting the bars above):**
+- **G21:** The literal `git grep -c "\.kimi-plugin"` returns exactly 1" verification bar above was never met — a re-run finds roughly 18 files / 42 occurrences, mostly historical/`CHANGELOG.md` references. The real criterion that was actually achieved is **"zero LIVE (non-historical) `.kimi-plugin` references"**, which `scripts/check_cc_migration_residue.py`'s `.kimi-plugin` denylist pattern now enforces going forward.
+- **G22:** The "zero diff outside the declared file inventory" exit-criterion claim above was also not met — 13 undeclared files were touched (`AGENTS.md`, `Makefile`, `PLAN.md`, `README.md`, `hooks/guard-destructive.sh`, `scripts/plugin_meta.py`, `scripts/skillextract.py`, plus 4 undeclared test-file edits and 1 wholly new file, `tests/test_hooks_manifest.py`). This is normal/expected for a real migration's first commit and not itself concerning, but the blueprint's own zero-diff claim was inaccurate as written.
+
 ### Stage 02 — Hook & lifecycle event port
 *Dependencies: needs 1, parallel with 3*
 
@@ -350,6 +354,8 @@ Stage 2 → Stage 5 is a **direct, hard edge**: Stage 5 consumes Stage 2's `hook
 
 **Exit criteria**: `git hash-object` parity on 11/12 files · full 19-file backbone test sweep + `make ci` green · the three live rollback-validation checks reproduced against a real Claude Code Bash session, transcript preserved · zero leftover worktrees/ledgers in the primary repo.
 
+**2026-08-21 reconciliation note (per `references/full-blueprint-audit-2026-08-21.md`, G10 — appended, not rewriting the bar above):** the "11/12 byte-identical" claim above is actually **10/12** — `runcheck.py` also changed, via the later `systemd-run --user` fix (commit `ef91c92`, `systemd-run --scope` → `systemd-run --user --scope`). Stated plainly, not silently reconciled: `ef91c92` fired this stage's own declared Failure condition ("any of the other 11 backbone files drifts from its pre-stage hash") one minute before Stage 4's commit (`6c3669b`) began, with no acknowledgment at the time that the failure condition had triggered. The `runcheck.py` change itself is a legitimate, unrelated bug fix (a polkit auth issue), not a functional regression — but the stage's own text should have flagged the drift rather than silently proceeding.
+
 ### Stage 04 — Subagent & dispatch model port
 *Dependencies: needs 1, needs 3*
 
@@ -374,7 +380,15 @@ Stage 2 → Stage 5 is a **direct, hard edge**: Stage 5 consumes Stage 2's `hook
 
 **Verification**: `make test`, `make check-cc-migration`, `make ci` all green. A live smoke invocation of the orchestrator returns the expected loaded-OK response. `git diff pre-stage5-baseline -- scripts/ tests/fixtures/ references/rubric.md references/schemas.json` is empty.
 
+**2026-08-21 corrections to the two bullets above (per `references/full-blueprint-audit-2026-08-21.md`, G43/G44 — describing what actually happened rather than leaving a falsifiable-as-written claim uncorrected):**
+- **G43**: the `git diff pre-stage5-baseline -- scripts/ tests/fixtures/ references/rubric.md references/schemas.json` bullet as literally written would **not** have passed — `references/rubric.md` was in fact modified during Stage 5, via a legitimate one-word `FetchURL`→`WebFetch` fix. The check was never reconciled against that fact at the time.
+- **G44**: the "left untouched" scope-discipline claim in the Files-affected list above is inaccurate as written — 3 undeclared reference-doc edits happened during the Stage-5 commit window: `references/rubric.md`, `references/system-graph.json`, `references/system-map.md`. Each was individually justified in its own commit message (the `rubric.md` fix above, plus doc-map upkeep), but none were declared in this stage's own Files-affected list.
+
 **Exit criteria**: `make ci` green including the new residue check · a **live** `make negative-gate` run (real `claude` binary) produces correct verdicts for all 5 fixtures — `good`→OK, each `bad_*`→UNVERIFIED with exactly its own lens flagged and no other — **the single check that proves the port is behaviorally, not just textually, correct** · a live smoke invocation returns the expected loaded-OK response.
+
+**2026-08-21 note on the two Stage-05-named test files (per `references/full-blueprint-audit-2026-08-21.md`, G41):** `tests/test_skill_frontmatter_schema.py` and `tests/test_agent_dispatch_shape.py` were never created during Stage 5 itself, despite being named in this stage's own Files-affected list above. Investigated and resolved this session:
+- `tests/test_skill_frontmatter_schema.py` **was a genuine gap** — no existing test validated frontmatter *schema* (required keys, forbidden keys, real tool wire-names, valid `model:` values) across `agents/*.md`/`skills/*/SKILL.md`; `tests/test_frontmatter.py` only covers the shared BOM/CRLF fence-matching *primitive*, not schema semantics. This is exactly the kind of structural gate that would have caught G1's dead `temperature:` line automatically. **Created** (10 tests, all passing against the current tree).
+- `tests/test_agent_dispatch_shape.py` was **not** created — `tests/test_phase0_packet_by_reference.py`'s `TestSkillDispatchesByName`, `TestWeaveDispatchesByName`, `TestEveryDispatchedRoleNameResolves`, and `TestEveryLiveContractStatement` classes already provide substantive, structural dispatch-shape coverage (by-name dispatch at every site, every literal `subagent_type` resolving to a real non-empty role file, no surviving by-reference/first-act phrasing). A dedicated second file duplicating that same ground was judged not warranted; if a real gap in that file is later found (e.g. `tools:`-enforcement-shape checks not covered by either file), extend `test_phase0_packet_by_reference.py` or open a narrowly-scoped new file for that specific gap rather than a broad duplicate.
 
 ---
 
@@ -438,6 +452,14 @@ The migration is complete when every one of the following holds simultaneously �
 
 - **CI**: 7 gates green (`check-strict, test, inventory-drift, check-shell, check-plugin-manifest, check-cc-migration, predcov`) — `make ci` exits 0 on every push/PR, zero live-model dependency in this lane.
 - **Test files**: ≥94, 0 unexplained skips. 83 pre-migration → ~94 post-migration files.
+  **2026-08-21 correction (per `references/full-blueprint-audit-2026-08-21.md`, G38):** the real
+  current count, re-run live via `git ls-files 'tests/test_*.py' | wc -l`, is **86** — a genuine
+  shortfall of **8** against the ~94 floor, not met. (`find tests -name 'test_*.py' | wc -l` returns
+  91, but that count over-includes 5 deliberately-broken fixture *samples* under
+  `tests/fixtures/` that happen to match the glob — see the audit's C1 for the reconciliation.)
+  This same audit pass adds one real test file, `tests/test_skill_frontmatter_schema.py`
+  (G41), narrowing the shortfall to 7 once committed; the shortfall is stated honestly here
+  rather than left at the stale pre-audit number.
 - **Live probes**: 2 of 4 resolved (plugin-root auto-discovery, prompt fidelity — done 2026-08-19). Still open: SessionStart injection, worktree-rollback equivalence (the safety-critical one, Stage 3).
 - **Behavioral proof**: 5/5 fixtures correct via live `make negative-gate`.
 - **Safety gate**: Rollback proven live — the 3-scenario real-git validation, not just unittest-mocked.
@@ -508,3 +530,5 @@ These are materially different designs, not a naming difference:
 - **What was implemented (`$ATLAS_SESSION_ID`, Claude Code's session_id)** is also constant for the whole CLI session — the same shape Kimi's `${KIMI_SESSION_ID}` had. It was a deliberate, conservative choice at the time: preserve H5's exact existing (deferred, understood, warranted-red) behavior unchanged rather than touch `ctxstore.py`'s resume/fresh-run semantics, which a prior fix attempt proved dangerous (risk of cross-session packet leakage after compaction — see `tests/test_v1521_regressions.py:673`'s skip decorator). It does not fix H5, but it does not worsen it either, and it never touches the file that prior attempt broke.
 
 Both are defensible; they are not the same decision. This blueprint's authors clearly intended the UUID approach specifically to make H5 structurally impossible going forward. Whether to switch is an open call — not decided here.
+
+**2026-08-21 — dated decision record (added per `references/full-blueprint-audit-2026-08-21.md` item C5).** This exact question — keep the already-implemented, session-sourced `$ATLAS_SESSION_ID`, or switch to this blueprint's originally-specified self-generated `$ATLAS_RUN_ID` (UUID4 per run) — was put to the user explicitly, via a structured yes/no question, during the 2026-08-21 session that produced the full-blueprint audit. The user explicitly chose to **keep `$ATLAS_SESSION_ID`**. This is a real, explicit, dated decision, not a retroactive "settled by explicit user decision" assertion with no traceable source: the audit (C5) correctly found no primary source recorded this exchange anywhere in the repository at the time it ran, because the exchange lived only in that session's live conversation, which the audit agents had no access to. This paragraph is that missing durable record.

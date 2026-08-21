@@ -1752,7 +1752,7 @@
   },
   {
    "subsystem": "verification-harness",
-   "invariant": "The three critics are read-only plan subagents that persist NOTHING (F2) — the orchestrator persists for them; their markdown frontmatter (tools/model/temperature) is DOCUMENTATION ONLY, real perms come from the built-in plan type, and the orchestrator sets dispatch temperature (V5)."
+   "invariant": "The three critics are read-only subagents that persist NOTHING (F2) — the orchestrator persists for them; their markdown frontmatter (tools/model) is the REAL, ENFORCED permission set under Claude Code's by-name dispatch (Stage 4, commit 6c3669b) — not documentation, and not a built-in plan type. There is no orchestrator-set per-critic temperature: the Agent tool exposes no temperature parameter (retired V5 behavior; the dead temperature: frontmatter line was removed from all four critic role files 2026-08-21)."
   },
   {
    "subsystem": "verification-harness",

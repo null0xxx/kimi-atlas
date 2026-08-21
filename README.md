@@ -1,16 +1,16 @@
 # kimi-atlas
 
-**A many-agent, quality-calibrated orchestrator for Kimi Code — with 115 official skill packages built in. No line ships until a *pure, deterministic* gate says so, and no LLM ever computes pass/fail. Now with a first-class agentic backbone: a live ContextGraph, an explicit state machine, and forward-only rollback.**
+**A many-agent, quality-calibrated orchestrator for Claude Code CLI — with 115 official skill packages built in. No line ships until a *pure, deterministic* gate says so, and no LLM ever computes pass/fail. Now with a first-class agentic backbone: a live ContextGraph, an explicit state machine, and forward-only rollback.**
 
 [![ci](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml/badge.svg)](https://github.com/null0xxx/kimi-atlas/actions/workflows/check.yml)
 ![tests](https://img.shields.io/badge/tests-passing-brightgreen)
 ![skills](https://img.shields.io/badge/skill%20packages-115-blue)
 
-kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Kimi Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is four composable capabilities:
+kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Claude Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is four composable capabilities:
 
-- **atlas** — the single-change core. One root SKILL drives a deterministic `INIT → … → OUTPUT` state machine over Kimi's built-in subagents, gated by a **6-lens verification harness** and a **pure quality backbone** that owns the pass/fail decision.
+- **atlas** — the single-change core. One root SKILL drives a deterministic `INIT → … → OUTPUT` state machine over subagents Claude Code dispatches by name, gated by a **6-lens verification harness** and a **pure quality backbone** that owns the pass/fail decision.
 - **ATLAS-WEAVE** — the multi-agent meta-machine. It decomposes a larger change into a **file-disjoint plan-DAG**, drains it with a **flat pool of ≤3 concurrent node runs**, and merges results through a **combined-tree differential gate** — degrading *byte-identically* to a single atlas run when the work doesn't decompose.
-- **The skill system** — **115 vendored official Kimi skill packages** under `skills/<name>/` (platform-registered, usable on their own), plus a **deterministic selector** (`scripts/skillselect.py`) that picks the right skill for a task intent and injects it into atlas runs — with a user-editable override file.
+- **The skill system** — **115 vendored official skill packages** under `skills/<name>/`, integrity-anchored by a committed sha256 manifest, plus a **deterministic selector** (`scripts/skillselect.py`) that picks the right skill for a task intent and injects it into atlas runs — with a user-editable override file.
 
 - **The agentic backbone (Graph + Loop + Verification)** — atlas now carries a first-class, *live* **ContextGraph**: a pure read-time projection of the run's state (task hierarchy, tools used, errors) that is injected into the coder at the `CODED` stage and recomputed on every refine pass. It runs on an **explicit finite-state machine** (`scripts/fsm.py` — legal transitions *derived* from the canonical stages), with **two-phase forward-only rollback** confined to the isolated worktree (never your real tree), and a stdlib **`ast` syntax/lint lens** added to the deterministic floor. Its design was hardened by the plugin's *own* 6-lens harness across six rounds (**27 → 0 defects**) before a line was written.
 
@@ -37,7 +37,7 @@ The design goal was set explicitly: *"the kind of system Kimi's own creators wou
 
 ## Quick start
 
-**Requirements: Kimi Code CLI, and CPython 3.11 or newer as `python3`.** The 3.11 floor is hard, and it is
+**Requirements: Claude Code CLI, and CPython 3.11 or newer as `python3`.** The 3.11 floor is hard, and it is
 new in v1.5.1. Every script atlas runs is launched with `PYTHONSAFEPATH=1`, which is what keeps an
 untrusted target repository from replacing atlas's own modules — including `scripts/verdict.py`, the frozen
 gate that decides pass/fail. That variable, and the `sys.flags.safe_path` the run checks it by, were added
@@ -48,51 +48,54 @@ Python 3.10 or older **every run** stops at its first step with
 several other LTS distributions still ship `python3` = 3.10 — check with `python3 -V` and install 3.11+ (or
 point `python3` at it) before installing or upgrading. Development and CI run on Python 3.12, stdlib-only.
 
-**The one-liner (Kimi Code CLI)** — install straight from GitHub, no clone needed:
-
-```
-/plugins install https://github.com/null0xxx/kimi-atlas
-```
-
-This fetches the latest release (or the default branch if none), registers the plugin natively, and shows the standard third-party trust confirmation (normal for any non-official source). Then `/plugins reload` (or start a new session). Pin a version or commit when you need reproducibility:
-
-```
-/plugins install https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.3.1
-/plugins install https://github.com/null0xxx/kimi-atlas/commit/<sha>
-```
-
-**From source** — for hacking on the plugin itself:
+**Load the plugin (Claude Code CLI)** — the only confirmed-working path today is local/dev:
 
 ```bash
 git clone https://github.com/null0xxx/kimi-atlas.git
 cd kimi-atlas
-./scripts/install.sh                                  # installs into $HOME/.kimi-code/plugins/kimi-atlas
-KIMI_CODE_HOME=/path/to/.kimi-code ./scripts/install.sh   # if Kimi lives elsewhere
+claude --plugin-dir . --debug
 ```
 
-The source installer deploys the committed `HEAD` (a consistent snapshot), backs up and atomically rewrites `installed.json`, and preserves every other plugin. Re-run it after each update; remove with `--uninstall`. Either way, smoke-test:
+`--plugin-dir` loads the plugin straight from the working tree (no install/registry step) — re-run
+it after every update. Pin a release when you need reproducibility instead of tracking the
+default branch:
 
 ```bash
-kimi -p "/skill:atlas ping"        --output-format text    # single-change core
-kimi -p "/skill:atlas-weave ping"  --output-format text    # multi-agent meta-machine
+git clone --branch v1.5.3.1 https://github.com/null0xxx/kimi-atlas.git   # or:
+# https://github.com/null0xxx/kimi-atlas/releases/tag/v1.5.3.1
 ```
 
-Then hand it real work. **Inside a Kimi Code session**, type a slash command:
+**The old `./scripts/install.sh` source-installer is gone** (it targeted
+Kimi Code's `~/.kimi-code/plugins/` registry and was deleted in commit `c9e6b41`); do not follow
+any instruction that still references it. A persistent marketplace-install path (the Claude Code
+analogue of Kimi Code's old `/plugins install https://github.com/...`) does **not** exist yet —
+this is an explicit non-requirement of the migration blueprint
+(`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md` §14), not an
+oversight. Once loaded, smoke-test:
+
+```bash
+claude --plugin-dir . --permission-mode bypassPermissions -p "/kimi-atlas:atlas ping"        --output-format text   # single-change core
+claude --plugin-dir . --permission-mode bypassPermissions -p "/kimi-atlas:atlas-weave ping"  --output-format text   # multi-agent meta-machine
+```
+
+That is the invocation form the migration blueprint's own compatibility matrix specifies (`/kimi-atlas:<skill>` slash-dispatch interactively, `claude -p` headlessly) and the exact flags this repo's own live probes already use elsewhere (`references/claude-agent-dispatch.md`, `references/stage4-dispatch-enforcement-live-validation.md`). **Caveat:** a full live `INIT → OUTPUT` smoke run of the real orchestrator skill through an actual session has never been executed by anyone on this project — open gap G39 in [`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md). Individual pieces are separately live-verified (subagent dispatch, the negative-gate critic pipeline, rollback); the smoke run above is the documented, not-yet-executed, next step.
+
+Then hand it real work. **Inside a Claude Code session**, type a slash command:
 
 ```
-/skill:atlas fix the off-by-one in pagination  verify_cmd: pytest -q  success: page 2 returns rows 11–20  scope: api/pagination.py
-/skill:atlas-weave add a --json flag to the export, importer, and CLI  verify_cmd: make test  success: all three accept --json  scope: src/export.py src/import.py src/cli.py
-/skill:atlas-resume                # pick up the newest interrupted run from its on-disk ledger
+/kimi-atlas:atlas fix the off-by-one in pagination  verify_cmd: pytest -q  success: page 2 returns rows 11–20  scope: api/pagination.py
+/kimi-atlas:atlas-weave add a --json flag to the export, importer, and CLI  verify_cmd: make test  success: all three accept --json  scope: src/export.py src/import.py src/cli.py
+/kimi-atlas:atlas-resume                # pick up the newest interrupted run from its on-disk ledger
 ```
 
 **Headless / CI** — one-shot, non-interactive:
 
 ```bash
-kimi -p "/skill:atlas <rough change> verify_cmd: <cmd> success: <criteria> scope: <paths>" -m kimi-code/k3
-kimi -p "/skill:atlas-weave <larger multi-file change> verify_cmd: <cmd> success: <criteria> scope: <paths>" -m kimi-code/k3
+claude --plugin-dir . --permission-mode bypassPermissions -p "/kimi-atlas:atlas <rough change> verify_cmd: <cmd> success: <criteria> scope: <paths>"
+claude --plugin-dir . --permission-mode bypassPermissions -p "/kimi-atlas:atlas-weave <larger multi-file change> verify_cmd: <cmd> success: <criteria> scope: <paths>"
 ```
 
-The four fields are the contract: `verify_cmd:` the command that must pass, `success:` the human-readable acceptance criteria, `scope:` the files atlas may touch (anything outside is a blocking scope-creep defect). All are optional — omit them and atlas asks once at the `CLARIFY` gate. `-m kimi-code/k3` selects the 1M-context Kimi-3 model.
+The four fields are the contract: `verify_cmd:` the command that must pass, `success:` the human-readable acceptance criteria, `scope:` the files atlas may touch (anything outside is a blocking scope-creep defect). All are optional — omit them and atlas asks once at the `CLARIFY` gate. Model selection is Claude Code's own concern (its `--model` flag) — this repo does not pin or require a specific model.
 
 **Every run is human-gated.** atlas produces a *verified* change and stops at the `OUTPUT` gate — it never writes your working tree without your approval; in headless mode it works entirely inside an isolated `git worktree`; and if it can't reach a green gate it labels the result `⚠️ UNVERIFIED` rather than pretending. State is persisted to a `.atlas/<run_id>/` ledger, so a run **survives compaction** and can be resumed.
 
@@ -100,7 +103,7 @@ The four fields are the contract: `verify_cmd:` the command that must pass, `suc
 
 ## Using the 115 skills
 
-The plugin ships **115 official Kimi skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. Because `.claude-plugin/plugin.json` declares `skills: ./skills/`, they are **platform-registered**: Kimi Code sees every one of them in its skill listing, can auto-trigger them from their descriptions, and you can invoke any of them explicitly with `/skill:<name>`.
+The plugin ships **115 official skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. `.claude-plugin/plugin.json` has **no** `skills` key (deliberately dropped in Stage 1 of the Claude Code migration) — whether Claude Code still auto-discovers `skills/` off disk without one, and so lists/auto-triggers/lets you invoke these 115 packages the same way it does the three first-party orchestrator skills, is **unconfirmed** anywhere in this repo's evidence base (the only live auto-discovery probe on record, [`references/claude-agent-dispatch.md`](references/claude-agent-dispatch.md), covers `agents/`, never `skills/`; see [`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md) G20). The three orchestrator skills (`atlas`, `atlas-weave`, `atlas-resume`) ARE confirmed directly invocable via `/kimi-atlas:<name>`; the 115 vendored packages have not been separately verified the same way.
 
 | Category | Count | Examples |
 |---|---|---|
@@ -116,7 +119,7 @@ Each package is self-contained: its `SKILL.md` instructions plus its payload —
 
 Two things to know:
 
-- **Skills are data, treated with care.** The packages were extracted and verified — never executed — at import time. A skill only runs when the platform triggers it or an atlas run selects it.
+- **Skills are data, treated with care.** The packages were extracted and verified — never executed — at import time. A skill only actually runs when an atlas run selects it (confirmed); platform-level auto-triggering depends on the unconfirmed `skills/` auto-discovery noted above.
 - **Your own skills coexist safely.** The three orchestrator skills (`atlas`, `atlas-weave`, `atlas-resume`) are first-party; the 115 vendored packages live alongside them under the same `skills/` tree, and the repo's documentation gates treat every skill package as a self-contained unit.
 
 ---
@@ -192,7 +195,7 @@ Full design + the 6-lens challenge record: [`docs/superpowers/specs/2026-07-20-a
 
 ## Proven live
 
-- **Validated end-to-end on the live Kimi CLI v0.26.0 / `k3` (1M context)** — ledgers and numbers in [`references/live-validation.md`](references/live-validation.md): a real 3-file change decomposed into 3 disjoint nodes, each verified `OK`, union suite green, presented at the human gate **without touching the real tree**.
+- **Validated end-to-end, pre-migration, on the live Kimi CLI v0.26.0 / `k3` (1M context)** — ledgers and numbers in [`references/live-validation.md`](references/live-validation.md): a real 3-file change decomposed into 3 disjoint nodes, each verified `OK`, union suite green, presented at the human gate **without touching the real tree**. Under Claude Code CLI, the two pieces the migration blueprint itself names as non-negotiable READY conditions are separately live-verified against the real `claude` binary — the 3-scenario rollback validation ([`references/rollback-sanction-live-validation.md`](references/rollback-sanction-live-validation.md)) and the 5-fixture negative-gate run ([`references/stage5-negative-gate-live-validation.md`](references/stage5-negative-gate-live-validation.md)) — but a full live `INIT → OUTPUT` smoke run of the orchestrator skill itself has not yet been executed on Claude Code (open gap G39, [`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md)).
 - **This plugin's own skill system was built *by atlas*.** The registry/selector (commit `0fb699e`) and the vendoring of the 115 packages (commit `115fee7`) each went through the full `INIT → OUTPUT` machine with the 6-lens harness — which caught **39 real defects across the two runs**, including a **critical zip-slip**: a hostile skill's frontmatter `name` could traverse the extractor's output path (`name: ..` → arbitrary file write). It was fixed with strict name validation, first-party collision checks, joined-path/symlink guards, and a hostile-input test matrix — before anything shipped. The full unit-test suite is green (run `make test`).
 - **Q/T, told honestly:** on a small task, single-shot `atlas` beats `atlas-weave` at equal quality — weave's machinery earns its overhead only on *larger, genuinely independent* multi-file work, and degrades to atlas when it wouldn't.
 
@@ -211,12 +214,12 @@ Full design + the 6-lens challenge record: [`docs/superpowers/specs/2026-07-20-a
 ## Repository layout
 
 ```
-.claude-plugin/plugin.json  manifest (skills dir, interface, skillInstructions, hooks)
+.claude-plugin/plugin.json  manifest (name/version/description/keywords/license/author — no `skills` key; hooks registered separately via hooks/hooks.json)
 skills/atlas/               the single-change root orchestrator (state machine)
 skills/atlas-weave/         the multi-agent meta-machine (decompose → integrate → aggregate)
 skills/atlas-resume/        graph-aware, compaction-surviving resume
 skills/<name>/              115 vendored official skill packages (manifest-anchored)
-agents/*.md                 role files (documentation-only frontmatter; read by the subagent itself)
+agents/*.md                 role files — tools:/model: frontmatter is the REAL, enforced permission set (Claude Code auto-loads it as each subagent's own system prompt; not documentation)
 scripts/*.py                the PURE decision cores + the deterministic I/O "hands" (importable, unit-tested)
 scripts/skillextract.py     zip → skills/<name>/ extractor + manifest builder + --verify (audit-gated)
 scripts/skillregistry.py    builds references/skill-registry.json from the extracted skills/ tree
@@ -239,7 +242,7 @@ docs/superpowers/plans/     the test-first build plans, one per phase (P6–P12)
 probe/                      residual-runtime-unknown probes
 ```
 
-The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + memory model), `planstage` (decompose + degrade), `integrate` / `differential` (the combined-tree sink), `budget`, `bestofn`, `verdict`, `resume` — are standard-library-only, fully deterministic, and carry no runtime I/O. The "hands" (`suiterun`, `uniontree`, `leaseclock`, `runcaps`, `dogfood_weave`) are the thin, fail-safe boundary that lets the real Kimi runtime drive them.
+The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + memory model), `planstage` (decompose + degrade), `integrate` / `differential` (the combined-tree sink), `budget`, `bestofn`, `verdict`, `resume` — are standard-library-only, fully deterministic, and carry no runtime I/O. The "hands" (`suiterun`, `uniontree`, `leaseclock`, `runcaps`, `dogfood_weave`) are the thin, fail-safe boundary that lets the real Claude Code runtime drive them.
 
 ---
 
@@ -261,10 +264,10 @@ make help             # everything else
 ## FAQ
 
 **Do the 115 skills slow down every session?**
-Only their *listing entries* (name + one-line description) are present in the skill listing; bodies and payload load lazily, when a skill is actually triggered or selected. The registry that powers automatic selection is a single 80 KB JSON read once per atlas run.
+Atlas's own selection path is cheap regardless: the registry that powers automatic selection is a single 80 KB JSON read once per atlas run, and bodies/payload load lazily only when a skill is actually triggered or selected. Whether Claude Code additionally lists all 115 packages' name + one-line description in its own native skill listing depends on the unconfirmed `skills/` auto-discovery noted above.
 
 **Are the vendored skills safe?**
-They are official Kimi skill packages, extracted byte-identically and anchored by a CI-verified sha256 manifest — tampering fails the build. The extractor itself was hardened against hostile archives (name-traversal, zip-slip, symlink and backslash escapes) with a dedicated hostile-input test matrix. Payload scripts are ordinary third-party code: the platform never executes them unless you or a skill run them.
+They are official skill packages, extracted byte-identically and anchored by a CI-verified sha256 manifest — tampering fails the build. The extractor itself was hardened against hostile archives (name-traversal, zip-slip, symlink and backslash escapes) with a dedicated hostile-input test matrix. Payload scripts are ordinary third-party code: the platform never executes them unless you or a skill run them.
 
 **Can I disable or reprioritize a skill?**
 Yes — [`references/skill-overrides.json`](references/skill-overrides.json): add it to `exclude` (never selected), `pin` (always selected first), `boost` (reprioritize), or restrict `categories`. No rebuild needed; the selector reads it live.
@@ -308,7 +311,7 @@ No. Interactive runs edit the real tree only after the pre-CODE plan gate you ap
 - [`docs/superpowers/plans/2026-07-26-phase0-packet-by-reference-plan.md`](docs/superpowers/plans/2026-07-26-phase0-packet-by-reference-plan.md) — Phase 0: stop the root re-emitting 31,216 B of agent role bodies every pass. **Its −14.3% prediction was FALSIFIED — built, run 12×, measured +4.0%** (§4b); the resident-bytes cost lever is withdrawn with it, because those bytes are cache reads and the change buys turns to remove them. Kept for the measurement and the method
 - [`docs/superpowers/plans/2026-07-26-phase1-coverage-plan.md`](docs/superpowers/plans/2026-07-26-phase1-coverage-plan.md) — Phase 1: the report-only predicate-coverage experiment that tests the roadmap's own diagnosis — the denominator fixed by execution at ten, the firing rule that decides the answer, and the committed prediction stated so it can fail
 - [`docs/superpowers/plans/2026-07-27-honest-red-workstream.md`](docs/superpowers/plans/2026-07-27-honest-red-workstream.md) — **the honest-RED workstream**: why `out_of_scope_defects` fires on clean and honest trees, the correction that narrowed that claim after a dual blind review, the run-mode under-specification found alongside it, and the ordered list of what is left to do
-- [`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md`](docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md) — ⛔ **START HERE for the Kimi Code → Claude Code CLI migration**, the active track. Adversarially-reviewed 5-stage plan (Foundation → Hooks → Orchestrator core → Subagent dispatch → Verification harness/packaging) with a full compatibility matrix, risk register, and acceptance criteria, plus a status overlay tracking real progress: Stage 1 done, Stage 3's core + its non-negotiable live rollback validation done (`references/rollback-sanction-live-validation.md`), Stage 4 Phase A+B/C done, Stages 2 and 5 not started, one open run_id design divergence flagged for a decision
+- [`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md`](docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md) — ⛔ **START HERE for the Kimi Code → Claude Code CLI migration**, the active track. Adversarially-reviewed 5-stage plan (Foundation → Hooks → Orchestrator core → Subagent dispatch → Verification harness/packaging) with a full compatibility matrix, risk register, and acceptance criteria, plus a status overlay tracking real progress: **all 5 stages done** — Stage 1 done, Stage 2 done, Stage 3's core + its non-negotiable live rollback validation done (`references/rollback-sanction-live-validation.md`), Stage 4 Phase A+B/C done, Stage 5 done — plus a same-day 13-agent audit ([`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md)) that found ~46 remaining gaps now being closed, and the run_id design divergence now recorded as a dated, explicit user decision (see the blueprint's own Divergence section)
 - [`docs/superpowers/plans/2026-07-31-open-defect-surface.md`](docs/superpowers/plans/2026-07-31-open-defect-surface.md) — ⛔ **START HERE to resume defect work.** The ordered remediation plan from a 13-agent sweep: 63 findings reported, 24 refuted by adversarial refuters, 39 surviving — collapsed into 9 buildable units (A1–A9), 5 needing research (R1–R5), and 4 contradictions inside the evidence itself. Carries the coupling rule that governs half of it: `scripts/floorsynth.py` is pinned by content-sha and by ten absolute line numbers, so every change to it lands in one line-count-preserving commit
 - [`docs/superpowers/plans/2026-07-30-h2a-challenge-ledger.md`](docs/superpowers/plans/2026-07-30-h2a-challenge-ledger.md) — **the H2-a frozen challenge ledger**: the pre-CODE gate advertises a scope-widening remedy that does not exist, at **four** sites live since v1.5.3.1. Records why the proposed replacement (advising `git stash push -u`) was **withdrawn** — measured inert on submodules and nested repos, repo-wide on a monorepo subdir launch, and destructive of `MERGE_HEAD` on an uncommitted merge
 - [`docs/superpowers/plans/2026-07-30-s3v2-challenge-ledger.md`](docs/superpowers/plans/2026-07-30-s3v2-challenge-ledger.md) — **the S3 v2 frozen challenge ledger**: a 6-lens adversarial challenge run *before* any code was written returned four independent BLOCKERs and one `DO_NOT_BUILD`. Records why the design's premise is false on the shipped Kimi runtime, why S3 is blocked on H2, and the three places in this repo that disagree about whether `AskUserQuestion` can fire headless

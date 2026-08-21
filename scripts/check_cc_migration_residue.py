@@ -91,6 +91,11 @@ EXCLUDED_FILES: frozenset[str] = frozenset(
         "references/kimi-runtime.md",
         "CHANGELOG.md",
         "AGENTS.md",
+        # A report ABOUT the migration, not a ported deliverable -- same rationale as the
+        # dated-cutoff exclusion for docs/superpowers/plans/2026-08-20-...-blueprint.md just
+        # below: it quotes retired Kimi tokens verbatim as findings evidence by design, and is
+        # dated on this sweep's own cutoff day so the date-prefix rule alone would not catch it.
+        "references/full-blueprint-audit-2026-08-21.md",
         "probe/probe_agents_md.sh",
         "probe/probe_agentswarm.sh",
         "probe/probe_hook_block.sh",
