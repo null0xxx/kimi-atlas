@@ -27,11 +27,13 @@ This skill runs on **Claude Code**, validated against real `claude 2.1.235` — 
 plugin-root auto-discovery, and `prompt` fidelity at size). Four platform facts govern everything
 below:
 
-1. **Real tool wire-names only.** Use `Read, Write, Edit, Bash, Grep, Glob, Agent,
+1. **Real tool wire-names only.** Use `Read, Write, Edit, Bash, BashOutput, Grep, Glob, Agent,
    AskUserQuestion, TodoWrite, WebSearch, WebFetch, Skill`. There is **no** `Shell`, `WriteFile`,
    `SetTodoList`, `Think`, or `SendDMail` — those are fabricated and banned. Script calls run
    through **`Bash`**; the user is asked through **`AskUserQuestion`**; subagents are dispatched
-   through **`Agent`**.
+   through **`Agent`**; a `Bash` call launched with `run_in_background:true` is polled through
+   **`BashOutput`** (VERIFIED Step 2 uses this — `runcheck`'s own internal timeout outlives the
+   `Bash` tool's own per-call ceiling, so it must never run as one synchronous call).
 2. **Role-file dispatch is BY NAME.** Each `${ATLAS_PLUGIN_ROOT}/agents/<role>.md` file at the plugin root is itself
    the dispatchable subagent definition: Claude Code auto-discovers it, its frontmatter `name:`
    field is the `subagent_type` you dispatch against, and its markdown body is auto-loaded by the
@@ -663,8 +665,26 @@ PY
 > at `advance`, and OUTPUT derives the real flag from the ledger, so setting it here would mislead
 > without doing anything. No new defect id, no new gate condition, nothing in `merged_critic.json`.
 
-**Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`** (mem-guarded before `runcheck`). Collect
-their defects into `det_evidence.json` — the evidence the judgment critics also receive:
+**Step 2 — Run the 3 DETERMINISTIC lenses at root `Bash`, BACKGROUNDED** (mem-guarded before
+`runcheck`). Collect their defects into `det_evidence.json` — the evidence the judgment critics
+also receive.
+
+> **Why this must never be one synchronous `Bash` call.** `runcheck.run` below is invoked with
+> `timeout_s=1500` (25 minutes) — its OWN internal wall-clock budget for the target's `verify_cmd`,
+> enforced by `runcheck`'s own process-group kill. The `Bash` tool's per-call ceiling (2 minutes
+> default, 10 minutes max) is strictly BELOW that 1500s budget. Run this block as one plain
+> synchronous `Bash` call and any legitimately slow `verify_cmd` gets killed by the OUTER tool
+> timeout — silently, with no chance for `runcheck`'s own inner timeout logic to ever fire — long
+> before 1500s elapses. That outer kill is a false RED **indistinguishable from a real `verify_cmd`
+> failure**: no `runcheck.json`/`det_evidence.json` is ever written, and a later step would either
+> hang re-reading a file that never appears or misread the silence as a genuine failed build. The
+> fix is procedural, not a code change to `runcheck.py` itself: launch this block backgrounded
+> (2a) and poll for its completion (2b) instead of waiting on it synchronously.
+
+**Step 2a — Launch.** Call the `Bash` tool with **`run_in_background:true`** and the block below,
+UNCHANGED except that the final `det_evidence.json` write now uses
+`ctxstore.write_artifact_atomic` (write-to-`.tmp`-then-`os.replace`) instead of plain
+`write_artifact`, so 2b's poll can never observe a torn/partially-written file as "done":
 ```
 # Memory guard: runcheck launches an arbitrary build (unbounded RSS) — require >=3 GB available.
 avail=$(free -m | awk '/^Mem:/ {print $7}')
@@ -772,7 +792,7 @@ evidence = {"verify_cmd": cmd, "runcheck": rc, "runcheck_green": runcheck.green(
             "astlens_defects": astlens_defects, "syntaxlens_defects": syntaxlens_defects,
             "lintlens_advisory": lintlens_advisory,
             "docs_clean": docs_clean}
-ctxstore.write_artifact(".atlas", run, "det_evidence.json", evidence)
+ctxstore.write_artifact_atomic(".atlas", run, "det_evidence.json", evidence)
 print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": docs_clean,
                   "lint": len(lint_defects), "reqcov": len(reqcoverage_defects),
                   "pathcheck": len(pathcheck_defects), "sast": len(sast_defects),
@@ -780,6 +800,25 @@ print(json.dumps({"runcheck_green": evidence["runcheck_green"], "docs_clean": do
                   "lintlens": len(lintlens_advisory)}))
 PY
 ```
+Note the shell/task id the `Bash` tool returns for this backgrounded call — 2b polls it.
+
+**Step 2b — Poll; never wait synchronously.** `runcheck`'s own hard bound is 1500s; the other
+lenses in the same process add at most low tens of seconds on top. Budget the poll loop generously
+above that ceiling — e.g. up to 40 polls, ~45s apart (≈30 minutes) — before treating silence as a
+genuine stall rather than a still-running build:
+- **Preferred:** call **`BashOutput`** on 2a's shell/task id. Its `status` field turns `completed`
+  (or `failed`) when the launched command has exited; its captured stdout then carries the `Step 2`
+  summary line printed above — informational only, never load-bearing (the artifact on disk is the
+  only proof).
+- **Equivalent fallback** (no `BashOutput` needed): a SEPARATE, SHORT plain `Bash` call —
+  `test -f ".atlas/$ATLAS_SESSION_ID/det_evidence.json" && echo READY || echo PENDING` — each such
+  poll is near-instant, so it never itself risks the outer per-call ceiling. Repeat, spaced apart,
+  until it reports `READY`.
+- **Do not proceed to Step 3 until `det_evidence.json` is confirmed present** (`READY`/`completed`).
+  If every poll in the budget above still reports `PENDING`/`running`, that is a genuine stall — a
+  hung `verify_cmd` surviving `runcheck`'s own process-group kill, or a crashed launcher before it
+  could write the artifact — surface it explicitly; never silently treat exhausted polling as
+  either a PASS or a `runcheck` RED, because neither was actually observed.
 
 **Step 3 — Dispatch the 3 judgment critics as ONE ≤3 wave** of
 `Agent(subagent_type="kimi-atlas:<lens>-critic", …)` (a critic must be read-only ⇒ its own

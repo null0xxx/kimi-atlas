@@ -191,10 +191,10 @@ class TestWeaveDispatchesByName(unittest.TestCase):
 
 
 # TestPluginManifestDispatchesByReference retired here (Stage 1, Kimi Code ->
-# Claude Code migration): it asserted against `.kimi-plugin/plugin.json`'s
-# `skillInstructions` field, a Kimi-runtime session-injection mechanism that
-# Claude Code's `.claude-plugin/plugin.json` has no equivalent for. There is
-# now exactly one live copy of the dispatch contract per SKILL --
+# Claude Code migration): it asserted against the old Kimi-runtime plugin
+# manifest's `skillInstructions` field, a Kimi-runtime session-injection
+# mechanism that Claude Code's `.claude-plugin/plugin.json` has no equivalent
+# for. There is now exactly one live copy of the dispatch contract per SKILL --
 # `skills/atlas/SKILL.md` and `skills/atlas-weave/SKILL.md`, pinned above --
 # so the drift this class guarded against can no longer occur. Mirrors the
 # retirement of `tests/test_install_sh.py` alongside `scripts/install.sh`.

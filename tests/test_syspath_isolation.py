@@ -65,6 +65,7 @@ from unittest import mock
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SKILL = _ROOT / "skills" / "atlas" / "SKILL.md"
 _WEAVE_SKILL = _ROOT / "skills" / "atlas-weave" / "SKILL.md"
+_RESUME_SKILL = _ROOT / "skills" / "atlas-resume" / "SKILL.md"
 _INIT_ENV = _ROOT / "hooks" / "init-env.sh"
 
 # The Kimi CLI-era per-invocation prefix (``${KIMI_SKILL_DIR}`` unbound under
@@ -909,13 +910,17 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
     copied into five documents. Pinning the atlas SKILL alone would let the next
     author reintroduce the bare form straight from the docs.
 
-    ``skills/atlas-weave/SKILL.md`` is deliberately ABSENT from
-    :data:`DOC_SOURCES` (PORT-1): it no longer teaches the ``${KIMI_SKILL_DIR}``-
-    prefixed convention in prose at all -- its one call site now reads plain
-    ``python3 -c "import scripts.<mod> …"``, same as the atlas SKILL. That
-    invariant (the dead prefix must never reappear) is pinned instead by
+    ``skills/atlas-weave/SKILL.md`` and ``skills/atlas-resume/SKILL.md`` are
+    deliberately ABSENT from :data:`DOC_SOURCES` (PORT-1): neither teaches the
+    ``${KIMI_SKILL_DIR}``-prefixed convention in prose any more -- atlas-weave's
+    one call site reads plain ``python3 -c "import scripts.<mod> …"``, same as
+    the atlas SKILL, and atlas-resume's own "Script-call convention" paragraph
+    now explains that ``hooks/init-env.sh`` already exports both variables
+    session-wide before this skill's own body ever runs, so no per-invocation
+    prefix belongs there either. That invariant (the dead prefix must never
+    reappear) is pinned instead by
     :class:`TestSessionWideIsolationReplacesThePerInvocationPrefix`, which
-    checks both ported SKILLs together against the one convention that now
+    checks all three ported SKILLs together against the one convention that now
     actually carries the isolation, ``hooks/init-env.sh``.
     """
 
@@ -924,7 +929,6 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
         "references/orchestration.md",
         "AGENTS.md",
         "PLAN.md",
-        "skills/atlas-resume/SKILL.md",
     )
 
     # Files that INVOKE the interpreter in a cwd the plugin does not control,
@@ -970,8 +974,11 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
         paragraph reading ``PYTHONPATH=<root> python3 ... (PYTHONSAFEPATH is
         discussed below)`` satisfies the sibling and teaches the vulnerable form.
         Keyed on the ASSIGNMENT form ``PYTHONPATH=`` so that discussing the variable
-        by name in prose stays legal -- which the AGENTS.md rationale sentence and
-        the atlas-resume block both do."""
+        by name in prose stays legal -- which the AGENTS.md rationale sentence does.
+        Threshold dropped from 5 to 4 when ``skills/atlas-resume/SKILL.md`` left
+        :data:`DOC_SOURCES` (PORT-1, same reason ``skills/atlas-weave/SKILL.md``
+        already had): it no longer teaches an assignment-form command at all, so
+        it can no longer contribute to this count."""
         seen = 0
         for rel in self.DOC_SOURCES:
             for i, line in enumerate(self._text(rel).splitlines(), 1):
@@ -979,7 +986,7 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
                     seen += 1
                     self.assertRegex(line[:m.start()], r"PYTHONSAFEPATH=1\s+$",
                                      f"{rel}:{i} teaches a detachable PYTHONPATH")
-        self.assertGreaterEqual(seen, 5, "the taught commands vanished from the docs")
+        self.assertGreaterEqual(seen, 4, "the taught commands vanished from the docs")
 
     def test_no_unguarded_interpreter_invocation_survives(self):
         """Keyed on the bare ``python3`` token, not on PYTHONPATH: the scout's sha
@@ -1036,9 +1043,10 @@ class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
     """PORT-1 (Claude Code): the two halves of the ported isolation convention,
     pinned TOGETHER because either alone is an incomplete guarantee.
 
-    Deleting the dead per-invocation prefix from ``skills/atlas/SKILL.md`` and
-    ``skills/atlas-weave/SKILL.md`` is only safe if ``hooks/init-env.sh`` really
-    took over supplying ``PYTHONSAFEPATH=1``/``PYTHONPATH`` session-wide.
+    Deleting the dead per-invocation prefix from ``skills/atlas/SKILL.md``,
+    ``skills/atlas-weave/SKILL.md``, and ``skills/atlas-resume/SKILL.md`` is
+    only safe if ``hooks/init-env.sh`` really took over supplying
+    ``PYTHONSAFEPATH=1``/``PYTHONPATH`` session-wide.
     Pinning only the SKILLs' absence-of-prefix would pass on a hook that quietly
     lost one of those exports; pinning only the hook's exports would pass even
     if a SKILL regressed the dead ``${KIMI_SKILL_DIR}``-keyed prefix back in --
@@ -1047,8 +1055,8 @@ class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
     Code (see the module docstring and :data:`_SAFE_PREFIX`).
     """
 
-    def test_neither_ported_skill_carries_the_dead_prefix(self):
-        for skill in (_SKILL, _WEAVE_SKILL):
+    def test_no_ported_skill_carries_the_dead_prefix(self):
+        for skill in (_SKILL, _WEAVE_SKILL, _RESUME_SKILL):
             text = skill.read_text(encoding="utf-8")
             with self.subTest(skill=str(skill.relative_to(_ROOT))):
                 self.assertNotIn(
@@ -1067,11 +1075,11 @@ class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
         self.assertIn(
             "export ATLAS_PLUGIN_ROOT=", text,
             "hooks/init-env.sh no longer exports ATLAS_PLUGIN_ROOT, the stable "
-            "reference both ported SKILLs now use in place of ${KIMI_SKILL_DIR}")
+            "reference all three ported SKILLs now use in place of ${KIMI_SKILL_DIR}")
         self.assertIn(
             'export PYTHONPATH=\\"${PLUGIN_ROOT}', text,
             "hooks/init-env.sh no longer extends PYTHONPATH with the plugin "
-            "root session-wide -- every bare python3 invocation in both "
+            "root session-wide -- every bare python3 invocation in all three "
             "ported SKILLs depends on this to resolve `from scripts import`")
         self.assertIn(
             "export PYTHONSAFEPATH=1", text,
@@ -1081,7 +1089,7 @@ class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
 class TestHooksSurviveAHostileCwd(unittest.TestCase):
     """BEHAVIOURAL proof that the hooks survive a hostile working directory.
 
-    ``hooks/telemetry.sh`` is registered in ``.kimi-plugin/plugin.json`` on
+    ``hooks/telemetry.sh`` is registered in the Kimi-runtime plugin manifest on
     PostToolUse, SubagentStart and SubagentStop, so it loads for EVERY Kimi session
     once the plugin is installed -- no atlas run required, no sandbox, no human
     gate. Each hook parses the event JSON with a plain interpreter, which ranks that

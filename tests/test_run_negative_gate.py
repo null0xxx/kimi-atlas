@@ -1,10 +1,10 @@
 """Unit tests for scripts.run_negative_gate — the red-team negative-gate driver.
 
-The driver's two impure seams — ``invoke_kimi`` (shells to Kimi) and ``sast_scan``
-(shells to semgrep via ``scripts.sast.scan``) — are monkeypatched throughout, so this
-whole suite, including the end-to-end ``process_fixture`` / ``main`` paths, runs with
-**neither Kimi nor semgrep** and is safe under ``make ci``. Fixtures are synthesized in
-throwaway temp dirs; ``tests/fixtures/`` is never touched.
+The driver's two impure seams — ``invoke_agent_cli`` (shells to the real ``claude`` CLI)
+and ``sast_scan`` (shells to semgrep via ``scripts.sast.scan``) — are monkeypatched
+throughout, so this whole suite, including the end-to-end ``process_fixture`` / ``main``
+paths, runs with **neither a live agent CLI nor semgrep** and is safe under ``make ci``.
+Fixtures are synthesized in throwaway temp dirs; ``tests/fixtures/`` is never touched.
 
 Coverage:
 
@@ -17,7 +17,7 @@ Coverage:
 * the full pipeline — `process_fixture` with real deterministic lenses (a trivial
   passing unittest fixture), a mocked critic, and a mocked SAST floor, proving good→OK,
   a blocking bad→UNVERIFIED-on-the-right-lens, a rubber-stamp bad→FAIL, a wrong-lens
-  bad→FAIL, a deterministically-red bad→FAIL before Kimi is ever called, a
+  bad→FAIL, a deterministically-red bad→FAIL before the agent CLI is ever called, a
   **deterministic-sast fixture blocked by the floor with NO critic dispatched**, that
   same fixture **failing when the floor is empty**, and **bad_security failing if its
   vuln is no longer semgrep-clean**;
@@ -143,13 +143,13 @@ def _marker_sast(scope_paths, work_dir, *, timeout_s: int = 0) -> list[dict]:
 
 
 def _ok_critic_json() -> str:
-    """kimi stdout for a clean critic (wrapped in prose + a fence to test extraction)."""
+    """agent-CLI stdout for a clean critic (wrapped in prose + a fence to test extraction)."""
     obj = {"dimensions": {"CORRECTNESS": "yes"}, "defects": [], "verdict": "OK"}
     return "Here is my review.\n```json\n" + json.dumps(obj) + "\n```\nDone."
 
 
 def _blocking_critic_json(category: str, severity: str = "HIGH") -> str:
-    """kimi stdout for a critic that blocks on ``category`` at ``severity``."""
+    """agent-CLI stdout for a critic that blocks on ``category`` at ``severity``."""
     defect = {
         "id": "D1",
         "category": category,
@@ -161,8 +161,8 @@ def _blocking_critic_json(category: str, severity: str = "HIGH") -> str:
     return "Reasoning...\n" + json.dumps(obj)
 
 
-def _marker_kimi(prompt: str, timeout_s: int = 0) -> str:
-    """A fake invoke_kimi that keys its critic off an intent marker in the prompt.
+def _marker_agent(prompt: str, timeout_s: int = 0) -> str:
+    """A fake invoke_agent_cli that keys its critic off an intent marker in the prompt.
 
     ``INJECT_BLOCK_<LENS>`` in the packet intent -> a blocking defect on that lens;
     otherwise a clean OK critic. Lets a single fake drive a whole matrix run.
@@ -496,14 +496,14 @@ class EvaluateOutcomeTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# End-to-end pipeline (real deterministic lenses, mocked Kimi)
+# End-to-end pipeline (real deterministic lenses, mocked agent CLI)
 # ---------------------------------------------------------------------------
 class ProcessFixtureTests(unittest.TestCase):
     def _run(self, fx: pathlib.Path, *, sast_defects=()) -> rng.Outcome:
         """Run process_fixture with the SAST floor mocked (default: no findings).
 
-        Callers wrap this in their own ``invoke_kimi`` patch; both seams are therefore
-        mocked, so the pipeline runs with neither Kimi nor semgrep.
+        Callers wrap this in their own ``invoke_agent_cli`` patch; both seams are therefore
+        mocked, so the pipeline runs with neither a live agent CLI nor semgrep.
         """
         with mock.patch.object(rng, "sast_scan", return_value=list(sast_defects)):
             return rng.process_fixture(fx, _AGENTS_DIR, mem_limit_mb=0, runcheck_timeout_s=60)
@@ -514,7 +514,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 pathlib.Path(tmp), "good",
                 intent="add returns the sum", expected_verdict="OK", expected_lens=None,
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi) as m:
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent) as m:
                 out = self._run(fx)
             self.assertTrue(out.passed, out.message)
             self.assertEqual(out.status, "OK")
@@ -527,7 +527,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 intent="add INJECT_BLOCK_CORRECTNESS", expected_verdict="UNVERIFIED",
                 expected_lens="CORRECTNESS",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi) as m:
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent) as m:
                 out = self._run(fx)
             self.assertTrue(out.passed, out.message)
             self.assertEqual(out.status, "UNVERIFIED")
@@ -541,7 +541,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 intent="add INJECT_BLOCK_SECURITY", expected_verdict="UNVERIFIED",
                 expected_lens="SECURITY",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent):
                 out = self._run(fx)
             self.assertTrue(out.passed, out.message)
             self.assertEqual(out.status, "UNVERIFIED")
@@ -554,7 +554,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 intent="add (critic will rubber-stamp this)", expected_verdict="UNVERIFIED",
                 expected_lens="CORRECTNESS",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent):
                 out = self._run(fx)
             self.assertFalse(out.passed)
             self.assertTrue(out.rubber_stamp)
@@ -569,13 +569,13 @@ class ProcessFixtureTests(unittest.TestCase):
                 intent="add INJECT_BLOCK_CORRECTNESS", expected_verdict="UNVERIFIED",
                 expected_lens="SECURITY",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent):
                 out = self._run(fx)
             self.assertFalse(out.passed)
             self.assertFalse(out.rubber_stamp)
             self.assertIn("expected a blocking defect on SECURITY", out.message)
 
-    def test_deterministically_red_bad_fails_without_calling_kimi(self) -> None:
+    def test_deterministically_red_bad_fails_without_calling_agent_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fx = _write_fixture(
                 pathlib.Path(tmp), "bad_correctness",
@@ -583,8 +583,8 @@ class ProcessFixtureTests(unittest.TestCase):
                 expected_lens="CORRECTNESS",
                 verify_cmd="python3 -m unittest test_does_not_exist",  # -> runcheck RED
             )
-            guard = mock.Mock(side_effect=AssertionError("kimi must not be called"))
-            with mock.patch.object(rng, "invoke_kimi", guard):
+            guard = mock.Mock(side_effect=AssertionError("agent CLI must not be called"))
+            with mock.patch.object(rng, "invoke_agent_cli", guard):
                 out = self._run(fx)
             self.assertFalse(out.passed)
             self.assertFalse(out.rubber_stamp)
@@ -602,9 +602,11 @@ class ProcessFixtureTests(unittest.TestCase):
                 extra_manifest={"expected_blocker": "deterministic-sast"},
             )
             guard = mock.Mock(
-                side_effect=AssertionError("kimi must not be called for a SAST-floor fixture")
+                side_effect=AssertionError(
+                    "agent CLI must not be called for a SAST-floor fixture"
+                )
             )
-            with mock.patch.object(rng, "invoke_kimi", guard):
+            with mock.patch.object(rng, "invoke_agent_cli", guard):
                 out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
             self.assertTrue(out.passed, out.message)
             self.assertEqual(out.status, "UNVERIFIED")
@@ -614,7 +616,8 @@ class ProcessFixtureTests(unittest.TestCase):
 
     def test_deterministic_sast_fixture_fails_when_floor_empty(self) -> None:
         # If sast.scan finds nothing (semgrep absent, or the vuln left the ruleset),
-        # the floor cannot prove the block -> FAIL, still without dispatching Kimi.
+        # the floor cannot prove the block -> FAIL, still without dispatching to the
+        # agent CLI.
         with tempfile.TemporaryDirectory() as tmp:
             fx = _write_fixture(
                 pathlib.Path(tmp), "bad_security_sast",
@@ -622,17 +625,17 @@ class ProcessFixtureTests(unittest.TestCase):
                 expected_lens="SECURITY",
                 extra_manifest={"expected_blocker": "deterministic-sast"},
             )
-            guard = mock.Mock(side_effect=AssertionError("kimi must not be called"))
-            with mock.patch.object(rng, "invoke_kimi", guard):
+            guard = mock.Mock(side_effect=AssertionError("agent CLI must not be called"))
+            with mock.patch.object(rng, "invoke_agent_cli", guard):
                 out = self._run(fx, sast_defects=[])
             self.assertFalse(out.passed)
             self.assertIn("SAST floor did not block", out.message)
             guard.assert_not_called()
 
-    def test_bad_security_not_sast_clean_fails_before_kimi(self) -> None:
+    def test_bad_security_not_sast_clean_fails_before_agent_cli(self) -> None:
         # bad_security is a SECURITY *critic* proof: its seeded vuln MUST stay
         # semgrep-clean. If the floor fires on it, the fixture no longer isolates the
-        # judgment lens -> FAIL before any Kimi dispatch (a signal to reseed a subtler
+        # judgment lens -> FAIL before any agent-CLI dispatch (a signal to reseed a subtler
         # vuln). This is the "assert bad_security is semgrep-clean" guard.
         with tempfile.TemporaryDirectory() as tmp:
             fx = _write_fixture(
@@ -641,9 +644,11 @@ class ProcessFixtureTests(unittest.TestCase):
                 expected_lens="SECURITY",
             )
             guard = mock.Mock(
-                side_effect=AssertionError("kimi must not run once the floor already fired")
+                side_effect=AssertionError(
+                    "agent CLI must not run once the floor already fired"
+                )
             )
-            with mock.patch.object(rng, "invoke_kimi", guard):
+            with mock.patch.object(rng, "invoke_agent_cli", guard):
                 out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
             self.assertFalse(out.passed)
             self.assertFalse(out.rubber_stamp)
@@ -660,7 +665,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 intent="add INJECT_BLOCK_SECURITY", expected_verdict="UNVERIFIED",
                 expected_lens="SECURITY",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi) as m:
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent) as m:
                 out = self._run(fx, sast_defects=[])
             self.assertTrue(out.passed, out.message)
             self.assertEqual(out.status, "UNVERIFIED")
@@ -675,7 +680,7 @@ class ProcessFixtureTests(unittest.TestCase):
                 pathlib.Path(tmp), "good",
                 intent="add returns the sum", expected_verdict="OK", expected_lens=None,
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi):
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent):
                 out = self._run(fx, sast_defects=_sast_hit("mod.py:2"))
             self.assertFalse(out.passed)
             self.assertEqual(out.status, "UNVERIFIED")
@@ -728,7 +733,7 @@ class MainTests(unittest.TestCase):
                 root, "bad_security", intent="add INJECT_BLOCK_SECURITY",
                 expected_verdict="UNVERIFIED", expected_lens="SECURITY",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
                 _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
@@ -747,7 +752,7 @@ class MainTests(unittest.TestCase):
                 expected_verdict="UNVERIFIED", expected_lens="SECURITY",
             )
             _write_sast_fixture(root, "bad_security_sast")
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
                 _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),
@@ -764,7 +769,7 @@ class MainTests(unittest.TestCase):
                 root, "bad_correctness", intent="add (no defect surfaced)",
                 expected_verdict="UNVERIFIED", expected_lens="CORRECTNESS",
             )
-            with mock.patch.object(rng, "invoke_kimi", side_effect=_marker_kimi), \
+            with mock.patch.object(rng, "invoke_agent_cli", side_effect=_marker_agent), \
                     mock.patch.object(rng, "sast_scan", side_effect=_marker_sast):
                 _, rc = self._main_captured([
                     "--fixtures-root", str(root), "--agents-dir", str(_AGENTS_DIR),

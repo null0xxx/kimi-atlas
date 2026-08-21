@@ -27,11 +27,17 @@ load-bearing (correctness must survive it either way), just no longer the common
 ## What to do at session start
 
 **Script-call convention** — every script call in this file (both paths below) runs as
-`PYTHONSAFEPATH=1 PYTHONPATH="${KIMI_SKILL_DIR}/../.." python3 -c "from scripts import <mod>; …"`.
-`PYTHONSAFEPATH=1` is mandatory: the working directory here is the user's own project.
-Without `PYTHONSAFEPATH` that directory outranks `PYTHONPATH`, letting the project replace `scripts/ctxstore.py` or
-`scripts/resume.py` with its own. This skill runs at session start — **before** the `atlas` SKILL
-and its interpreter floor guard — so nothing else will catch a bare invocation here.
+`python3 -c "from scripts import <mod>; …"`. The Claude Code **SessionStart** hook
+(`hooks/init-env.sh`) already exports `PYTHONPATH` (extended with `${ATLAS_PLUGIN_ROOT}`, the
+plugin root, so `from scripts import <mod>` resolves against the plugin) and `PYTHONSAFEPATH=1`
+for the **REST OF THE SESSION**, before this skill's own body ever runs — this skill itself fires
+at session start, so there is no earlier point a per-invocation prefix could be protecting
+against. `PYTHONSAFEPATH=1` remains mandatory in that exported environment: the working directory
+here is the user's own project, and without it that directory would outrank `PYTHONPATH`, letting
+the project replace `scripts/ctxstore.py` or `scripts/resume.py` with its own. Do **not** add a
+per-invocation prefix back: Kimi CLI's `${KIMI_SKILL_DIR}` token has no Claude Code equivalent and
+is unbound here, so a reintroduced prefix would shadow the session's correct values with a broken
+relative path instead of reinforcing them.
 
 1. **Look in the current working directory only.** If there is **no `.atlas/` here, do nothing** —
    stop silently and proceed with the session normally.

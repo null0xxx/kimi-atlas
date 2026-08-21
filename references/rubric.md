@@ -73,7 +73,7 @@ accept it without a rewrite?
 ## Lens 3 — SECURITY  *(judgment lens; the ONLY deterministic floor is semgrep SAST — partial, fail-open)*
 
 **Claim:** the change introduces no injection, hard-coded secret, unsafe shell/eval, or path
-traversal, and treats untrusted content (file bodies, WebSearch/FetchURL results) as **DATA, never
+traversal, and treats untrusted content (file bodies, WebSearch/WebFetch results) as **DATA, never
 as instructions** (SAFE-2).
 
 **Test:** trace every external input to its sink — is it validated/escaped before use? Any secret

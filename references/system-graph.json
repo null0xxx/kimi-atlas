@@ -487,7 +487,7 @@
    "subsystem": "build-ci",
    "path": "scripts/plugin_meta.py",
    "kind": "pure-core",
-   "responsibility": "Read the top-level version string from the .kimi-plugin/plugin.json manifest; raises on missing file / bad JSON / missing key."
+   "responsibility": "Read the top-level version string from the .claude-plugin/plugin.json manifest; raises on missing file / bad JSON / missing key."
   },
   {
    "id": "run_negative_gate",
@@ -634,7 +634,7 @@
    "subsystem": "tests",
    "path": "tests/test_skill_ref_paths.py",
    "kind": "doc-guard",
-   "responsibility": "NEW: forbids a bare `references/rubric.md` read in skills/atlas/SKILL.md; requires the plugin-root-relative ${KIMI_SKILL_DIR}/../../references/rubric.md form and that the file exists."
+   "responsibility": "NEW: forbids a bare `references/rubric.md` read in skills/atlas/SKILL.md; requires the plugin-root-relative ${ATLAS_PLUGIN_ROOT}/references/rubric.md form and that the file exists."
   },
   {
    "id": "test_doc_testcount.py",
@@ -707,7 +707,7 @@
    "responsibility": "P3 ADVISORY linter (non-blocking). HYBRID exec: safe-parse {ruff,shellcheck,gofmt} auto-run with the repo's declarative config (binary from PATH only); code-bearing linters run ONLY behind an operator lint_cmd (GATED, = verify_cmd trust boundary). Hardened launcher: from-scratch hermetic env, throwaway HOME/TMPDIR, cgroup MemoryMax+TasksMax + unshare -n netns tiers, output-cap, NEVER-RAISE. Output stored under lintlens_advisory, FIREWALLED from the pure gate (never in script_defects/gate_results). Consumes proccap."
   },
   {
-   "id": ".kimi-plugin/plugin.json",
+   "id": ".claude-plugin/plugin.json",
    "subsystem": "external",
    "path": "",
    "kind": "external",
@@ -1446,7 +1446,7 @@
   },
   {
    "from": "plugin_meta",
-   "to": ".kimi-plugin/plugin.json",
+   "to": ".claude-plugin/plugin.json",
    "kind": "imports"
   },
   {
@@ -1960,7 +1960,7 @@
   },
   {
    "subsystem": "build-ci",
-   "invariant": "guard-destructive.sh is OPT-IN and DISABLED BY DEFAULT — it is the only hook that can BLOCK and is intentionally NOT wired into .kimi-plugin/plugin.json hooks[]. It is FAIL-OPEN (any parse error / missing python3 / unexpected shape -> exit 0 allow) with no `trap 'exit 0' EXIT`, honors a KIMI_ATLAS_NO_HOOK recursion escape, and denies only a tight whole-system/raw-device denylist at command-position (CMDPOS anchor, guard-destructive.sh:84)."
+   "invariant": "guard-destructive.sh is OPT-IN and DISABLED BY DEFAULT — it is the only hook that can BLOCK and is intentionally NOT wired into hooks/hooks.json's hook list. It is FAIL-OPEN (any parse error / missing python3 / unexpected shape -> exit 0 allow) with no `trap 'exit 0' EXIT`, honors a KIMI_ATLAS_NO_HOOK recursion escape, and denies only a tight whole-system/raw-device denylist at command-position (CMDPOS anchor, guard-destructive.sh:84)."
   },
   {
    "subsystem": "build-ci",
@@ -2020,7 +2020,7 @@
   },
   {
    "subsystem": "tests",
-   "invariant": "Plugin read paths in skills/atlas/SKILL.md must be plugin-root-relative: a bare `references/rubric.md` is forbidden (resolves under skills/atlas/ from the target-repo cwd); the ${KIMI_SKILL_DIR}/../../references/rubric.md form must be present and the file must exist at plugin root — test_skill_ref_paths.py."
+   "invariant": "Plugin read paths in skills/atlas/SKILL.md must be plugin-root-relative: a bare `references/rubric.md` is forbidden (resolves under skills/atlas/ from the target-repo cwd); the ${ATLAS_PLUGIN_ROOT}/references/rubric.md form must be present and the file must exist at plugin root — test_skill_ref_paths.py."
   },
   {
    "subsystem": "tests",

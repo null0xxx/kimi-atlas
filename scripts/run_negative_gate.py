@@ -43,8 +43,8 @@ Per judgment fixture under ``tests/fixtures/<name>/`` the driver:
 4. Dispatches the REAL critic prose for each judgment lens to exercise (all three for
    ``good``; only ``expected_lens`` for a ``bad_*``): reads the critic role file,
    strips its frontmatter, builds the ``## PACKET / ## DIFF / ## DETERMINISTIC
-   EVIDENCE`` prompt, calls ``kimi -p ... --output-format text``, and parses the last
-   JSON object from stdout. **Nothing is persisted to the repo.**
+   EVIDENCE`` prompt, calls ``claude -p ... --output-format text``, and parses the
+   last JSON object from stdout. **Nothing is persisted to the repo.**
 5. ``verdict.merge([critic(s)], sast_defects)`` →
    ``quality.enforce_critic_schema`` → ``verdict.gate(merged, {...})`` → status.
 6. ASSERTs ``status == fixture.expected_verdict`` **and** (for ``bad_*``) that the
@@ -53,12 +53,14 @@ Per judgment fixture under ``tests/fixtures/<name>/`` the driver:
    non-zero. Exit code is 0 only when **every** fixture matches expectation.
 
 For a SAST-floor fixture the flow short-circuits at step 3: ``sast.scan`` must yield a
-blocking SECURITY defect and the gate must return ``UNVERIFIED`` without any Kimi call.
+blocking SECURITY defect and the gate must return ``UNVERIFIED`` without any agent-CLI
+call.
 
-Design: everything except :func:`invoke_kimi` (the one subprocess to Kimi) and
-:func:`sast_scan` (the one subprocess to semgrep) is pure or filesystem-only and
-importable, so ``tests/test_run_negative_gate.py`` exercises the whole pipeline with
-both monkeypatched — ``make ci`` needs neither Kimi nor semgrep. This target is
+Design: everything except :func:`invoke_agent_cli` (the one subprocess to the real
+``claude`` CLI, headless ``-p`` mode) and :func:`sast_scan` (the one subprocess to
+semgrep) is pure or filesystem-only and importable, so
+``tests/test_run_negative_gate.py`` exercises the whole pipeline with both
+monkeypatched — ``make ci`` needs neither a live agent CLI nor semgrep. This target is
 intentionally kept out of ``make ci`` (it needs both) and lives behind
 ``make negative-gate`` as a separate E2E gate.
 """
@@ -115,7 +117,7 @@ _DEFAULT_TEST_GLOB = "test_*.py"
 
 # Wall-clock + memory bounds for the deterministic ``runcheck`` (OPS-3). Fixtures are
 # trivial by contract, so these are generous; all are overridable from the CLI.
-KIMI_TIMEOUT_S = 900
+AGENT_TIMEOUT_S = 900
 RUNCHECK_TIMEOUT_S = 300
 RUNCHECK_MEM_LIMIT_MB = 2048
 # Wall-clock bound for the optional SAST floor (``sast.scan`` → semgrep).
@@ -313,7 +315,7 @@ def build_critic_prompt(
 
 
 def extract_last_json(text: str) -> dict:
-    """Return the last top-level JSON object embedded in ``text`` (kimi stdout).
+    """Return the last top-level JSON object embedded in ``text`` (agent-CLI stdout).
 
     Scans for brace-balanced ``{...}`` spans while respecting string literals and
     escapes, then returns the *last* span that parses as a JSON object — robust to
@@ -353,7 +355,7 @@ def extract_last_json(text: str) -> dict:
             continue
         if isinstance(obj, dict):
             return obj
-    raise ValueError("no JSON object found in kimi output")
+    raise ValueError("no JSON object found in agent CLI output")
 
 
 def blocking_defects(merged: dict) -> list[dict]:
@@ -590,16 +592,42 @@ def run_deterministic_lenses(
     }
 
 
-def invoke_kimi(prompt: str, timeout_s: int = KIMI_TIMEOUT_S) -> str:
-    """Dispatch one critic prompt to Kimi and return its stdout (an impure seam).
+def invoke_agent_cli(prompt: str, timeout_s: int = AGENT_TIMEOUT_S) -> str:
+    """Dispatch one critic prompt to the real ``claude`` CLI and return its stdout
+    (an impure seam; the Claude Code migration's replacement for the retired
+    ``invoke_kimi``, which shelled out to a ``kimi`` binary).
 
     One of the two functions the unit tests monkeypatch (the other is
-    :func:`sast_scan`), so the entire pipeline is exercisable without Kimi. Runs
-    ``kimi -p "<prompt>" --output-format text`` and returns raw stdout for
-    :func:`extract_last_json` to parse.
+    :func:`sast_scan`), so the entire pipeline is exercisable without a live agent
+    CLI. Runs ``claude -p "<prompt>" --output-format text --permission-mode
+    bypassPermissions`` — the same headless invocation shape
+    ``probe/probe_cc_sessionstart_injection.sh`` and
+    ``probe/probe_cc_agent_enforcement.sh`` already proved works against a real
+    Claude Code CLI (``--permission-mode bypassPermissions`` so a headless ``-p``
+    run can never stall on a permission prompt it has no tty to answer, even though
+    a judgment critic's prompt here needs no tool calls — the diff and evidence are
+    already embedded in ``prompt`` text).
+
+    Output-format parity with the retired ``kimi -p --output-format text`` shape was
+    UNCONFIRMED at migration time and has now been checked live (2026-08-21, `claude
+    2.1.238`): ``--output-format text`` returns the model's raw final-message text on
+    stdout with no wrapping envelope — the same shape ``invoke_kimi``'s callers
+    always assumed. The one live difference observed: the model sometimes wraps its
+    JSON in a fenced ```json code block despite the critic role files' "no fenced
+    prose" instruction, and sometimes does not — :func:`extract_last_json`'s
+    brace-balanced scan already tolerates either shape (that is what it was built
+    for), so no parsing change was needed once this was confirmed.
     """
     proc = subprocess.run(
-        ["kimi", "-p", prompt, "--output-format", "text"],
+        [
+            "claude",
+            "-p",
+            prompt,
+            "--output-format",
+            "text",
+            "--permission-mode",
+            "bypassPermissions",
+        ],
         capture_output=True,
         text=True,
         timeout=timeout_s,
@@ -636,18 +664,18 @@ def call_critic(
     diff: str,
     det: dict,
     *,
-    timeout_s: int = KIMI_TIMEOUT_S,
+    timeout_s: int = AGENT_TIMEOUT_S,
 ) -> dict:
     """Dispatch the real critic prose for ``lens`` and return its parsed critic JSON.
 
     Reads ``agents/<lens>-critic.md``, strips its frontmatter, builds the packet
-    prompt, calls :func:`invoke_kimi` (looked up on the module so tests can patch it),
-    and returns the last JSON object from stdout. Persists nothing.
+    prompt, calls :func:`invoke_agent_cli` (looked up on the module so tests can
+    patch it), and returns the last JSON object from stdout. Persists nothing.
     """
     role_path = pathlib.Path(agents_dir) / (lens_to_critic_name(lens) + ".md")
     role_body = strip_frontmatter(role_path.read_text(encoding="utf-8"))
     prompt = build_critic_prompt(role_body, manifest, diff, summarize_evidence(det, lens))
-    stdout = invoke_kimi(prompt, timeout_s)
+    stdout = invoke_agent_cli(prompt, timeout_s)
     return extract_last_json(stdout)
 
 
@@ -687,7 +715,8 @@ def process_sast_fixture(name: str, manifest: dict, det: dict) -> Outcome:
     3. feeding the SAST defects through ``merge`` → ``gate`` yields the manifest's
        ``expected_verdict`` (``UNVERIFIED``).
 
-    No ``invoke_kimi`` call is made — that is what proves the floor blocks on its own.
+    No ``invoke_agent_cli`` call is made — that is what proves the floor blocks on
+    its own.
     """
     expected_verdict = manifest["expected_verdict"]
     expected_lens = manifest.get("expected_lens")
@@ -757,7 +786,7 @@ def process_fixture(
     fixture_dir: str | os.PathLike,
     agents_dir: str | os.PathLike,
     *,
-    kimi_timeout_s: int = KIMI_TIMEOUT_S,
+    agent_timeout_s: int = AGENT_TIMEOUT_S,
     runcheck_timeout_s: int = RUNCHECK_TIMEOUT_S,
     mem_limit_mb: int = RUNCHECK_MEM_LIMIT_MB,
     sast_timeout_s: int = SAST_TIMEOUT_S,
@@ -768,13 +797,13 @@ def process_fixture(
     deterministic lenses (including the ``sast.scan`` floor). Then branches:
 
     * a **SAST-floor** fixture (``is_sast_fixture``) is proved by
-      :func:`process_sast_fixture` — blocked by ``sast.scan`` with no Kimi call;
+      :func:`process_sast_fixture` — blocked by ``sast.scan`` with no agent-CLI call;
     * a **judgment** fixture dispatches the critic(s) and merges → schema-checks →
       gates → compares to the manifest. A ``bad_*`` judgment fixture whose deterministic
       gates are not all green — a red ``runcheck`` OR a blocking SAST finding — is
-      failed *before* any Kimi call (it cannot isolate a judgment lens). This is what
-      keeps ``bad_security`` an honest SECURITY-*critic* proof: its seeded vuln must
-      stay ``sast.scan``-clean.
+      failed *before* any agent-CLI call (it cannot isolate a judgment lens). This is
+      what keeps ``bad_security`` an honest SECURITY-*critic* proof: its seeded vuln
+      must stay ``sast.scan``-clean.
     """
     fixture_dir = pathlib.Path(fixture_dir)
     name = fixture_dir.name
@@ -805,12 +834,12 @@ def process_fixture(
 
         # A judgment bad_* fixture must have every deterministic gate green — including a
         # SAST-clean scan — so ONLY the judgment eye can produce the UNVERIFIED. If not,
-        # fail now (no point dispatching Kimi).
+        # fail now (no point dispatching to the agent CLI).
         if is_bad and det_blk:
             return evaluate_outcome(name, manifest, None, _empty_merged(), det_blk)
 
         critics = [
-            call_critic(agents_dir, lens, manifest, diff, det, timeout_s=kimi_timeout_s)
+            call_critic(agents_dir, lens, manifest, diff, det, timeout_s=agent_timeout_s)
             for lens in lenses_to_exercise(manifest)
         ]
         # Feed the (asserted-clean for a bad_*, empty-or-clean for good) SAST defects
@@ -871,7 +900,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Critic role-file dir (default: <root>/agents).",
     )
     parser.add_argument(
-        "--kimi-timeout", type=int, default=KIMI_TIMEOUT_S, help="Per-critic Kimi timeout (s)."
+        "--agent-timeout",
+        type=int,
+        default=AGENT_TIMEOUT_S,
+        help="Per-critic agent CLI (claude -p) timeout (s).",
     )
     parser.add_argument(
         "--runcheck-timeout",
@@ -917,7 +949,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome = process_fixture(
                 fixture,
                 agents_dir,
-                kimi_timeout_s=args.kimi_timeout,
+                agent_timeout_s=args.agent_timeout,
                 runcheck_timeout_s=args.runcheck_timeout,
                 mem_limit_mb=args.mem_limit_mb,
                 sast_timeout_s=args.sast_timeout,
