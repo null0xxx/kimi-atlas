@@ -19,7 +19,9 @@ Invariants (each is pinned by a fixture in ``tests/test_runsignal.py``):
   * **Structural marker required.** A bare ``N passed`` with no runner-specific
     structural corroboration counts 0 — a smoke log (``Summary: 5 passed``) must
     not pass. pytest needs ``collected N items`` / the ``platform … -- Python``
-    header / an ``=+…=+`` rule line; unittest needs ``Ran N tests in``; go needs a
+    header / an ``=+…=+`` rule line / its own undecorated ``-q`` tally line
+    (``N passed in 0.00s`` — the trailing timing suffix is the load-bearing,
+    hard-to-spoof signature); unittest needs ``Ran N tests in``; go needs a
     ``-json`` test event (or a ``^--- (PASS|FAIL):`` line); etc.
   * **Broad fail_count.** ``fail_count`` counts more than the literal ``failed`` —
     pytest ``errors`` and ``no tests ran``; jest erroring/failed Test *Suites* — so
@@ -57,8 +59,65 @@ _PY_COLLECTED_RE = re.compile(r"collected (\d+) items?")     # collection line
 _PY_PLATFORM_RE = re.compile(r"^platform .* -- Python", re.MULTILINE)
 _PY_ERRORS_RE = re.compile(r"(\d+) errors?")
 _PY_NO_TESTS_RE = re.compile(r"no tests ran")
-# A tally token identifies pytest's summary line when there is no `=+…=+` rule.
-_PY_SUMMARY_TOKEN_RE = re.compile(r"passed|failed|error|no tests ran")
+
+# ``-q`` (quiet) mode prints NEITHER `collected N items` NOR a platform header
+# NOR an `=+…=+` rule line — only bare per-test progress dots/F/E and an
+# UNDECORATED summary line, e.g. `1 passed in 0.00s` / `1 failed, 2 passed in
+# 0.05s` / `1 error in 0.01s` / `no tests ran in 0.00s`. Confirmed live (G39):
+# a real `python3 -m pytest -q` PASS run was reported `test_count=0` because
+# none of the three markers above matched, forcing a false UNVERIFIED verdict
+# on genuinely-passing code.
+#
+# The trailing `` in <seconds>s`` timing suffix is pytest's OWN report format
+# and is the load-bearing, hard-to-spoof-by-accident signature (blueprint §0's
+# whole point: a smoke-test log echoing a bare `N passed` must never fool the
+# parser) — so this marker requires BOTH the leading tally (`N <word>[, N
+# <word>...]`, or the literal `no tests ran`) AND the trailing timing suffix,
+# matched against the FULL line (`fullmatch`), never merely "contains passed".
+# A bare `N passed` anywhere in incidental output, with no timing suffix,
+# still does NOT match (see the anti-spoofing fixtures in
+# tests/test_runsignal.py).
+#
+# Linear/no-ReDoS: every group boundary is a mutually-exclusive character-class
+# transition (digit -> space -> lowercase letter) or a literal `", "` — there
+# is no repeated group that can re-partition the SAME span two different ways
+# (the classic `(a+)+` shape this module guards against elsewhere: SEC-1/
+# SEC-2 above), so match/fail is O(len(line)); ``count()`` additionally bounds
+# every line to ``_MAX_LINE`` before this ever runs.
+#
+# KNOWN OPEN RISK (2026-08-21, found by live G39 adversarial verification,
+# round 3): this marker carries no provenance beyond its own shape. A bare
+# line ANYWHERE in the captured output that happens to fullmatch `N word[, N
+# word...] in Xs` — with no `collected N items`, no platform header, no rule
+# line, nothing else pytest-specific nearby — is currently trusted on its own
+# (`runsignal.count("3 passed in 12s\n", ("pytest",))` -> `(3, True)`,
+# fabricated from a single unrelated line). Worse, when TWO such lines exist,
+# the LAST one wins for extraction (matching the deliberate multi-invocation
+# "last run is authoritative" design already used for rule lines) — so a
+# later coincidental match can silently overwrite an earlier GENUINE pytest
+# result's count (`"3 passed in 0.02s\n99 passed in 1s\n"` -> `(99, True)`,
+# not `(3, True)`). Three rounds of adversarial fixing closed the
+# decoupling-from-which-marker-opened-the-gate class of bug (see git history
+# for this file and tests/test_runsignal.py); this is a DIFFERENT, deeper
+# class — the marker's own lack of corroborating pytest-specific context
+# (e.g. a preceding progress-dots line) — and remains open. Realistic
+# exposure is bounded by this module's actual call site: `runcheck.run()`
+# feeds `count()` the combined stdout+stderr of a task-packet-frozen
+# `verify_cmd`, not adversarial external/untrusted content, so this is a
+# "confused/careless verify_cmd chaining another tool" risk, not a
+# prompt-injection-class one — flagged here rather than silently left
+# undocumented, per this project's own "no missing lens is a clean lens"
+# rule. A candidate fix (untried): require a q-summary line to be preceded
+# earlier in the same output by a pytest progress-indicator line (one made
+# solely of `.FEsxX` characters, optionally with a trailing `[NNN%]`).
+_PY_Q_SUMMARY_RE = re.compile(
+    r"(?:\d+ [a-z]+(?:, \d+ [a-z]+)*|no tests ran) in \d+(?:\.\d+)?s"
+)
+
+
+def _is_pytest_q_summary_line(line: str) -> bool:
+    """True iff ``line`` is pytest's undecorated ``-q`` tally line — LINEAR."""
+    return _PY_Q_SUMMARY_RE.fullmatch(line.rstrip()) is not None
 
 
 def _is_pytest_rule_line(line: str) -> bool:
@@ -151,57 +210,110 @@ def _last_int(regex: re.Pattern[str], text: str) -> int:
     return int(matches[-1]) if matches else 0
 
 
-def _pytest_summary_line(output: str) -> str:
+def _pytest_summary_line(rule_lines: list[str], q_summary_lines: list[str]) -> str:
     """The single pytest tally line to scan for pass/fail/error counts.
 
     pytest prints its authoritative tally on the trailing ``=+…=+`` summary rule
     (``===== 1 failed, 4 passed in 0.1s =====`` — the LAST such rule, after any
-    ``FAILURES`` / ``short test summary info`` section headers); a ``-q`` or
-    truncated capture with no rule uses the last line carrying a tally token.
-    Scoping the tally to this ONE line stops an incidental ``…found 2 errors…``
-    elsewhere in the log from flipping a genuinely-green run to red (I1).
+    ``FAILURES`` / ``short test summary info`` section headers); when there is no
+    rule but the gate was opened by pytest's own undecorated ``-q`` tally line
+    (:data:`_PY_Q_SUMMARY_RE`), the LAST such line is used instead — the line a
+    marker opens the gate FROM must be the SAME line the count is extracted
+    FROM, never decoupled (a combined-output capture can carry an unrelated
+    line elsewhere containing a bare tally-shaped substring, e.g. a build
+    tool's own summary, and the fabricated-pass regression this guards
+    against is exactly that decoupling). Scoping the tally to one identified
+    line-set also stops an incidental ``…found 2 errors…`` elsewhere in the
+    log from flipping a genuinely-green run to red (I1).
+
+    REQUIRES at least one of ``rule_lines``/``q_summary_lines`` to be
+    non-empty — the caller (:func:`_count_pytest`) MUST fail closed to
+    ``(0, 0)`` itself when both are empty, never call this to fall back to a
+    generic whole-output token scan. A capture whose gate was opened SOLELY
+    by ``collected N items`` / the platform header — with NEITHER a rule line
+    NOR a ``-q`` tally line anywhere in the output — has no line this
+    function can attribute a tally to without re-opening exactly the
+    decoupling this function exists to prevent; such a capture is itself
+    anomalous (killed mid-run, timed out, truncated) and correctly degrades
+    to ``UNVERIFIED``, not a regression.
     """
-    rules = [ln for ln in output.splitlines() if _is_pytest_rule_line(ln)]
-    if rules:
-        return rules[-1]
-    for line in reversed(output.splitlines()):
-        if _PY_SUMMARY_TOKEN_RE.search(line):
-            return line
-    return output
+    if rule_lines:
+        return rule_lines[-1]
+    return q_summary_lines[-1]
 
 
 def _count_pytest(output: str) -> tuple[int, int]:
     """``(passed, fail)`` for pytest — PASS-only, structural-marker-gated.
 
-    Requires a pytest structural marker (``collected N items`` / ``platform …
-    -- Python`` header / an ``=+…=+`` rule line); absent → ``(0, 0)`` so a smoke
-    log echoing ``5 passed`` cannot pass.
+    Requires a pytest structural marker: ``collected N items`` / the ``platform
+    … -- Python`` header / an ``=+…=+`` rule line / pytest's own undecorated
+    ``-q`` tally line (:data:`_PY_Q_SUMMARY_RE` — see its docstring); absent →
+    ``(0, 0)`` so a smoke log echoing ``5 passed`` cannot pass.
+
+    A SECOND, narrower gate then fails closed to ``(0, 0)`` whenever NEITHER a
+    rule line NOR a ``-q`` tally line exists anywhere in ``output`` — i.e. the
+    first gate above was opened SOLELY by ``collected N items`` and/or the
+    platform header. Extraction only ever reads from a rule line or a ``-q``
+    tally line (:func:`_pytest_summary_line`); with neither present there is
+    no line the marker that opened the gate can be tied to, so this function
+    must NOT fall through to a generic whole-output token scan — a real
+    pytest run that reached far enough to print its collection line or
+    platform header but never printed either kind of trailing tally is
+    itself an anomalous/truncated capture (killed mid-run, timeout,
+    truncated output), and ``(0, 0)`` / ``UNVERIFIED`` is the correct, safe
+    read for that case, not a regression (blueprint §0: never fabricate a
+    pass).
 
     The **passed** count is read from the trailing summary line
     (:func:`_pytest_summary_line`), so a stray ``N passed`` in incidental output
     cannot inflate it. The **fail** signal, however, is OR-ed across *every*
-    ``=+…=+`` summary rule (falling back to that same summary line only when a
-    ``-q``/truncated capture prints no rule): a multi-invocation recipe like
-    ``pytest tests/unit; pytest tests/integration`` whose FIRST run failed (an
-    earlier ``1 failed, 3 passed`` rule) but whose LAST run passed must NOT report
-    green — the ``;`` exit is the last passing command's 0, and reading fail from
-    the last rule alone would fabricate a pass for a RED repo (the cardinal sin,
-    blueprint §0). ``fail`` folds ``failed + errors`` per rule and is forced
-    ``> 0`` on ``no tests ran``, so an exit-masked ``5 passed, 2 errors`` still
-    fails closed. A stray ``…found 2 errors…`` that is NOT an ``=+…=+`` rule line
-    is ignored (I1).
+    ``=+…=+`` summary rule AND every undecorated ``-q`` tally line (falling back
+    to that same summary line only when NEITHER kind is present): a
+    multi-invocation recipe like ``pytest tests/unit; pytest tests/integration``
+    whose FIRST run failed (or collected nothing) but whose LAST run passed must
+    NOT report green — the ``;`` exit is the last passing command's 0, and
+    reading fail from only the last line would fabricate a pass for a RED repo
+    (the cardinal sin, blueprint §0). This holds identically whether that first
+    run was decorated (a ``=+…=+`` rule) or ran under ``-q`` (a bare tally
+    line) — the two line-kinds are mutually exclusive per physical line (one
+    starts with ``=``, the other with a digit or ``no tests ran``), so folding
+    both sets together never double-counts a single line. ``fail`` folds
+    ``failed + errors`` per line and is forced ``> 0`` on ``no tests ran``, so
+    an exit-masked ``5 passed, 2 errors`` (decorated or not) still fails closed.
+    A stray ``…found 2 errors…`` that is NOT a rule/tally line is ignored (I1).
     """
+    lines = output.splitlines()
+    q_summary_lines = [ln for ln in lines if _is_pytest_q_summary_line(ln)]
+    rule_lines = [ln for ln in lines if _is_pytest_rule_line(ln)]
     if not (
         _PY_COLLECTED_RE.search(output)
         or _PY_PLATFORM_RE.search(output)
-        or any(_is_pytest_rule_line(ln) for ln in output.splitlines())
+        or rule_lines
+        or q_summary_lines
     ):
         return (0, 0)
-    summary = _pytest_summary_line(output)
+    # SECOND gate: extraction is only ever scoped to a rule line or a `-q`
+    # tally line. If the FIRST gate above was opened solely by `collected N
+    # items` / the platform header — i.e. neither line-kind exists anywhere
+    # in `output` — there is no line to attribute a count to without falling
+    # through to a generic whole-output token scan, which is exactly the
+    # decoupling bug this module guards against (a combined-output capture
+    # can carry an unrelated line elsewhere containing a bare tally-shaped
+    # substring, e.g. a health-check or deploy-summary line, that would then
+    # supply a fabricated `passed` count). Fail closed instead: a genuine
+    # pytest run that never printed a rule or `-q` tally line is itself an
+    # anomalous/truncated capture, and `(0, 0)` is the correct, safe read.
+    if not (rule_lines or q_summary_lines):
+        return (0, 0)
+    # The line a marker opens the gate FROM is the SAME line (or line-set) the
+    # counts are extracted FROM — never decoupled. Passing both identified
+    # line-sets in keeps this function itself gate-aware instead of re-deriving
+    # (and potentially diverging from) what already decided to open the gate.
+    summary = _pytest_summary_line(rule_lines, q_summary_lines)
     passed = _last_int(_PASSED_RE, summary)
-    rule_lines = [ln for ln in output.splitlines() if _is_pytest_rule_line(ln)]
+    fail_lines = (rule_lines + q_summary_lines) if (rule_lines or q_summary_lines) else [summary]
     fail = 0
-    for line in (rule_lines or [summary]):
+    for line in fail_lines:
         fail += _last_int(_FAILED_RE, line) + _last_int(_PY_ERRORS_RE, line)
         if _PY_NO_TESTS_RE.search(line):
             fail = max(fail, 1)

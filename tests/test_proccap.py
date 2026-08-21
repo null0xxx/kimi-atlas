@@ -125,6 +125,22 @@ class TestBuildWrapper(unittest.TestCase):
         self.assertEqual(argv[-3:], ["sh", "-c", "pytest -q"])
         self.assertNotIn("ulimit -v", " ".join(argv))
 
+    def test_cgroup_backend_denies_swap(self):
+        # Regression guard: without MemorySwapMax=0 a process that exceeds
+        # MemoryMax on a host with swap headroom simply swaps instead of
+        # being killed, so the cap silently fails to enforce a hard limit
+        # (see the module docstring; confirmed live via
+        # probe/probe_runcheck_memcap.sh: a 200 MB workload against a 50 MB
+        # MemoryMax-only cap returned ok=True, the same cap plus
+        # MemorySwapMax=0 killed it with rc=137). This is a HOST-INDEPENDENT
+        # structural pin — it fires on every host regardless of swap
+        # configuration, unlike the live enforcement test below.
+        argv = proccap._build_wrapper("pytest -q", 2048, "cgroup")
+        self.assertIn("MemorySwapMax=0", argv)
+        # Both -p flags must be their own argv pair, not merged into one.
+        self.assertEqual(argv.count("-p"), 2)
+        self.assertIn("MemoryMax=2048M", argv)
+
     def test_ulimit_backend_argv(self):
         argv = proccap._build_wrapper("pytest", 512, "ulimit")
         self.assertEqual(argv[0], "sh")
@@ -179,6 +195,14 @@ class TestBuildWrapperArgv(unittest.TestCase):
         self.assertEqual(argv[-3:], ["node", "--check", "a.js"])
         # No `sh -c` string interpolation of the workload.
         self.assertNotIn("-c", argv[:5])
+
+    def test_cgroup_argv_denies_swap(self):
+        # Same host-independent structural pin as
+        # TestBuildWrapper.test_cgroup_backend_denies_swap, for the argv-list
+        # (nativefloor) variant.
+        argv = proccap._build_wrapper_argv(["node", "--check", "a.js"], 2048, "cgroup")
+        self.assertIn("MemorySwapMax=0", argv)
+        self.assertEqual(argv.count("-p"), 2)
 
     def test_ulimit_argv_passes_argv_as_positional_params(self):
         argv = proccap._build_wrapper_argv(["node", "--check", "a b.js"], 512, "ulimit")
@@ -469,6 +493,111 @@ class TestScopeUnitInjection(unittest.TestCase):
             # only fullmatch (never match) rejects.
             proccap._teardown_transient_scope("atlas-proccap-1-2/../x")
         self.assertEqual(opened, [], "a non-conforming unit name reached the filesystem")
+
+
+class TestMemorySwapCapEnforcement(unittest.TestCase):
+    """Live regression guard for the swap-porous memory cap (this defect).
+
+    Without ``MemorySwapMax=0``, a cgroup scope that exceeds ``MemoryMax`` on
+    a host with swap headroom simply swaps instead of being killed, so the
+    cap silently fails to enforce a hard limit — confirmed live via
+    ``probe/probe_runcheck_memcap.sh``: a 200 MB workload against a 50 MB
+    ``MemoryMax``-only cap returned ``ok=True`` (not killed); the identical
+    cap plus ``MemorySwapMax=0`` killed it (``rc=137``). This drives the SAME
+    production ``_build_wrapper()`` / ``_launch_and_wait()`` path
+    ``runcheck.run()`` uses for lens 5 — not a reimplementation — so an edit
+    that ever drops ``MemorySwapMax=0`` from :func:`proccap._build_wrapper`
+    makes ``test_build_wrapper_cgroup_kills_the_hog`` below fail (the hog
+    would complete instead of being killed).
+
+    LIMITS (documented per this suite's live/environment-dependent test
+    convention — see ``TestBoundedDrainAndScopeTeardown`` above, which
+    ``self.skipTest``s when the cgroup backend is unavailable): this is a
+    live systemd cgroup test and is skipped when the cgroup backend, or a
+    real host with swap headroom to fall into, is unavailable. It can only
+    prove the regression is CAUGHT on a host with swap to fall into — on a
+    genuinely swapless host even the OLD ``MemoryMax``-only cap would
+    correctly kill the workload (there is nowhere to swap to), so this live
+    test could not distinguish the fixed wrapper from the buggy one there.
+    The host-independent guard that fires on every host regardless of swap
+    configuration is the structural pin in
+    ``TestBuildWrapper.test_cgroup_backend_denies_swap`` /
+    ``TestBuildWrapperArgv.test_cgroup_argv_denies_swap`` above.
+    """
+
+    _HOG_MB = 200
+    _CAP_MB = 50
+
+    @staticmethod
+    def _swap_free_mb() -> int:
+        try:
+            with open("/proc/meminfo", encoding="ascii") as fh:
+                for line in fh:
+                    if line.startswith("SwapFree:"):
+                        return int(line.split()[1]) // 1024
+        except (OSError, ValueError, IndexError):
+            pass
+        return 0
+
+    def setUp(self):
+        if proccap._detect_mem_backend() != proccap._BACKEND_CGROUP:
+            self.skipTest("cgroup backend unavailable on this host")
+        if self._swap_free_mb() < self._HOG_MB:
+            self.skipTest(
+                "insufficient host swap headroom to exercise the swap-porous path"
+            )
+
+    def _hog_cmd(self, tmp_dir: str) -> str:
+        # Byte-identical shape to probe/probe_runcheck_memcap.sh's hog.py:
+        # allocate then TOUCH every page (an untouched bytearray can stay
+        # lazily-zero and never actually charge RSS).
+        hog = os.path.join(tmp_dir, "hog.py")
+        with open(hog, "w", encoding="ascii") as fh:
+            fh.write(
+                "b = bytearray(%d * 1024 * 1024)\n"
+                "for i in range(0, len(b), 4096):\n"
+                "    b[i] = 1\n"
+                "print('ALLOCATED_OK', len(b))\n" % self._HOG_MB
+            )
+        return f"python3 {hog}"
+
+    def test_memorymax_alone_lets_the_hog_swap_through(self):
+        # Pins the BUG this defect fixes: the raw MemoryMax-only scope (no
+        # MemorySwapMax) does NOT kill a workload that exceeds it, on a host
+        # with swap headroom — it swaps instead. This is a control: it shows
+        # the chosen hog/cap sizing genuinely exercises the swap-porous path
+        # on THIS host, so the next test's kill is meaningful evidence of the
+        # fix rather than an accident of sizing.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cmd = self._hog_cmd(tmp)
+            argv = [
+                "systemd-run", "--user", "--scope", "--quiet",
+                "-p", f"MemoryMax={self._CAP_MB}M",
+                "--", "sh", "-c", cmd,
+            ]
+            res = proccap._launch_and_wait(argv, tmp, timeout_s=30)
+            self.assertEqual(
+                res["returncode"], 0,
+                "expected the swap-porous MemoryMax-only cap to NOT kill the "
+                "hog on a host with swap headroom (this is the bug, not the fix)",
+            )
+
+    def test_build_wrapper_cgroup_kills_the_hog(self):
+        # THE FIX, exercised through the production _build_wrapper() output:
+        # MemoryMax + MemorySwapMax=0 kills the identical workload the raw
+        # MemoryMax-only scope above let swap through.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cmd = self._hog_cmd(tmp)
+            argv = proccap._build_wrapper(cmd, self._CAP_MB, proccap._BACKEND_CGROUP)
+            res = proccap._launch_and_wait(argv, tmp, timeout_s=30)
+            self.assertNotEqual(
+                res["returncode"], 0,
+                "the hog must be KILLED (MemorySwapMax=0), not allowed to "
+                "swap past MemoryMax",
+            )
+            self.assertNotIn("ALLOCATED_OK", res["stdout"])
 
 
 if __name__ == "__main__":

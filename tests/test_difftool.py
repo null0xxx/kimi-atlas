@@ -147,6 +147,52 @@ class TestCaptureWithGit(unittest.TestCase):
         self.assertIn("new file", diff)
         self.assertIn("+z = 9", diff)
 
+    def test_staged_new_file_is_captured(self):
+        # The G39 live bug: a NEW file `git add`-ed but NOT yet committed falls
+        # into neither existing bucket — it is not "tracked at baseline" (the
+        # baseline predates it) and not "untracked" (`ls-files --others`
+        # excludes indexed paths) — so it was silently invisible to review.
+        (self.root / "staged_new.py").write_text("z = 9\n", encoding="utf-8")
+        self._git("add", "staged_new.py")
+        diff = difftool.capture(self.baseline, ["a.py", "staged_new.py"], str(self.root))
+        self.assertIn("staged_new.py", diff)
+        self.assertIn("new file", diff)
+        self.assertIn("+z = 9", diff)
+
+    def test_staged_new_file_alongside_untracked_new_file_both_captured(self):
+        # A staged-new file and a genuinely untracked-new file in the SAME
+        # capture must both surface, via their respective channels, with no
+        # duplication.
+        (self.root / "staged_new.py").write_text("z = 9\n", encoding="utf-8")
+        self._git("add", "staged_new.py")
+        (self.root / "untracked_new.py").write_text("w = 4\n", encoding="utf-8")
+        diff = difftool.capture(
+            self.baseline, ["staged_new.py", "untracked_new.py"], str(self.root)
+        )
+        self.assertIn("+z = 9", diff)
+        self.assertIn("+w = 4", diff)
+        # Each new-file diff renders exactly once (two files, not duplicated).
+        self.assertEqual(diff.count("new file mode"), 2)
+
+    def test_staged_modification_of_baseline_file_not_double_rendered(self):
+        # A STAGED modification to a file that already existed at baseline is
+        # fully covered by the primary tracked channel; the new staged-new
+        # channel must exclude it (it fails `not _tracked_at`), so it is not
+        # rendered twice.
+        (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
+        self._git("add", "a.py")
+        diff = difftool.capture(self.baseline, ["a.py"], str(self.root))
+        self.assertEqual(diff.count("-x = 1"), 1)
+        self.assertEqual(diff.count("+x = 2"), 1)
+
+    def test_staged_new_file_capture_does_not_mutate_index(self):
+        (self.root / "staged_new.py").write_text("z = 9\n", encoding="utf-8")
+        self._git("add", "staged_new.py")
+        before = self._git("status", "--porcelain")
+        difftool.capture(self.baseline, ["a.py", "staged_new.py"], str(self.root))
+        after = self._git("status", "--porcelain")
+        self.assertEqual(before, after)
+
     def test_mixed_modified_and_new(self):
         (self.root / "a.py").write_text("x = 2\n", encoding="utf-8")
         (self.root / "new.py").write_text("z = 9\n", encoding="utf-8")

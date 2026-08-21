@@ -13,6 +13,13 @@ the very same 2048 MB budget that killed Node under ``ulimit -v`` succeeds under
 ``systemd-run --scope``. We therefore probe the host once and prefer the cgroup
 backend, keeping ``ulimit -v`` only as a fallback for systemd-less hosts and
 degrading to no cap (availability guard only) if neither mechanism is usable.
+The cgroup wrapper also sets ``MemorySwapMax=0`` alongside ``MemoryMax`` —
+without it, a scope that exceeds ``MemoryMax`` on a host with swap headroom
+simply swaps instead of being killed, so the cap silently fails to enforce a
+hard limit (measured live: a 200 MB workload against a 50 MB ``MemoryMax``-only
+cap returned ``ok`` uncapped; the same cap plus ``MemorySwapMax=0`` killed it,
+rc=137). Denying swap makes the RSS cap a genuine hard kill regardless of host
+swap configuration.
 The cap is always **fail-open**: if the capped launch cannot even start, the
 build is re-run uncapped rather than reported RED — the cap must never
 manufacture a failure.
@@ -106,9 +113,13 @@ def _build_wrapper(cmd: str, mem_limit_mb: int, backend: str) -> list[str]:
     Pure and fully unit-testable — no side effects, no host probing. The backend
     is chosen by :func:`_detect_mem_backend`; this function only renders it:
 
-    * ``"cgroup"`` → ``systemd-run --scope --quiet -p MemoryMax=<N>M -- sh -c cmd``
-      — an RSS (resident) cap in **MB**, which Node/V8 tolerate because it bounds
-      real usage rather than V8's bulk virtual reservation.
+    * ``"cgroup"`` → ``systemd-run --scope --quiet -p MemoryMax=<N>M -p
+      MemorySwapMax=0 -- sh -c cmd`` — an RSS (resident) cap in **MB**, which
+      Node/V8 tolerate because it bounds real usage rather than V8's bulk
+      virtual reservation. ``MemorySwapMax=0`` denies the scope swap entirely,
+      so a workload that exceeds ``MemoryMax`` is killed rather than silently
+      pushed to swap on a host with swap headroom — without it the cap is not
+      a hard limit (see the module docstring for the measured proof).
     * ``"ulimit"`` → the legacy ``sh -c 'ulimit -v <KiB> 2>/dev/null || true\\n<cmd>'``
       — a *virtual*-address cap (KiB); ``|| true`` fails the cap open on shells
       that reject it. Kept only for systemd-less hosts; hostile to Node builds.
@@ -122,6 +133,7 @@ def _build_wrapper(cmd: str, mem_limit_mb: int, backend: str) -> list[str]:
         return [
             "systemd-run", "--user", "--scope", "--quiet",
             "-p", f"MemoryMax={mb}M",
+            "-p", "MemorySwapMax=0",
             "--", "sh", "-c", cmd,
         ]
     if backend == _BACKEND_ULIMIT:
@@ -151,6 +163,7 @@ def _build_wrapper_argv(argv: list[str], mem_limit_mb: int, backend: str) -> lis
         return [
             "systemd-run", "--user", "--scope", "--quiet",
             "-p", f"MemoryMax={mb}M",
+            "-p", "MemorySwapMax=0",
             "--", *argv,
         ]
     if backend == _BACKEND_ULIMIT:

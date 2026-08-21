@@ -12,6 +12,14 @@ other):
 
 * **git repo, tracked at the baseline** -> ``git diff <baseline> -- <path>``
   (real modification / deletion, restricted to scope).
+* **git repo, staged (`git add`-ed) but absent at the baseline** -> discovered
+  via ``git diff --cached --name-only`` and rendered via that same
+  ``git diff <baseline> -- <path>`` (which natively renders a baseline-absent
+  path as a full new-file addition). Neither of the other two channels sees
+  this file: it is not "tracked at the baseline" (it postdates it) and it is
+  not "untracked" (``git ls-files --others`` excludes indexed paths) — without
+  this channel a genuine in-scope change staged mid-run was invisible to
+  review.
 * **git repo, untracked (new) in scope** -> discovered via
   ``git ls-files --others`` and rendered as a full new-file diff.
 * **non-git tree** -> each in-scope file rendered as a full new-file diff via
@@ -147,6 +155,34 @@ def _new_file_diff(cwd: str, rel_path: str) -> str:
     return out if rc in (0, 1) else ""
 
 
+def _staged_new_in_scope(cwd: str, baseline: str, scope_paths: list[str]) -> list[str]:
+    """New files staged into the index (``git add``-ed, not yet committed) that
+    did NOT exist at ``baseline`` — the third bucket ``capture`` must cover.
+
+    A file that is staged but did not exist at ``baseline`` falls into NEITHER
+    of the other two channels: ``_tracked_at`` is False (``baseline`` predates
+    it, so the tracked channel skips it) and ``git ls-files --others`` EXCLUDES
+    anything already in the index (so the untracked channel skips it too) — it
+    was silently invisible to review, a genuine in-scope change going
+    unreviewed.
+
+    Discovered via ``git diff --cached --name-only`` (scope-restricted,
+    mirroring :func:`_untracked_in_scope`'s exact pathspec handling), then
+    filtered to EXCLUDE anything already tracked at ``baseline`` — a staged
+    *modification* to a pre-existing baseline file is already fully covered by
+    the primary tracked channel and must not be double-rendered here.
+    """
+    concrete = _concrete_pathspecs(scope_paths)
+    argv = ["diff", "--cached", "--name-only"]
+    if concrete:
+        argv += ["--", *concrete]
+    out, rc = _run(argv, cwd)
+    if rc != 0:
+        return []
+    staged = [line.strip() for line in out.splitlines() if line.strip()]
+    return [p for p in staged if not _tracked_at(cwd, baseline, p)]
+
+
 def _untracked_in_scope(cwd: str, scope_paths: list[str]) -> list[str]:
     """New (untracked, non-ignored) files within scope, per ``git ls-files --others``.
 
@@ -203,6 +239,18 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
             for path in scope_paths:
                 if _tracked_at(cwd, baseline, path):
                     parts.append(_tracked_diff(cwd, baseline, path))
+            # 1b. Newly-staged (`git add`-ed, not yet committed) files that did
+            #     NOT exist at baseline — invisible to both channels above (see
+            #     _staged_new_in_scope). `_tracked_diff` (== `git diff
+            #     <baseline> -- <path>`) already renders a baseline-absent path
+            #     as a full new-file addition: it compares BASELINE'S TREE to
+            #     the WORKING TREE (not the index) — the exact same plumbing
+            #     channel 1 already uses above — so the rendering stays
+            #     byte-consistent with every other channel and reflects the
+            #     file's REAL current content (not a possibly-stale staged
+            #     snapshot if it was staged and then edited further).
+            for rel in _staged_new_in_scope(cwd, baseline, scope_paths):
+                parts.append(_tracked_diff(cwd, baseline, rel))
         else:
             # No baseline: fall back to working-tree-vs-index for tracked files.
             # Whole-tree specs become ``-- .`` (the empty-string pathspec is

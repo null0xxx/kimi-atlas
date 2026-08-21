@@ -37,6 +37,24 @@ _CGROUP_OK = _cgroup_backend_works()
 _NODE = shutil.which("node")
 
 
+def _pytest_available() -> bool:
+    """True iff ``python3 -m pytest --version`` actually runs (best-effort)."""
+    try:
+        proc = subprocess.run(
+            ["python3", "-m", "pytest", "--version"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+_PYTEST = _pytest_available()
+
+
 def _pid_alive(pid: int) -> bool:
     """Return True iff ``pid`` names a live (unreaped) process."""
     try:
@@ -489,8 +507,13 @@ class TestRunFailOpen(unittest.TestCase):
 
         # The trailing `# pytest` shell comment tags the faked output as pytest so
         # the resolver identifies the runner (the echo emits pytest structure).
+        # The summary carries the real `-q` timing suffix (`in 0.01s`) — a bare
+        # `3 passed` with no rule line and no `-q` tally shape is exactly the
+        # anomalous/truncated-capture shape runsignal.count() now (correctly)
+        # fails closed on (round-3 fabricated-pass fix), so this fixture must
+        # mirror pytest's genuine output, not an under-specified fake of it.
         result = runcheck.run(
-            'echo "collected 3 items"; echo "3 passed"  # pytest', ".",
+            'echo "collected 3 items"; echo "3 passed in 0.01s"  # pytest', ".",
             timeout_s=30, mem_limit_mb=2048,
         )
         self.assertTrue(result["ok"], result)          # not a false RED
@@ -648,6 +671,53 @@ class TestRunSignalWiring(unittest.TestCase):
         result = self._run("echo 'collected 5 items'; echo '5 passed'")
         self.assertTrue(result["ok"])
         self.assertEqual(result["test_count"], 0)
+        self.assertFalse(result["new_tests_collected"])
+        self.assertFalse(runcheck.green(result))
+
+
+class TestRealPytestQSubprocess(unittest.TestCase):
+    """G39 live-repro (Bug 1, real subprocess — not mocked, not `printf`-faked).
+
+    A real ``python3 -m pytest -q`` invocation against a genuinely passing
+    test, run end to end through ``runcheck.run``. Confirmed live twice before
+    the fix: `-q` suppresses every pre-existing structural marker
+    (``collected N items`` / platform header / ``=+…=+`` rule), so this exact
+    scenario reported ``test_count=0, new_tests_collected=False`` on code that
+    actually passed, forcing a false UNVERIFIED terminal verdict.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @unittest.skipUnless(_PYTEST, "pytest not installed for `python3 -m pytest`")
+    def test_real_pytest_q_passing_run_is_green_end_to_end(self):
+        (self.root / "test_sample.py").write_text(
+            "def test_ok():\n    assert 1 == 1\n", encoding="utf-8"
+        )
+        result = runcheck.run(
+            "python3 -m pytest -q", str(self.root), timeout_s=30, mem_limit_mb=0,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["returncode"], 0)
+        self.assertGreater(result["test_count"], 0)
+        self.assertTrue(result["new_tests_collected"])
+        self.assertTrue(runcheck.green(result))
+
+    @unittest.skipUnless(_PYTEST, "pytest not installed for `python3 -m pytest`")
+    def test_real_pytest_q_failing_run_is_not_green_end_to_end(self):
+        # The companion negative case: a genuinely RED `-q` run must stay red
+        # end to end, not merely the passing case.
+        (self.root / "test_sample.py").write_text(
+            "def test_bad():\n    assert 1 == 2\n", encoding="utf-8"
+        )
+        result = runcheck.run(
+            "python3 -m pytest -q", str(self.root), timeout_s=30, mem_limit_mb=0,
+        )
+        self.assertFalse(result["ok"])
         self.assertFalse(result["new_tests_collected"])
         self.assertFalse(runcheck.green(result))
 

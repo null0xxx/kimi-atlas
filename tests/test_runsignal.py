@@ -82,6 +82,89 @@ PYTEST_TWO_RULES_FIRST_FAILED = (
 # ON the rule line, so the multi-rule fold must STILL fail closed on it.
 PYTEST_RULE_ERRORS_MASKED = "===== 5 passed, 2 errors in 0.5s ====="
 
+# --- `pytest -q` (G39 live bug): NEITHER `collected N items` NOR the platform
+# header NOR an `=+…=+` rule appears — only a bare progress line + the
+# undecorated tally. Captured live via a real `python3 -m pytest -q` run
+# against a genuinely passing test (pytest 9.1.1): the dot-progress line THEN
+# the bare `1 passed in 0.00s` summary, with no other structure at all.
+PYTEST_Q_ONLY_PASS = (
+    ".                                                                        [100%]\n"
+    "1 passed in 0.00s"
+)
+# `pytest -q` with a failure — same undecorated shape (`N failed, M passed in
+# Xs`), no rule line at all, exercising the NEW marker's fail path directly.
+PYTEST_Q_ONLY_FAILED = "F.\n1 failed, 2 passed in 0.05s"
+# An incidental line containing bare "passed" with NO ` in <seconds>s` timing
+# suffix — the anti-spoofing property this marker must preserve (blueprint
+# §0): the load-bearing signature is the trailing timing suffix, not the word
+# "passed" by itself. Must still count 0 (unrecognized).
+PYTEST_Q_NO_TIMING_SUFFIX = "1 passed"
+# `pytest -q` collecting NOTHING — captured live (`python3 -m pytest -q` over
+# an empty directory): the undecorated `no tests ran in Xs` shape.
+PYTEST_Q_NO_TESTS_RAN = "no tests ran in 0.00s"
+# Multi-invocation `pytest -q tests/unit; pytest -q tests/integration` where
+# the FIRST run FAILED and the LAST PASSED — both undecorated (`-q`), no rule
+# lines at all. Mirrors PYTEST_TWO_RULES_FIRST_FAILED's guard, but for the NEW
+# marker: fail must be OR-ed across every undecorated tally line, never just
+# the last one, or a red first run under `-q` would fabricate a green verdict.
+PYTEST_TWO_Q_SUMMARIES_FIRST_FAILED = (
+    "1 failed, 3 passed in 0.2s\n"
+    "3 passed in 0.1s"
+)
+# Multi-invocation `pytest -q tests/unit; pytest -q tests/integration` where
+# the FIRST run collected NOTHING (`no tests ran`) and the LAST PASSED — both
+# undecorated. `no tests ran` is a forced-fail signal per invocation and must
+# be OR-ed the same way a failed tally line is, or this fabricates a pass.
+PYTEST_Q_NO_TESTS_THEN_PASSED = (
+    "no tests ran in 0.00s\n"
+    "3 passed in 0.01s"
+)
+# Cross-line fabricated-pass regression (adversarial-review finding): the
+# `-q` marker only requires SOME line in `output` to match `_PY_Q_SUMMARY_RE`
+# to open the gate — it must NOT let `_pytest_summary_line` fall through to a
+# generic reversed/last-line-with-a-tally-substring scan over the WHOLE
+# output, because that scan can land on a totally unrelated line. Here the
+# q-summary marker is `3 collections in 2s` (an unrelated build-tool line that
+# happens to fullmatch the `-q` tally shape), while a separate, unrelated
+# `5 passed` substring sits on an earlier, non-summary line. Neither line is
+# genuinely pytest's own summary, so this must stay `(0, False)` — never a
+# fabricated `(5, True)`.
+PYTEST_CROSS_LINE_FABRICATED_PASS = (
+    "Health check: 5 passed all validations, continuing rollout.\n"
+    "3 collections in 2s\n"
+)
+# Second adversarial probe, same shape: an unrelated deploy-summary line
+# supplies the incidental `N passed` substring, and an unrelated build-tool
+# `N modules in Ns` line supplies the q-summary-shaped marker.
+PYTEST_CROSS_LINE_FABRICATED_PASS_2 = (
+    "12 modules in 3s\n"
+    "Deploy summary: 7 passed review, proceeding.\n"
+)
+# Third adversarial probe: an unrelated lint-summary line supplies the
+# incidental `N passed` substring, and an unrelated `N files in Ns` build-tool
+# line supplies the q-summary-shaped marker.
+PYTEST_CROSS_LINE_FABRICATED_PASS_3 = (
+    "Linting: 9 passed with warnings only.\n"
+    "5 files in 1s\n"
+)
+# Fourth adversarial probe (round-3 verifier finding): the gate is opened
+# SOLELY by `collected N items` — NEITHER a rule line NOR a q-summary-shaped
+# line exists anywhere in the output — while an unrelated health-check line
+# supplies an incidental `N passed` substring. Before the round-3 fix
+# `_pytest_summary_line` fell through to the generic reversed/last-line-with-
+# a-tally-substring scan whenever rule_lines/q_summary_lines were BOTH empty,
+# letting this unrelated line fabricate a pass. Must stay `(0, False)`.
+PYTEST_COLLECTED_ONLY_FABRICATED_PASS = (
+    "collected 3 items\n"
+    "Health check: 5 passed all validations, continuing rollout.\n"
+)
+# Fifth adversarial probe, same shape but opened by the platform header
+# instead of `collected N items`.
+PYTEST_PLATFORM_ONLY_FABRICATED_PASS = (
+    "platform linux -- Python 3.12.0, pytest-7.4.0\n"
+    "Deploy summary: 7 passed review, proceeding.\n"
+)
+
 # unittest -v summary lines.
 UNITTEST_OK = "Ran 7 tests in 0.2s\nOK"
 UNITTEST_FAILED = (
@@ -358,6 +441,87 @@ class TestPytest(unittest.TestCase):
         _, collected = runsignal.count(PYTEST_RULE_ERRORS_MASKED, ("pytest",))
         self.assertFalse(collected)
 
+    def test_q_mode_pass_is_now_structural(self):
+        # G39 bug fix: `pytest -q`'s undecorated summary line (`N passed in
+        # Xs`) is its OWN structural marker — no `collected`/platform/rule
+        # needed. Before the fix this real captured output counted (0, False).
+        self.assertEqual(runsignal.count(PYTEST_Q_ONLY_PASS, ("pytest",)), (1, True))
+
+    def test_q_mode_failed_is_counted_and_not_collected(self):
+        # `1 failed, 2 passed in 0.05s`, no rule line — the new marker's fail
+        # path must still veto a genuinely red `-q` run.
+        count, collected = runsignal.count(PYTEST_Q_ONLY_FAILED, ("pytest",))
+        self.assertEqual(count, 2)
+        self.assertFalse(collected)
+
+    def test_q_mode_summary_without_timing_suffix_stays_unstructured(self):
+        # Anti-spoofing (blueprint §0): a bare `N passed` with no ` in <secs>s`
+        # timing suffix must NOT be treated as pytest's own structural marker,
+        # proving the fix does not weaken the existing spoofing defense.
+        self.assertEqual(
+            runsignal.count(PYTEST_Q_NO_TIMING_SUFFIX, ("pytest",)), (0, False)
+        )
+
+    def test_q_mode_no_tests_ran_stays_unverified(self):
+        # A pure `-q` run collecting nothing degrades to UNVERIFIED (0, False)
+        # both before and after the fix — never a fabricated pass.
+        self.assertEqual(runsignal.count(PYTEST_Q_NO_TESTS_RAN, ("pytest",)), (0, False))
+
+    def test_multi_q_summary_first_run_failed_vetoes(self):
+        # Regression guard for the NEW marker (mirrors
+        # test_multi_rule_first_run_failed_vetoes for decorated rules): a
+        # `pytest -q unit; pytest -q integration` capture whose FIRST
+        # undecorated tally line FAILED and whose LAST PASSED must NOT report
+        # GREEN — fail is OR-ed across every undecorated tally line.
+        self.assertEqual(
+            runsignal.count(PYTEST_TWO_Q_SUMMARIES_FIRST_FAILED, ("pytest",)),
+            (3, False),
+        )
+
+    def test_q_no_tests_ran_then_later_pass_still_vetoes(self):
+        # A first `-q` invocation collecting NOTHING followed by a second that
+        # passes must NOT report green — "no tests ran" is a forced-fail
+        # signal per invocation, OR-ed the same way a failed line is.
+        count, collected = runsignal.count(
+            PYTEST_Q_NO_TESTS_THEN_PASSED, ("pytest",)
+        )
+        self.assertFalse(collected)
+
+    def test_cross_line_fabricated_pass_stays_unverified(self):
+        # Adversarial-review regression (the fabricated-pass finding): the -q
+        # marker opening the gate must not decouple from WHICH line the passed
+        # count is read from. Before the fix this returned (5, True) — a
+        # fabricated pass from a wholly unrelated pair of lines, neither of
+        # which is pytest's own summary.
+        self.assertEqual(
+            runsignal.count(PYTEST_CROSS_LINE_FABRICATED_PASS, ("pytest",)),
+            (0, False),
+        )
+        self.assertEqual(
+            runsignal.count(PYTEST_CROSS_LINE_FABRICATED_PASS_2, ("pytest",)),
+            (0, False),
+        )
+        self.assertEqual(
+            runsignal.count(PYTEST_CROSS_LINE_FABRICATED_PASS_3, ("pytest",)),
+            (0, False),
+        )
+
+    def test_collected_or_platform_only_gate_fails_closed(self):
+        # Round-3 adversarial-review regression: when the gate is opened
+        # SOLELY by `collected N items` and/or the platform header — with
+        # NEITHER a rule line NOR a q-summary line present anywhere in the
+        # output — extraction must NOT fall through to a generic
+        # whole-output token scan. Before the round-3 fix both of these
+        # returned a fabricated (5, True) / (7, True).
+        self.assertEqual(
+            runsignal.count(PYTEST_COLLECTED_ONLY_FABRICATED_PASS, ("pytest",)),
+            (0, False),
+        )
+        self.assertEqual(
+            runsignal.count(PYTEST_PLATFORM_ONLY_FABRICATED_PASS, ("pytest",)),
+            (0, False),
+        )
+
 
 class TestUnittest(unittest.TestCase):
     def test_ok(self):
@@ -601,6 +765,22 @@ class TestReDoSHardening(unittest.TestCase):
         self.assertEqual(
             runsignal.count(PYTEST_PLATFORM_HEADER, ("pytest",)), (5, True)
         )
+
+    def test_pytest_q_summary_direct_redos_probe_is_linear(self):
+        # Exercises the NEW `-q` marker regex directly (bypassing count()'s
+        # global `_bound_untrusted` cap) at the WORST-CASE line length it could
+        # ever see in production (`_MAX_LINE`), with the required timing
+        # suffix withheld so a full match-failure search is forced to the very
+        # end of the line. No repeated group can re-partition the same span
+        # two different ways (each `(?:, \d+ [a-z]+)*` iteration is anchored
+        # by a literal `", "`), so failure must resolve in linear time even at
+        # this length.
+        hostile = ("1 a, " * (runsignal._MAX_LINE // 5 + 1))[: runsignal._MAX_LINE]
+        start = time.perf_counter()
+        result = runsignal._is_pytest_q_summary_line(hostile)
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self._BUDGET_S, f"pytest -q direct ReDoS: {elapsed:.3f}s")
+        self.assertFalse(result)
 
 
 class TestUniversalUntrustedBound(unittest.TestCase):
