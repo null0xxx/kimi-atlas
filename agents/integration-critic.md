@@ -4,7 +4,6 @@ description: Adversarially reviews the COMBINED (union) tree of a multi-node ATL
 tools: Read, Grep, Glob
 model: opus
 justification: isolation
-temperature: 0.3
 ---
 <!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:integration-critic", …).
      Claude Code auto-loads this body as the subagent's system prompt; the frontmatter above

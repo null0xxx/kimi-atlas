@@ -4,7 +4,6 @@ description: Adversarially reviews a code change through the single CORRECTNESS 
 tools: Read, Grep, Glob
 model: opus
 justification: isolation
-temperature: 0.2
 ---
 <!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:correctness-critic", …).
      Claude Code auto-loads this body as the subagent's system prompt; the frontmatter above

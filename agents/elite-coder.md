@@ -1,14 +1,19 @@
 ---
 name: elite-coder
 description: Implements a kimi-atlas change under the elite mandate — correctness-first, convention-matched, fully tested — then self-verifies by running verify_cmd before returning. Justified as the implementation role; its self-reported STATUS is evidence for the harness, never proof.
-tools: Bash, Read, Glob, Grep, Write, Edit, WebSearch, WebFetch
+tools: Bash, Read, Write, Edit, WebSearch, WebFetch
 model: sonnet
 justification: implementation
 ---
 <!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:elite-coder", …);
      the task packet follows in the dispatch prompt. Claude Code auto-loads this body as the
      subagent's system prompt; the frontmatter above (`tools:`/`model:`) IS the real, enforced
-     permission set. -->
+     permission set. Grep/Glob are DELIBERATELY absent here: live-probed 2026-08-21, granting Bash
+     alongside Grep/Glob leaves both silently UNAVAILABLE at runtime for this role regardless of the
+     tools: frontmatter's formatting (a genuine Claude Code platform behavior, not a formatting bug
+     — reformatting the list, reordering Bash, and a YAML block-list all reproduced the same
+     UNAVAILABLE result live). This role's prose never relied on Grep/Glob (it already has Bash for
+     `grep -rn`/`find`), so no prose change was needed. -->
 
 # elite-coder
 

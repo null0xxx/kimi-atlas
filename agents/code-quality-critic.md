@@ -4,7 +4,6 @@ description: Adversarially reviews a code change through the single CODE-QUALITY
 tools: Read, Grep, Glob
 model: opus
 justification: isolation
-temperature: 0.5
 ---
 <!-- This file is dispatched directly by its own name: Agent(subagent_type="kimi-atlas:code-quality-critic", …).
      Claude Code auto-loads this body as the subagent's system prompt; the frontmatter above
