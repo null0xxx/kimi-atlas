@@ -11,12 +11,31 @@ what exists, how to verify it, and what is still open. For depth, follow the lin
 
 **kimi-atlas** — a many-agent, quality-calibrated orchestrator plugin for **Claude Code CLI** with
 **115 vendored official skill packages** built in. Public repo:
-<https://github.com/null0xxx/kimi-atlas> (v1.5.3.1, MIT). The only confirmed-working load path
-today is local/dev: clone the repo and run `claude --plugin-dir <repo> --debug` from it. A
-persistent marketplace-install path (the Claude Code analogue of Kimi Code's old
-`/plugins install`) does **not** exist yet — this is an explicit blueprint non-requirement
-(`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md` §14), not an
-oversight. The old source-install path, `./scripts/install.sh`, is **gone** (deleted in commit
+<https://github.com/null0xxx/kimi-atlas> (v1.5.3.1, MIT). **Two** load paths are now
+live-confirmed, and which one you want depends on whether the session will EDIT this repo:
+
+- **Persistent install (use kimi-atlas ON other projects).** Confirmed working 2026-08-24 on
+  Claude Code 2.1.241, which ships a full `claude plugin` CLI the blueprint era did not have:
+  `claude plugin marketplace add null0xxx/kimi-atlas` (or a local clone path) then
+  `claude plugin install kimi-atlas@kimi-atlas`. `.claude-plugin/marketplace.json` makes this
+  repo its own single-plugin marketplace (`source: "./"`). Live-probed end to end: a plain
+  session with no `--plugin-dir` dispatched `kimi-atlas:correctness-critic` successfully and
+  the subagent reported exactly `Read, Grep, Glob` — its role file's declared grant, enforced.
+  `claude plugin details kimi-atlas` reports **Skills (118) · Agents (7) · Hooks (5)**,
+  ~16.6k always-on tokens per session.
+  **Caveat, measured:** install makes a full ~112 MB COPY under
+  `~/.claude/plugins/cache/kimi-atlas/kimi-atlas/<version>/`, keyed by `plugin.json`'s
+  `version`. `claude plugin update kimi-atlas@kimi-atlas` answers "already at the latest
+  version" and does NOT re-copy, so **repo edits do not reach an installed plugin without a
+  version bump**.
+- **Local/dev (use kimi-atlas ON THIS repo).** `claude --plugin-dir <repo> --debug` from the
+  clone — live, no copy, working-tree edits apply on the next session. This is the correct
+  mode for any work that changes `agents/`, `skills/atlas*/`, `hooks/`, or `scripts/`.
+
+This supersedes the earlier claim that no persistent install path existed (and the related
+`skills/`-auto-discovery UNCONFIRMED note below): both were accurate when written against the
+then-current CLI and are now closed by measurement. The blueprint's §14 non-requirement stands
+as a historical record of scope, not as a statement about today's CLI. The old source-install path, `./scripts/install.sh`, is **gone** (deleted in commit
 `c9e6b41`) — do not run it.
 
 Five layers, all first-party:
@@ -89,10 +108,10 @@ not sufficient — everything must stay green on all three lanes.
 
 - `skills/<name>/` — 115 vendored official packages (712 files, byte-identical to their source
   zips; 2 duplicate zips coalesced 117→115) + 3 first-party orchestrator skills. `.claude-plugin/plugin.json`
-  has **no** `skills` key (confirmed — deliberately dropped in Stage 1). Whether Claude Code still
-  auto-discovers `skills/` off disk without one is **unconfirmed** anywhere in this repo's evidence
-  base — the only live auto-discovery probe on record (`references/claude-agent-dispatch.md`)
-  covers `agents/`, never `skills/` (see `references/full-blueprint-audit-2026-08-21.md` G20).
+  has **no** `skills` key (confirmed — deliberately dropped in Stage 1). Claude Code **does**
+  auto-discover `skills/` off disk without one — G20 CLOSED 2026-08-24 by direct measurement:
+  `claude plugin details kimi-atlas` on the installed plugin reports **Skills (118)**, which is
+  exactly 115 vendored + 3 first-party, with no `skills` key present in the manifest.
 - `references/skills-manifest.json` — sha256 anchor for every vendored file;
   `python3 scripts/skillextract.py --verify` + `TestCommittedManifest` re-prove it zip-free in CI.
 - `references/skill-registry.json` — v2 registry (115 entries `{name, category, description,

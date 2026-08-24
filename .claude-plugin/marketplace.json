@@ -1,0 +1,18 @@
+{
+  "name": "kimi-atlas",
+  "description": "Single-plugin marketplace serving the kimi-atlas orchestrator from this repository.",
+  "owner": {
+    "name": "kimi-atlas"
+  },
+  "plugins": [
+    {
+      "name": "kimi-atlas",
+      "source": "./",
+      "description": "Many-agent, quality-calibrated orchestrator: deterministic state machine, 7 named subagent roles with enforced tool grants, 6-lens verification harness, human-gated output. No LLM ever computes pass/fail.",
+      "author": {
+        "name": "kimi-atlas"
+      },
+      "category": "development"
+    }
+  ]
+}
