@@ -967,3 +967,14 @@ because `.claude-plugin/marketplace.json` was committed but **unpushed** until n
 
 One number did not reproduce: `AGENTS.md:25` claims ~16.6k always-on tokens; measured ~11,713 on a
 newer CLI build. Recorded as a discrepancy to reconcile, not a refutation.
+
+## 2026-08-27 — verification-integrity programme
+
+Four parallel research sweeps over the whole tree produced
+[`docs/superpowers/plans/2026-08-27-verification-integrity-programme.md`](../docs/superpowers/plans/2026-08-27-verification-integrity-programme.md):
+34 genuinely open items, ranked, every load-bearing claim re-measured by the orchestrator.
+
+The organising finding: this project's gates do not fail, they check a property ADJACENT to the one
+they protect. `hooks/init-env.sh` was the archetype, not an isolated miss — measured, deleting its
+SessionStart registration leaves 9/9 manifest tests green, and one token (`if False and ...`) disables
+the entire ruby/php/go/sh syntax floor with 32 tests green.

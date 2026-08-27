@@ -6,10 +6,11 @@
 ![tests](https://img.shields.io/badge/tests-passing-brightgreen)
 ![skills](https://img.shields.io/badge/skill%20packages-115-blue)
 
-kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Claude Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is four composable capabilities:
+kimi-atlas turns a rough coding request into elite, human-gated, *verified* implemented code — and gives your Claude Code a curated library of 115 ready-to-use official skills it can select and apply at the right moment. It is five composable capabilities:
 
 - **atlas** — the single-change core. One root SKILL drives a deterministic `INIT → … → OUTPUT` state machine over subagents Claude Code dispatches by name, gated by a **6-lens verification harness** and a **pure quality backbone** that owns the pass/fail decision.
 - **ATLAS-WEAVE** — the multi-agent meta-machine. It decomposes a larger change into a **file-disjoint plan-DAG**, drains it with a **flat pool of ≤3 concurrent node runs**, and merges results through a **combined-tree differential gate** — degrading *byte-identically* to a single atlas run when the work doesn't decompose.
+- **atlas-resume** — on-disk run resumption. At session start, and after a compaction, it picks an interrupted `atlas` / `atlas-weave` run back up from its durable `.atlas/<run_id>/` ledger instead of restarting it — and is a safe no-op when there is no unfinished run.
 - **The skill system** — **115 vendored official skill packages** under `skills/<name>/`, integrity-anchored by a committed sha256 manifest, plus a **deterministic selector** (`scripts/skillselect.py`) that picks the right skill for a task intent and injects it into atlas runs — with a user-editable override file.
 
 - **The agentic backbone (Graph + Loop + Verification)** — atlas now carries a first-class, *live* **ContextGraph**: a pure read-time projection of the run's state (task hierarchy, tools used, errors) that is injected into the coder at the `CODED` stage and recomputed on every refine pass. It runs on an **explicit finite-state machine** (`scripts/fsm.py` — legal transitions *derived* from the canonical stages), with **two-phase forward-only rollback** confined to the isolated worktree (never your real tree), and a stdlib **`ast` syntax/lint lens** added to the deterministic floor. Its design was hardened by the plugin's *own* 6-lens harness across six rounds (**27 → 0 defects**) before a line was written.
@@ -48,7 +49,24 @@ Python 3.10 or older **every run** stops at its first step with
 several other LTS distributions still ship `python3` = 3.10 — check with `python3 -V` and install 3.11+ (or
 point `python3` at it) before installing or upgrading. Development and CI run on Python 3.12, stdlib-only.
 
-**Load the plugin (Claude Code CLI)** — the only confirmed-working path today is local/dev:
+**Install the plugin (Claude Code CLI)** — two paths are confirmed working, and which one you want
+depends on whether the session will *edit* this repo. To **use** kimi-atlas on your own projects,
+install it persistently from GitHub — this repository is its own single-plugin marketplace
+(`.claude-plugin/marketplace.json`):
+
+```bash
+claude plugin marketplace add null0xxx/kimi-atlas
+claude plugin install kimi-atlas@kimi-atlas
+```
+
+Both steps were measured end to end on Claude Code 2.1.246 from a clean, isolated config
+([`references/plugin-install-live-validation.md`](references/plugin-install-live-validation.md)):
+the marketplace registers as `Source: GitHub (null0xxx/kimi-atlas)`, the install lands v1.5.3.1
+enabled, and what arrives matches the repository at that HEAD — 118 top-level skills, 7 agents,
+4 hook scripts, with `hooks/init-env.sh` byte-identical.
+
+**To develop kimi-atlas itself**, load it from the working tree instead — that is the right mode
+for any session that changes this repo:
 
 ```bash
 git clone https://github.com/null0xxx/kimi-atlas.git
@@ -67,11 +85,13 @@ git clone --branch v1.5.3.1 https://github.com/null0xxx/kimi-atlas.git   # or:
 
 **The old `./scripts/install.sh` source-installer is gone** (it targeted
 Kimi Code's `~/.kimi-code/plugins/` registry and was deleted in commit `c9e6b41`); do not follow
-any instruction that still references it. A persistent marketplace-install path (the Claude Code
-analogue of Kimi Code's old `/plugins install https://github.com/...`) does **not** exist yet —
-this is an explicit non-requirement of the migration blueprint
-(`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md` §14), not an
-oversight. Once loaded, smoke-test:
+any instruction that still references it. The marketplace path above could not have worked before
+it was measured: `.claude-plugin/marketplace.json` was committed, but the commit carrying it sat
+unpushed, so the manifest did not exist on GitHub for anyone to add. The migration blueprint lists
+a persistent marketplace-install path among its **explicit non-requirements**
+(`docs/superpowers/plans/2026-08-20-kimi-to-claude-code-migration-blueprint.md` §14) — that stands
+as a record of what the migration scoped, not as a statement about today's CLI. Once loaded,
+smoke-test:
 
 ```bash
 claude --plugin-dir . --permission-mode bypassPermissions -p "/kimi-atlas:atlas ping"        --output-format text   # single-change core
@@ -103,7 +123,7 @@ The four fields are the contract: `verify_cmd:` the command that must pass, `suc
 
 ## Using the 115 skills
 
-The plugin ships **115 official skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. `.claude-plugin/plugin.json` has **no** `skills` key (deliberately dropped in Stage 1 of the Claude Code migration) — whether Claude Code still auto-discovers `skills/` off disk without one, and so lists/auto-triggers/lets you invoke these 115 packages the same way it does the three first-party orchestrator skills, is **unconfirmed** anywhere in this repo's evidence base (the only live auto-discovery probe on record, [`references/claude-agent-dispatch.md`](references/claude-agent-dispatch.md), covers `agents/`, never `skills/`; see [`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md) G20). The three orchestrator skills (`atlas`, `atlas-weave`, `atlas-resume`) ARE confirmed directly invocable via `/kimi-atlas:<name>`; the 115 vendored packages have not been separately verified the same way.
+The plugin ships **115 official skill packages**, extracted byte-identically from their source archives and committed under `skills/<name>/`. `.claude-plugin/plugin.json` has **no** `skills` key (deliberately dropped in Stage 1 of the Claude Code migration) — and Claude Code discovers `skills/` off disk without one anyway. That half is now **measured**: on a GitHub-installed copy, `claude plugin details kimi-atlas` reports **Skills (118)**, which is exactly the 115 vendored packages plus the 3 first-party orchestrator skills, with no `skills` key present in the manifest ([`references/plugin-install-live-validation.md`](references/plugin-install-live-validation.md)) — the question [`references/full-blueprint-audit-2026-08-21.md`](references/full-blueprint-audit-2026-08-21.md) raises as G20. What that count does **not** settle is the other half: whether the CLI *auto-triggers* the 115 vendored packages, or lets you invoke them, the same way it does the three first-party orchestrator skills remains **unconfirmed** — a count proves they were found and enumerated, not that they fire. The only live auto-discovery probe on record ([`references/claude-agent-dispatch.md`](references/claude-agent-dispatch.md)) covers `agents/`, never `skills/`. The three orchestrator skills (`atlas`, `atlas-weave`, `atlas-resume`) ARE confirmed directly invocable via `/kimi-atlas:<name>`; the 115 vendored packages have not been separately verified the same way.
 
 | Category | Count | Examples |
 |---|---|---|
@@ -119,7 +139,7 @@ Each package is self-contained: its `SKILL.md` instructions plus its payload —
 
 Two things to know:
 
-- **Skills are data, treated with care.** The packages were extracted and verified — never executed — at import time. A skill only actually runs when an atlas run selects it (confirmed); platform-level auto-triggering depends on the unconfirmed `skills/` auto-discovery noted above.
+- **Skills are data, treated with care.** The packages were extracted and verified — never executed — at import time. A skill only actually runs when an atlas run selects it (confirmed); platform-level auto-triggering of the vendored packages is the half still unconfirmed above — the disk discovery underneath it is measured, the triggering is not.
 - **Your own skills coexist safely.** The three orchestrator skills (`atlas`, `atlas-weave`, `atlas-resume`) are first-party; the 115 vendored packages live alongside them under the same `skills/` tree, and the repo's documentation gates treat every skill package as a self-contained unit.
 
 ---
@@ -249,7 +269,8 @@ The pure decision cores — `plandag` (DAG + halting), `scheduler` (flat pool + 
 ## Developing
 
 ```bash
-make ci               # the full local gate: strict naming + the unit-test suite + inventory-drift + shell-syntax
+make ci               # the full local pipeline — all seven: plugin-manifest + cc-migration-residue
+                      #   + strict naming + the unit-test suite + inventory-drift + shell-syntax + predcov
 make test             # unit tests only (python3 -m unittest discover -s tests -v)
 make skill-registry   # rebuild references/skill-registry.json from the extracted skills/ tree
 make skills-extract   # re-extract the vendored packages + verify against the sha256 manifest
@@ -257,14 +278,14 @@ make negative-gate    # red-team fixture matrix: good→OK, each bad_*→UNVERIF
 make help             # everything else
 ```
 
-`make ci` mirrors [`.github/workflows/check.yml`](.github/workflows/check.yml) exactly (Python 3.12, stdlib-only). Conventions that keep the tree clean: every new script gets a `tests/test_<module>.py`; new design docs live in `references/*.md` and are linked (the inventory-drift gate enforces it); skill packages under `skills/` are self-contained and exempt from the first-party doc gates.
+`make ci` reproduces **one of three CI lanes**: [`.github/workflows/check.yml`](.github/workflows/check.yml) (Python 3.12, stdlib-only), which runs `make ci` and nothing else. The other two are [`.github/workflows/native-floor.yml`](.github/workflows/native-floor.yml) and [`.github/workflows/sast-floor.yml`](.github/workflows/sast-floor.yml), which install toolchains `make ci` does not require — so a green `make ci` is necessary, not sufficient. The seven targets it runs are declared in one place, the `ci` target of the [Makefile](Makefile). Conventions that keep the tree clean: every new script gets a `tests/test_<module>.py`; new design docs live in `references/*.md` and are linked (the inventory-drift gate enforces it); skill packages under `skills/` are self-contained and exempt from the first-party doc gates.
 
 ---
 
 ## FAQ
 
 **Do the 115 skills slow down every session?**
-Atlas's own selection path is cheap regardless: the registry that powers automatic selection is a single 80 KB JSON read once per atlas run, and bodies/payload load lazily only when a skill is actually triggered or selected. Whether Claude Code additionally lists all 115 packages' name + one-line description in its own native skill listing depends on the unconfirmed `skills/` auto-discovery noted above.
+Atlas's own selection path is cheap regardless: the registry that powers automatic selection is a single 80 KB JSON read once per atlas run, and bodies/payload load lazily only when a skill is actually triggered or selected. Claude Code does find the whole tree off disk — `claude plugin details kimi-atlas` counts all 118 skills with no `skills` key in the manifest ([`references/plugin-install-live-validation.md`](references/plugin-install-live-validation.md)) — so the packages are enumerated in a session. What that measurement does not cover is whether the CLI also auto-triggers them, which stays unconfirmed above.
 
 **Are the vendored skills safe?**
 They are official skill packages, extracted byte-identically and anchored by a CI-verified sha256 manifest — tampering fails the build. The extractor itself was hardened against hostile archives (name-traversal, zip-slip, symlink and backslash escapes) with a dedicated hostile-input test matrix. Payload scripts are ordinary third-party code: the platform never executes them unless you or a skill run them.
