@@ -9,9 +9,11 @@ canonical schemas and cross-checks it against the committed skills manifest
 import contextlib
 import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts import skillregistry, validate
 
@@ -124,6 +126,15 @@ class TestExtractTriggers(unittest.TestCase):
 
     def test_empty_description(self):
         self.assertEqual(skillregistry.extract_triggers(""), [])
+
+    def test_signal_length_floor_boundary(self):
+        # _MIN_SIGNAL_LEN is the floor: a leftover single character is
+        # punctuation debris and is dropped, two characters are kept.
+        triggers = skillregistry.extract_triggers(
+            "Toolkit. Use when the user mentions x, ok, or pdf reports."
+        )
+        self.assertEqual(triggers, ["ok", "pdf reports"])
+        self.assertEqual(skillregistry._MIN_SIGNAL_LEN, 2)
 
 
 class TestClassifyDir(unittest.TestCase):
@@ -363,11 +374,11 @@ class TestMain(unittest.TestCase):
             rc = skillregistry.main(argv)
         return rc, out.getvalue(), err.getvalue()
 
-    def _args(self, root, mapping, out_name="registry.json"):
+    def _args(self, root, mapping):
         return [
             "--skills-root", str(root / "skills"),
             "--manifest", str(_write_manifest(root, mapping)),
-            "--out", str(root / "out" / out_name),
+            "--out", str(root / "out" / "registry.json"),
         ]
 
     def test_happy_path_writes_registry_and_audits(self):
@@ -386,6 +397,74 @@ class TestMain(unittest.TestCase):
         self.assertEqual(skillregistry.validate_registry(registry), [])
         self.assertIn("AUDIT manifest=2 registry=2", stdout)
         self.assertIn("AUDIT ok", stdout)
+
+    def test_happy_path_leaves_no_tmp_residue(self):
+        # The write goes through a sibling .tmp consumed by os.replace: after a
+        # clean run the out dir holds the registry and NOTHING else.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            out_path = root / "out" / "registry.json"
+            rc, _, _ = self._run(self._args(root, {"one": "Alpha"}))
+            leftovers = sorted(p.name for p in out_path.parent.iterdir())
+            parsed = json.loads(out_path.read_text(encoding="utf-8"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(leftovers, ["registry.json"])  # no .tmp sibling survives
+        self.assertEqual(parsed["skill_count"], 1)
+
+    def test_tmp_sibling_is_process_unique(self):
+        # os.replace is atomic; the temp file's CONTENTS are not. A FIXED
+        # `<out>.tmp` is a shared name, so two concurrent `make skill-registry`
+        # runs interleave into ONE sibling and one of them then renames mixed
+        # bytes over the registry — the tear this write exists to prevent. The
+        # sibling must be process-unique (ctxstore.write_secure_artifact's pid
+        # idiom). Patching scripts.skillregistry.os.replace patches os.replace
+        # itself, so the real callable is captured first.
+        real_replace = os.replace
+        renamed: list[str] = []
+
+        def _record(src, dst):
+            renamed.append(pathlib.Path(src).name)
+            real_replace(src, dst)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            out_path = root / "out" / "registry.json"
+            with mock.patch("scripts.skillregistry.os.replace", side_effect=_record):
+                rc, _, _ = self._run(self._args(root, {"one": "Alpha"}))
+            written = out_path.exists()
+        self.assertEqual(rc, 0)
+        self.assertEqual(renamed, [f"registry.json.{os.getpid()}.tmp"])
+        self.assertNotIn("registry.json.tmp", renamed)  # the shared, tearable name
+        self.assertTrue(written)
+
+    # ---- failure path: a kill mid-write never tears the committed registry ----
+    def test_failed_replace_preserves_prior_registry_bytes(self):
+        # os.replace is the only step that can publish bytes; when it fails the
+        # pre-existing registry must survive intact (an interrupted rebuild
+        # leaves the last good registry readable, never a half-written one).
+        prior = '{"version": 2, "skill_count": 0, "skills": []}\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _make_skill(root / "skills", "one", _skill_md("one"))
+            out_path = root / "out" / "registry.json"
+            out_path.parent.mkdir(parents=True)
+            out_path.write_text(prior, encoding="utf-8")
+            with mock.patch(
+                "scripts.skillregistry.os.replace", side_effect=OSError("no rename")
+            ):
+                with self.assertRaises(OSError):
+                    self._run(self._args(root, {"one": "Alpha"}))
+            survived = out_path.read_text(encoding="utf-8")
+            leftovers = sorted(p.name for p in out_path.parent.iterdir())
+        self.assertEqual(survived, prior)  # prior bytes intact, never torn
+        self.assertEqual(json.loads(survived)["skill_count"], 0)
+        # The failure path leaves the tree exactly as it found it: no untracked
+        # .tmp sibling survives to ride into the next `git add -A` (no repo gate
+        # sweeps one — the doc gates walk *.md, the residue gate reads
+        # `git ls-files`, and .gitignore covers tmp_*/ but not *.tmp).
+        self.assertEqual(leftovers, ["registry.json"])
 
     # ---- E4 failure: a stowaway dir fails the run with a non-zero exit ----
     def test_stowaway_dir_exits_nonzero(self):

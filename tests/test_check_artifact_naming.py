@@ -13,8 +13,12 @@ from pathlib import Path
 from scripts import check_artifact_naming as checker
 
 
-class TestCheckFile(unittest.TestCase):
-    """Tests for the ``check_file`` rule engine (migrated 24-case matrix)."""
+class _TempTreeCase(unittest.TestCase):
+    """A temp tree (``self.root``) every case in this module scans against.
+
+    Only the scaffold is shared: the ``main``-level subclasses keep their own
+    ``_run`` (they differ in whether extra CLI arguments are forwarded).
+    """
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -22,6 +26,15 @@ class TestCheckFile(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def _touch(self, rel_path):
+        path = self.root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+
+class TestCheckFile(_TempTreeCase):
+    """Tests for the ``check_file`` rule engine (migrated 24-case matrix)."""
 
     def _check(self, rel_path):
         return checker.check_file(self.root, rel_path)
@@ -111,15 +124,8 @@ class TestCheckFile(unittest.TestCase):
         self.assertTrue(any("recommended prefix missing" in w for w in warnings))
 
 
-class TestExclusionSet(unittest.TestCase):
+class TestExclusionSet(_TempTreeCase):
     """DS-9: project fixtures are exempt from every rule."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_readme_never_fails(self):
         # Uppercase README.md would otherwise trip the lowercase rule.
@@ -158,26 +164,14 @@ class TestExclusionSet(unittest.TestCase):
             self.assertEqual(warnings, [], fixture)
 
 
-class TestMainEndToEnd(unittest.TestCase):
+class TestMainEndToEnd(_TempTreeCase):
     """In-process ``main`` runs over a scanned temp tree (re-scoped)."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def _run(self, *extra_args):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             code = checker.main(["--root", str(self.root), *extra_args])
         return code, out.getvalue(), err.getvalue()
-
-    def _touch(self, rel_path):
-        path = self.root / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
 
     def test_valid_files_pass(self):
         self._touch("analysis/explore-topic.md")
@@ -251,20 +245,8 @@ class TestMainEndToEnd(unittest.TestCase):
         self.assertEqual(code, 0, stdout)
 
 
-class TestSkillPackageExemption(unittest.TestCase):
+class TestSkillPackageExemption(_TempTreeCase):
     """Walk-level exemption: payload ``.md`` inside a skill package is never scanned."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _touch(self, rel_path):
-        path = self.root / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
 
     def _run(self):
         out, err = io.StringIO(), io.StringIO()

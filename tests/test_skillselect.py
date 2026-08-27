@@ -256,6 +256,35 @@ class TestBoundaries(unittest.TestCase):
         results = skillselect.select("pdf", REGISTRY, None)
         self.assertEqual(_names(results)[0], "pdf-toolkit")
 
+    def test_non_dict_overrides_document_loads_as_none(self):
+        # The ``dict | None`` contract is honoured AT THE BOUNDARY: a
+        # valid-JSON array/string/number is no overrides document, so it never
+        # reaches a caller that trusts the annotation.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "overrides.json"
+            for document in ("[]", '["pdf-toolkit"]', '"pin"', "3", "null"):
+                with self.subTest(document=document):
+                    path.write_text(document, encoding="utf-8")
+                    self.assertIsNone(skillselect.load_overrides(path))
+
+    def test_object_overrides_document_loads_as_dict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "overrides.json"
+            path.write_text(json.dumps({"pin": ["ops-console"]}), encoding="utf-8")
+            loaded = skillselect.load_overrides(path)
+        self.assertEqual(loaded, {"pin": ["ops-console"]})
+        self.assertEqual(_names(skillselect.select("", REGISTRY, loaded)), ["ops-console"])
+
+    def test_malformed_overrides_file_still_raises(self):
+        # The boundary coercion is about TYPE, not about swallowing parse
+        # errors: unreadable JSON stays the caller's failure (main maps it to
+        # the "cannot parse overrides" exit).
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "overrides.json"
+            path.write_text("{not json", encoding="utf-8")
+            with self.assertRaises(json.JSONDecodeError):
+                skillselect.load_overrides(path)
+
 
 class TestCli(unittest.TestCase):
     def _write_registry(self, tmp):

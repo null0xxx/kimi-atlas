@@ -28,7 +28,12 @@ exits non-zero if any package failed to parse or the counts disagree. The
 registry is validated against the canonical ``skill-registry``/``skill-entry``
 schemas (``scripts/validate.py``) before it is written, and the file is written
 ONLY when the registry is schema-valid AND the audit is clean — a partial or
-failed registry is never committed to disk.
+failed registry is never committed to disk — and the write itself is atomic (a
+PROCESS-UNIQUE sibling ``.<pid>.tmp`` + ``os.replace``), so not even a kill
+mid-write can tear it, and two concurrent builds cannot interleave into one
+temp file and rename mixed content over the registry. A write that fails
+removes its own temp sibling: the failure path leaves the tree exactly as it
+found it, never an untracked sibling no repo gate sweeps.
 
 :func:`parse_frontmatter`, :func:`extract_triggers`, :func:`build_registry`,
 :func:`validate_registry` and :func:`audit` are pure; :func:`classify_dir`,
@@ -39,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
@@ -97,6 +103,9 @@ _SIGNAL_PREFIX_RE = re.compile(
 )
 # Quotes that wrap example phrases in descriptions ('polish this', "analyze it").
 _QUOTE_CHARS = "\"'‘’“”"
+# Shortest stripped fragment still carried as a trigger signal — a leftover
+# single character ("a", "…") is punctuation debris, not intent.
+_MIN_SIGNAL_LEN = 2
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -146,7 +155,7 @@ def extract_triggers(description: str) -> list[str]:
             previous = piece
             piece = _SIGNAL_PREFIX_RE.sub("", piece).strip()
         piece = piece.strip(_QUOTE_CHARS).strip(" .;:").strip(_QUOTE_CHARS)
-        if len(piece) >= 2 and piece not in signals:
+        if len(piece) >= _MIN_SIGNAL_LEN and piece not in signals:
             signals.append(piece)
     return signals
 
@@ -267,6 +276,11 @@ def audit(
 ) -> tuple[list[str], bool]:
     """Build the E4 audit lines and own the single pass/fail verdict.
 
+    ``failures`` comes LAST, matching the sibling ``audit`` in
+    ``scripts/skillextract.py`` — the two modules share one audit-line
+    contract, so a cross-module copy-paste must not be able to slot the
+    failure list into a different position and still compile.
+
     Returns ``(lines, ok)``: per-category counts, one line per failure, the
     count-equality check, and the trailing ``AUDIT ok`` / ``AUDIT MISMATCH``
     line — ``ok`` is the verdict that line carries (no failures AND
@@ -342,9 +356,30 @@ def main(argv: list[str] | None = None) -> int:
         return 1  # failed audit — never write a partial/failed registry
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    # Atomic placement, mirroring ctxstore.write_artifact_atomic's tmp-sibling +
+    # os.replace idiom (that helper itself does not fit: it derives its target
+    # from the .atlas/<run_id>/ layout and serializes without the registry's
+    # ensure_ascii=False + trailing newline, so reusing it would move the file
+    # AND change its bytes). Nothing in the repo sweeps a stray .tmp — the doc
+    # gates walk *.md and check_cc_migration_residue reads `git ls-files`, so an
+    # untracked sibling is invisible to all three and would ride into the next
+    # `git add -A` — so a failed write removes its own temp file and the caller
+    # is left with exactly what it had before.
+    #
+    # The pid keeps that sibling PROCESS-UNIQUE, the same idiom as
+    # ctxstore.write_secure_artifact: os.replace is atomic, but the temp file's
+    # CONTENTS are not, so a fixed name lets two concurrent `make skill-registry`
+    # runs interleave into ONE sibling and rename mixed bytes over the registry —
+    # exactly the tear this write is here to prevent.
+    tmp = args.out.with_name(f"{args.out.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        os.replace(tmp, args.out)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     sys.stdout.write(f"skillregistry: wrote {args.out} ({len(entries)} skills)\n")
     return 0
 

@@ -225,11 +225,18 @@ def load_registry(path: pathlib.Path | None = None) -> dict:
 
 
 def load_overrides(path: pathlib.Path | None = None) -> dict | None:
-    """Load an overrides document; ``None`` when the file is absent (tolerated)."""
+    """Load an overrides document; ``None`` when the file is absent (tolerated).
+
+    The annotation is honoured at this boundary: a valid-JSON document that is
+    not an object (an array, string, number …) is no overrides document, so it
+    reads as ``None`` exactly like an absent file rather than reaching a caller
+    typed as ``dict``.
+    """
     overrides_path = path or _DEFAULT_OVERRIDES
     if not overrides_path.is_file():
         return None
-    return json.loads(overrides_path.read_text(encoding="utf-8"))
+    doc = json.loads(overrides_path.read_text(encoding="utf-8"))
+    return doc if isinstance(doc, dict) else None
 
 
 def main(argv: list[str] | None = None) -> int:
