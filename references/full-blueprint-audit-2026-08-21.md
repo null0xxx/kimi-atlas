@@ -380,3 +380,506 @@ F1/F2 are the cardinal sin (blueprint §0). F3 alone is disqualifying on its own
 **A second pre-existing hole, unchanged by the attempt and still live.** The provenance question is moot on the rule-line path, which has no corroboration requirement at all: `count("==== 3 passed in 12s ====\n", ("pytest",))` → `(3, True)` on `main` and on the attempt alike. A single line with a leading and trailing `=` is trusted with zero pytest context, so the bare-shape fabrication survives with two extra characters. Any credible closure of the `-q` provenance risk has to address this path too, or it closes nothing.
 
 **Also unpinned (test gap, verified by mutation on a throwaway copy):** changing `_pytest_summary_line`'s `return trusted_q_lines[-1]` to `[0]` leaves the whole suite green — the "last run is authoritative" ordering has no test that distinguishes it. Eleven of twelve other mutations were killed.
+
+## 2026-08-25 — item 1 (the `make ci` env-leak blocker) CLOSED, and a new harness finding
+
+Two atlas runs, `INIT → OUTPUT` each. Run 1a ended `⚠️ UNVERIFIED` with its refine budget spent; run 1b ended **`✅ VERIFIED`**. Five files under `tests/` changed, +316/-13 then +43 KB total; no production module touched.
+
+**The blocker is closed, measured.** `make ci` inside a real kimi-atlas plugin session (both `PYTHONPATH` and `PYTHONSAFEPATH` exported by `hooks/init-env.sh`) went **exit 2 → exit 0**; 1827 → 1831 tests; weave-negative-gate 7/7; inventory in sync at 52 tracked docs.
+
+**The continuation prompt's diagnosis was wrong on the causal variable and is corrected here.** It named `PYTHONPATH` and prescribed removing it. Measured on CPython 3.12.3 against an isolated probe fixture: `PYTHONPATH` alone → the control exits 3 and the test **passes**, because `python3 -m` puts the cwd at `sys.path[0]` *ahead of* `PYTHONPATH`; `PYTHONSAFEPATH=1` alone → exits 1; **both** → exits 0, the documented "would be vacuous" failure. The causal variable is `PYTHONSAFEPATH=1`, which deletes the cwd entry. A fix stripping only `PYTHONPATH` leaves the control at exit 1 and closes nothing.
+
+**Three of the test's four subprocesses were failing SILENTLY.** Only the control failed loudly. `make predcov` and `sh -c <recipe>` launch Python *indirectly*, and the recipe's `-` prefix and `|| true` hold the status at 0 whatever ran — so those three assertions passed while measuring nothing. The whole test was hollow under the leak, not just the control.
+
+### NEW, previously unrecorded: `langfloor.resolve_runner_tag` cannot tag any make target but `make test`
+
+`resolve_runner_tag("make ci", root)` returns `()`. The resolver special-cases exactly one target name (`_MAKE_TEST_RE` → read the Makefile's `test:` recipe); every other target falls through to a direct-token scan that finds no runner. `runsignal.count(output, ())` then returns `(0, False)` by its documented fail-closed rule, so `runcheck.green()` is False and a blocking `runcheck` CRITICAL is synthesized — **on a build that exited 0**. Measured on the same captured bytes, `runsignal.count(output, ("unittest",))` returns `(1830, True)`.
+
+Consequence: **this repository's own documented primary gate — `make ci`, called "THE gate" in `AGENTS.md` — can never produce a `✅` when used as a `verify_cmd`.** This is fail-closed, so it is a false RED and never a false green. It is not fixed here (it would require changing `scripts/langfloor.py`, a production module on the verify path, which is its own change). Run 1b worked around it by using `verify_cmd: make test` and running the full `make ci` out of band in every ambient combination — a disclosed weakening, recorded because a `verify_cmd` substitution that is not compensated and reported is a way of hiding coverage.
+
+### One criterion formally WAIVED, with the proposed remedy refuted by measurement
+
+`make ci` under `PYTHONSAFEPATH=1` with **no** `PYTHONPATH` exits 2 with 20 loader `ModuleNotFoundError`s — **at baseline too** (`Ran 1501, FAILED (failures=3, errors=20)`). `python3 -m` is the only thing putting the repo root on `sys.path`; `PYTHONSAFEPATH` deletes it, and `unittest discover -s tests` inserts `<repo>/tests`, not `<repo>`. A critic proposed adding `tests/__init__.py`; that was built and measured and **refuted** — the combination still exits 2 with the same 20 errors. The only other remedy touches `Makefile:27`, outside the change's scope. Nothing in this system produces that ambient state: `hooks/init-env.sh` exports both variables together.
+
+### Eight residuals, open
+
+None blocks the gate. The three worth acting on first, each confirmed by direct orchestrator measurement rather than taken from the critic:
+
+| id | severity | finding |
+|---|---|---|
+| C1 | MEDIUM | The AST pin's `stores` count sees only `ast.Name` with `ctx=Store`, so **in-place mutation is invisible**: `env["PYTHONSAFEPATH"] = "1"` and `env.update(...)` both leave `stores.count("env") == 1` and resolve to `_fixture_env()`, so all four launches report ACCEPTED on an environment that has had both scrubbed keys put back. Rebinding and `env |= {...}` correctly fail closed. Mitigated — a hard-coded re-add is still caught by the sibling `assertEqual(direct.returncode, _PROBE_EXIT)` control. |
+| S1 | MEDIUM | The `cwd=` half tests "this expression READS the fixture name", not "stays INSIDE the fixture tree". `os.path.join(td,'..','..')`, `pathlib.Path(td).parent`, `os.path.dirname(td)` and `td + '/../..'` all reduce to `{'td'}` and pass — pointing the child at the tempdir's parent, on Linux the world-writable `/tmp`, while the same test *requires* those launches to drop `PYTHONSAFEPATH`. That is the v1.5.1 hijack surface. |
+| Q2 | MEDIUM | The same check is simultaneously too tight: `resolve()` follows a bare name only when the whole expression **is** a `Name`, and `sources()` never re-resolves a nested one, so `cwd=str(root)` **false-REDs** although `root = _probe_tree(td)` is honest. |
+
+Also open: S2 (the launch selector matches only `subprocess.<attr>`, so `os.system` would slip past the count assertion), C2 (a docstring generalises an `assertIn` truncation fact onto `assertEqual`, which does truncate — via `_common_shorten_repr` and `_truncateMessage`), and Q1/Q3/Q4 (prose-vs-tree drift).
+
+**The pattern is the finding.** Across five consecutive passes, each remedy introduced the next pass's defect: extracting a helper begat a duplicated fixture; consolidating a docstring begat five stale copies; pinning "the recipe" begat a provable no-op wrapper; hardening `env=` begat the same class of gap in `cwd=`. The root cause is one mistake repeated in two places — **name resolution is not a substitute for shape checking**. "Resolves to `_fixture_env`" never meant "was handed a scrub", and "reads `td`" never meant "stays inside `td`".
+
+**Process notes worth keeping.** `verdict.gate` returned `OK` on run 1b's first pass with zero blocking defects; the run continued only because rule **V7** forces a pass on any CORRECTNESS or SECURITY defect at any severity. That forced pass is what surfaced the name-rebinding hole — the PASS bar would have shipped it. Separately, two critic claims were **refuted by measurement** rather than accepted (the `tests/__init__.py` remedy, and a complaint that the pin's deliberate refusal of `dict(_fixture_env(), ...)` was a defect), and one claim was nearly refuted in error: a first reproduction attempt failed, and only isolating the pin's own resolution logic confirmed it. One failed reproduction is not a refutation.
+
+## 2026-08-25 — audit re-derivation swarm: `hooks/init-env.sh` is DEAD on any dash host, and masking a shell-injection path
+
+Found by the section-D verification agent as `EXTRA-1`/`EXTRA-2`, then **settled by direct execution** (that agent has `Read`/`Grep`/`Glob` only and correctly recorded both as UNRESOLVED, naming the exact commands that would settle them).
+
+### EXTRA-1 — the hook exports NOTHING on this host. Live.
+
+`hooks/init-env.sh:1` is `#!/bin/sh`; `:27` is `set -euo pipefail`; `hooks/hooks.json:58` invokes it as `sh "$CLAUDE_PLUGIN_ROOT/hooks/init-env.sh"`, so the shebang is bypassed and the host's `/bin/sh` decides. Measured:
+
+```
+/bin/sh -> dash
+$ sh -c 'set -euo pipefail; echo ok'
+sh: 1: set: Illegal option -o pipefail
+
+$ CLAUDE_PLUGIN_ROOT=... CLAUDE_ENV_FILE=... sh hooks/init-env.sh </dev/null
+hooks/init-env.sh: 27: set: Illegal option -o pipefail
+rc=2          # and $CLAUDE_ENV_FILE was never created
+```
+
+`dash` is the default `/bin/sh` on Debian and Ubuntu. On every such host the hook **aborts before its first `echo`** and exports none of `ATLAS_PLUGIN_ROOT`, `PYTHONPATH`, `PYTHONSAFEPATH`, `ATLAS_SESSION_ID`.
+
+`PYTHONSAFEPATH=1` is the v1.5.1 CRITICAL countermeasure against the `sys.path` hijack (a target repo shipping `scripts/__init__.py` + `scripts/verdict.py` replacing the FROZEN pure gate). **It is silently absent in every plugin session on a dash host** — the guard is not weakened, it is simply never installed, and nothing reports that. `init-env.sh` is also the only `set -euo pipefail` script in the repo under a `#!/bin/sh` shebang; its three sibling hooks use portable POSIX `sh` with no `set -e` at all, and `hooks/session-resume.sh:68` additionally carries `trap 'exit 0' EXIT`. `hooks/hooks.json:2` describes the manifest as registering "only fail-open, observe-only, or pointer-only hooks" — `init-env.sh` is registered and is not fail-open (`EXTRA-3`).
+
+**No committed test can see this.** `tests/test_syspath_isolation.py:1072-1089` only `read_text()`s the hook and greps for literal substrings; nothing in `tests/` ever executes it.
+
+### EXTRA-2 — fixing EXTRA-1 alone ACTIVATES a shell-injection path. Latent, confirmed by execution.
+
+`init-env.sh:52-54` interpolates the stdin-JSON `session_id` into a shell `export` line appended to `$CLAUDE_ENV_FILE` — a file whose whole purpose is to be sourced for the rest of the session — with no validation beyond `isinstance(v, str)` and `[ -n ... ]`. Measured against a copy with only `pipefail` removed (i.e. simulating an EXTRA-1 fix):
+
+```
+session_id = 'x"; touch /tmp/PWNED-BY-SESSION-ID; :"'
+written line: export ATLAS_SESSION_ID="x"; touch /tmp/PWNED-BY-SESSION-ID; :""
+sourcing it  -> /tmp/PWNED-BY-SESSION-ID created.   BREAKOUT CONFIRMED.
+```
+
+Severity is **MEDIUM, defense-in-depth, not CRITICAL**: `session_id` is supplied by Claude Code itself and is a UUID in normal operation, and no attacker-controlled path to it was established. But it is an unvalidated value crossing a trust boundary into sourced shell, and the same shape exists at `:32` for `PLUGIN_ROOT`. Cheap fix: `case "$SESSION_ID" in *[!A-Za-z0-9_-]*) SESSION_ID="" ;; esac` before the write.
+
+**The two defects interact perversely: EXTRA-1 is currently masking EXTRA-2.** Repairing the shebang/`set` line without also validating `session_id` converts a dead hook into a live injection sink. They must be fixed together.
+
+### Consequence for item 1 — the blocker's own premise is host-dependent
+
+The continuation prompt asserted "`make ci` is red in **every** plugin session until this is fixed." That requires `init-env.sh` to run. On a dash host it does not run, nothing is exported, and `make ci` is **green**. The item-1 fix remains correct and necessary — it is right on any host where `/bin/sh` is bash, and it will be right everywhere once EXTRA-1 is repaired — but the "every plugin session" claim was never true on Debian/Ubuntu, and the earlier observation in this session that `PYTHONPATH`/`PYTHONSAFEPATH` were unset was attributed to the wrong cause (session cwd) when the likelier explanation is that the hook ran and died.
+
+**These are not fixed here.** They touch `hooks/`, a production path, and belong in their own atlas run with their own gate.
+
+### Swarm re-derivation, sections A / B / D — the pattern
+
+Three agents re-derived 16 rows independently from bytes on disk, forbidden from trusting the audit, the status overlay, `5353fb2`'s "essentially all" claim, or `AGENTS.md`/`README.md`/`PLAN.md`. Ten verdicts differ from the audit, nearly all in the DONE direction — but the residue has one shape:
+
+**Scripts were committed; results were not.** `probe/` holds 14 scripts. `references/` contains exactly **one** committed `FINDING=` line (`references/stage4-dispatch-enforcement-live-validation.md:213`). `probe_cc_envfile_sessionstart.sh` and `probe_cc_agent_enforcement_all7.sh` have zero recorded results; several probes `rm -rf` their scratch tree in an `EXIT` trap and print only to stdout, so running them leaves no repository trace at all. The blueprint's own bar is that a probe "must record a non-empty `FINDING=` line from at least one real execution." A committed instrument is not a committed result.
+
+Corrections to the audit's own text, verified directly:
+
+- **G41 is half wrong.** It records `tests/test_skill_frontmatter_schema.py` and `tests/test_agent_dispatch_shape.py` as both "never created". The first **exists** (137 lines, 10 tests, passing, wired into `make ci` via `unittest discover`) and is a real non-vacuous gate that closes G1; only the second is genuinely absent.
+- **G2's frontmatter changed underneath the audit.** Recorded as `tools: Read, Grep, Glob, Bash`; today it is `tools: Read, Bash`. Grep and Glob were removed from `context-scout` and `elite-coder` on the strength of a claimed Claude Code platform behaviour ("granting Bash alongside Grep/Glob leaves both silently UNAVAILABLE"), documented **only as an inline HTML comment reading "live-probed 2026-08-21"** — no probe script, no transcript, no reference doc anywhere in the repo. That is precisely the uncommitted-ad-hoc-probe standard the audit itself refused to accept for G14, and it now carries more weight, because `context-scout` has lost its search fallback and is strictly more Bash-dependent than when the audit judged its Bash grant acceptable.
+- **`PLAN.md:107` and `:266`** describe `probe_runid_stability.sh` as probing `$ATLAS_SESSION_ID`. It probes `${KIMI_SESSION_ID}` via the `kimi` binary and was never ported. The repo's own map reports a port that did not happen.
+- **`references/orchestrator-core-port.md:12-15`** claims the `CLAUDE_ENV_FILE` convention is "Confirmed, session-wide", citing a test that only greps the hook's source text and never executes it — on the single most load-bearing unconfirmed mechanism in the migration. The same document's §3 still declares G12 "never attempted", contradicted by a probe, a production fix and two tests in the same tree.
+- **`hooks/guard-destructive.sh:31-32`** asserts "no live probe of this specific fact has been run against the real CLI" about hook `cwd`, while `probe/probe_cc_hook_cwd.sh` sits committed in the same repo.
+
+## 2026-08-25 — audit re-derivation swarm: sections A, B, C, D, E, F re-derived from primary evidence
+
+Six read-only agents, three waves, each given **one** section and forbidden from trusting this document, the status overlay, commit `5353fb2`'s "essentially all" claim, or `AGENTS.md`/`README.md`/`PLAN.md` as evidence of their own accuracy. Each was told that "I could not determine this" is a valid and valuable answer, and each returned a mandatory `things_i_could_not_verify` list. None had Bash; every claim below marked *(settled by execution)* was resolved afterwards by the orchestrator.
+
+**25 rows re-derived. Roughly half the verdicts differ from this document.** The improvement is real, but it has one shape.
+
+### The pattern: what closed was what prose could close
+
+Rows closable by editing text were closed. Rows needing executable code or a live run were not. Section E states it most cleanly: G17 and G18 were both prose fixes and both landed; G19 is the only row in that section requiring a code change and the only one still open (`bench/runner.py:89,105` still defaults `kimi: str = "kimi"` and shells out to `[kimi, "-p", brief]`; its sole caller passes no override; no test references `run_headless`).
+
+### The probe-evidence gap, measured
+
+`probe/` holds **14 scripts**. `references/` holds **exactly one** committed `FINDING=` line (`references/stage4-dispatch-enforcement-live-validation.md:213`). **All 14 scripts self-clean** — every one carries `trap ... EXIT` plus `rm -rf "$TMP"` — so no probe can leave repository evidence by running; evidence exists only where a human transcribed it. Against the blueprint's own bar (a probe "must record a non-empty `FINDING=` line from at least one real execution"), 13 of 14 fail.
+
+Breakdown: **3 RESULT-RECORDED** · **5 SCRIPT-ONLY** · **6 STALE**.
+
+The 5 SCRIPT-ONLY probes are all dated 2026-08-21 and were each written to close a specific named gap — `probe_cc_hook_cwd.sh` (G14), `probe_cc_skill_autodiscovery.sh` (G20/G28), `probe_cc_envfile_sessionstart.sh` (G11), `probe_cc_sessionstart_source.sh` (G15), `probe_cc_agent_enforcement_all7.sh` (G3). **The scripts were delivered; the evidence was not.** `probe_cc_hook_cwd.sh` in particular was written to this document's own G14 fix spec and quotes it back in its header — so G14's *tooling* half is done and its *fact* half is untouched.
+
+The 6 STALE probes require the `kimi` binary and exit early without it — *(settled by execution: `kimi` is not on PATH and `~/bin/kimi` is absent on this host, so all six are inert here)*. Two additionally hardcode a dead path `/var/www/kimi-sub/kimi-atlas`. The repo already knows they are historical: `scripts/check_cc_migration_residue.py:99-104` lists exactly these six in `EXCLUDED_FILES`. **The trap is that three of them carry `CONFIRMED`/`CORRECTED` verdicts in `references/kimi-runtime.md:91-93` that read as settled facts but were established against a runtime this project no longer runs.** `probe_hook_block.sh` is the sharpest case: its result is `CONFIRMED — BOTH mechanisms honored`, and G16 separately flags exactly that dual-deny behaviour as un-reverified for this migration. `probe_runid_stability.sh` is worse still — it probes `${KIMI_SESSION_ID}`, `PLAN.md:107` and `:325` describe it as probing `$ATLAS_SESSION_ID`, and its only recorded result (`kimi-runtime.md:95`) is itself **UNCERTAIN — never exercised**. The load-bearing DS-2 assumption behind the shipped `run_id` design has no positive result on *either* host.
+
+### Errors in this document, each settled by execution
+
+- **G41 is half wrong.** It records `tests/test_skill_frontmatter_schema.py` and `tests/test_agent_dispatch_shape.py` as both "never created". The first **exists** — 137 lines, 10 tests, passing, reachable from `make ci` via `unittest discover` — and is a genuine non-vacuous gate that closes **G1**. Only the second is absent.
+- **G22's count is wrong, and the error has propagated.** It states "8 undeclared modified files" and then names **seven**. *(Settled by execution — `git diff --name-status c9e6b41^ 038d93f` returns 22 files.)* The seven names are **correct**; the count `8` is inflated by one. True totals: **7** undeclared modified non-test files, 4 undeclared modified test files, 1 wholly new undeclared file (`tests/test_hooks_manifest.py`) = **12**, not 13. The same 7-names-under-a-count-of-8 shape has already been copied verbatim into the blueprint's reconciliation note at `:329`, so both documents now carry it. Note the structural point that makes this row unusual: `blueprint:319` declares only `Create:` and `Delete:` with **no `Modified:` clause at all** — contrast Stage 02 at `:336`, which has one — so under Stage 01's own inventory *any* modification is undeclared by construction.
+- **G24's comparative clause is false.** It says Stage 1 lacks a live-validation record "unlike every other stage, each of which has a dedicated `references/*-live-validation.md`". Only Stages **3, 4 and 5** have one. The fourth such file, `references/live-validation.md`, is a pre-migration artifact recording **Kimi CLI v0.26.0**. **Stage 2 has none either.** The row's substance holds — no committed record of either Stage-1 live check exists — but the comparison does not.
+- **G2's frontmatter changed underneath this document.** Recorded as `tools: Read, Grep, Glob, Bash`; today it is `tools: Read, Bash`. Grep and Glob were removed from `context-scout` **and** `elite-coder` on the strength of a claimed platform behaviour ("granting Bash alongside Grep/Glob leaves both silently UNAVAILABLE"), documented **only as an inline HTML comment reading "live-probed 2026-08-21"** — *(settled by execution: repo-wide grep finds that string in exactly those two comments and nowhere else — no probe, no transcript, no reference doc)*. That is the same uncommitted-ad-hoc-probe standard this document refused to accept for G14, and it now carries more weight: `context-scout` has lost its search fallback and is strictly **more** Bash-dependent than when G2 judged its Bash grant acceptable.
+- **G12's `[NOT DONE]` grade at `:92` is stale.** The probe was written, run, found a real swap-porous cap (`MemoryMax`-only returned `ok=True` on a 200 MB hog against a 50 MB cap; adding `MemorySwapMax=0` killed it, `rc=137`), and that finding drove a production fix now pinned by two tests.
+
+### Two contradictory acceptance bars, unresolved
+
+`blueprint:454` sets **"Test files: ≥94"**. `blueprint:410` sets **"Discoverable test_*.py file count ≥ 81"**. *(Settled by execution using the bar's own command: `git ls-files 'tests/test_*.py' | wc -l` → **87**; recursive including fixtures → 92, the difference being exactly the 5 samples under `tests/fixtures/`; zero untracked.)* **87 fails the first bar and passes the second.** The same tree is simultaneously accepted and rejected by the blueprint's own criteria. Neither this document nor `5353fb2` addresses the contradiction; it needs a decision record of the kind that closed C5. Incidentally the shortfall against ≥94 is now **7**, not the 8 recorded at `:252`, and the "roughly 2.5x" figure was never exact (8/3 = 2.67; today 7/3 = 2.33).
+
+### Section-C C2 is still open, byte-for-byte
+
+*(Settled by execution.)* `scripts/sast.py:159` and `scripts/nativefloor.py:91` still carry stale ``kimi -p`` docstrings at the exact lines this document named. Neither file is in the residue checker's `EXCLUDED_FILES`; they simply are not matched, because `_DENYLIST` targets six literal tokens and not the bare word. **Commit `5353fb2`'s "essentially all" claim is false for this row.** Cosmetic severity — both are prose inside PATH-resolution helpers — but it is a direct counter-example to the closure claim.
+
+### G21: the literal bar is unmeetable; the substituted one is real and passes
+
+*(Settled by execution using the bar's own command.)* `git grep -c "\.kimi-plugin"` → **19 files, 44 occurrences**. The bar demands **exactly 1** — off by ~19× on files. The audit's 42/18 reconciles exactly: the delta is this document itself, uncommitted when counted. But the blueprint now concedes this in place at `:327-328` and names the weaker criterion actually achieved ("zero LIVE, non-historical references"), and that criterion is genuinely enforced: `make check-cc-migration` reports **"No Kimi-migration residue found across 1121 tracked file(s)."**
+
+### Dangling paths no gate can see
+
+*(Settled by execution.)* `references/system-graph.json:509` carries a node with `"path": "scripts/install.sh"` and `references/system-map.md:291` references `install.sh:61`. **The file does not exist** — deleted in `c9e6b41`. Meanwhile `system-map.md:3` asserts of that same graph: *"Post-rebuild the graph is **verified clean**: 0 dangling edges, **every node path exists**"*. That guarantee is now false. The `AGENTS.md`/`README.md` half of this gap **is** closed (both now state the installer is gone), so the correction reached the onboarding docs and stopped there. Nothing catches it: the residue checker hunts token patterns, not dangling paths, and no test enforces node-path existence.
+
+### G23: unfixed and, unlike its siblings, unacknowledged
+
+`blueprint:323` and `:400` both mandate `python3 -m scripts.fsm --help` "runs with no permission prompt". *(Confirmed: `scripts/fsm.py` matches nothing for `^if __name__|argparse|def main`.)* The module is a pure predicate module by design, so `--help` is ignored and the check proves only that the import resolves — which is a real thing to test, just not the thing the text claims. G21 and G22 each received a dated reconciliation note; **G23 received none**, so the mandating document still asserts it unqualified.
+
+### Section summary
+
+| section | rows | outcome |
+|---|---|---|
+| A | G1–G8 | 4 DONE · 2 PARTIAL · 2 NOT DONE — 6 of 8 differ from this document |
+| B | G9–G13 | 3 DONE · 2 PARTIAL — 4 differ; three new discrepancies surfaced |
+| C | C1, C2 (+ §4 C1) | 1 DONE · 1 NOT DONE · 1 PARTIAL — plus the 14-probe sweep |
+| D | G14–G16 | 3 PARTIAL — plus 3 EXTRA rows, one a live defect (`init-env.sh`) |
+| E | G17–G20 | 2 DONE · 1 PARTIAL · 1 closed-not-reviewed |
+| F | G21–G24 | 1 NOT DONE · 2 PARTIAL · 1 UNRESOLVED-then-settled |
+
+**Two rows were deliberately not re-litigated: G20 and C5.** Both remain closed.
+
+One methodological note worth keeping. The section-C agent caught an error in its **own task packet** — this document contains two independent `C1`/`C2` numbering schemes (`### C.` at `:101` and `## 4. Contradictions` at `:245`), and the packet conflated them. Rather than guess which was meant, it re-derived all three rows. The section-F agent likewise refused to grade G22 in either direction without `git`, named the exact command that would settle it, and was right that the arithmetic did not add up — though its hypothesis about *which side* was wrong turned out to be inverted. Both behaviours are the intended output of a verification pass: an honest UNRESOLVED that names its own settling evidence is worth more than a confident verdict.
+
+## 2026-08-25 — item 2 (`-q` summary selection) was BUILT over three passes, then DISCARDED by measurement
+
+The G39-adjacent defect at `scripts/runsignal.py::_pytest_summary_line` — a tally-less `=+…=+` section header unconditionally beating the `-q` tally line that carries the count — **is still OPEN**. A fix was written, refined twice, and reverted at the OUTPUT gate. The discarded work is preserved as a 1211-line patch; `main` is untouched. This is the second time a `runsignal.py` change has been built and rejected (the first was `wip/runsignal-q-provenance`), and the reasons are different enough to record both.
+
+### The defect is wider than previously recorded
+
+A live corpus of **21 real pytest-9.1.1 captures** (with `pytest-xdist` 3.8.0 and `pytest-rerunfailures` 16.6) across `-q`, `-qq`, `-v`, `-s`, `-x`, `-rA`, `--durations=5`, `--tb=no`, `--no-header`, `-n 2`, decorated, and passing/warning/failing/all-skipped/all-xfail/subtests/rerun fixtures: **9 of the 19 green captures read `(0, False)`** — a false UNVERIFIED on green code.
+
+**The earlier note's trigger description is wrong and is corrected here.** It named "any warning". Measured, `--durations=5` and `-rA` fire with **no warning present at all**, because both emit their own section headers. The trigger is *any* `=+…=+` section header.
+
+The nine split into three causes:
+
+| cause | configurations | status |
+|---|---|---|
+| **A** — a tally-less rule line beats the `-q` tally | `q_warn`, `dur_warn`, `q_rA_warn`, `durations`, `rA` | the item-2 target |
+| **B** — the `-q` grammar rejects honest tallies | `2 passed, 3 subtests passed in …` and the ` (H:MM:SS)` suffix on runs ≥60s | **already live on `main`**, recorded as item 2b |
+| **C** — not defects | `-qq` prints no tally at all; all-skipped / all-xfail genuinely have zero passed | fail-closed is correct |
+
+**B is new information: F3 and F4 from the item-3 regression table are already broken on the `-q` path on `main`.** The table records them only for the decorated path, where both are handled correctly. Measured: decorated `(2, True)` both, `-q` `(0, False)` both. Since `AGENTS.md` itself notes most CI suites run longer than a minute, a `-q` suite over 60s is UNVERIFIED on `main` today.
+
+### Four mechanisms were refuted by measurement, three of them before any code was written
+
+| mechanism | killed by |
+|---|---|
+| prefer any tally-bearing line, else fall back to `q_summary_lines[-1]` | **F2 → `(99999, True)`** — structurally the same fallback that killed the reverted attempt |
+| as above, keyed on the literal `test session starts` | a constructed capture → `(2, True)`; keying on one literal is the open-ended allowlist root cause (iv) names |
+| as above, reusing `_PY_COLLECTED_RE`/`_PY_PLATFORM_RE` | a rule line appearing *after* the `-q` tally still won |
+| positional guard anchored on the **last** rule line | a surviving run printing its own header steps over the evidence — **and this shipped**, closing only for survivors with no header of their own |
+
+The surviving mechanism was a progress-line boundary keyed on the **percent column** (`[NNN%]`, later also `[N/M]`) rather than a character class — deliberately, because "a line drawn solely from `.FEsxXRu`" is the allowlist that produced F5. It closed cause A for every survivor shape tested.
+
+### Why it was discarded: one NEW fail-closed → fail-open regression
+
+Measured against the baseline module loaded side by side, on the fix's own shipped fixtures:
+
+```
+PYTEST_Q_KILLED_IN_FAILURES + PYTEST_Q_GREEN_CLASSIC_STYLE
+  BASELINE: (0, False)
+  NEW:      (2, True)
+```
+
+A capture **literally containing a dead run's `FAILURES` section reads GREEN** into `runcheck.green()` and thence the FROZEN `verdict.gate`. Every precondition is ordinary repo content — a `Makefile` chaining two pytest invocations, an OOM or timeout on the first, and `console_output_style = classic` (or `-q -s`) removing the survivor's progress column. No adversary required.
+
+**The fix traded a false RED for a fabricated pass in one narrow configuration.** The baseline was wrong in the *safe* direction; the fix was wrong in the *unsafe* one. That is the single trade blueprint §0 forbids, so the work was reverted rather than shipped — the same call the `wip/runsignal-q-provenance` attempt received, reached by a different route.
+
+Worse, the suite **asserted the fabricated value as expected behaviour** (`test_survivor_without_a_progress_column_is_a_known_residual` asserting `(2, True)`). Pinning a known-wrong answer as a test prevents silent drift but makes the wrong answer read as sanctioned. If that pattern is used again it must be an xfail-style pin, never a plain `assertEqual`.
+
+### Three findings that are PRE-EXISTING on `main`, not caused by the attempt — verified against the baseline module
+
+Two critics filed these as HIGH regressions; direct measurement shows the baseline behaves identically. They are open defects in `runsignal.py` today, and none is recorded anywhere else:
+
+- **A killed `-q` predecessor followed by a healthy DECORATED survivor** → `(2, True)` on baseline and on the fix. Clause selection answers with the survivor's tally rule while the dead run's `FAILURES` header carries no digits for the fail fold.
+- **A `-q` predecessor killed before printing any section header** → `(2, True)` on both. With no rule line there is nothing to anchor a restart check to.
+- **A parametrized node id that looks like a progress column** — `t_x.py::test_ratio[1/2]`, `t_x.py::test_pct[100%]` — in a `warnings summary` / `--durations` / `-rA` body. Reads `(0, False)` on both; the fix simply failed to reach it. The ordinary-id control goes `(0, False) → (2, True)`, i.e. cause A is genuinely fixed for unparametrized suites.
+
+### The recurring failure mode, stated once
+
+Each pass closed the previous pass's gap and opened the next along **an axis the tests did not vary**:
+
+1. pass 0 pinned only *restrictive* mutations — clause 4, the one newly permissive branch, was asserted only in the direction that adds passes;
+2. pass 1 pinned both directions but varied only the *killed-run* axis — all three fixtures shared one surviving run;
+3. pass 2 varied the surviving-run axis across `-q` renderings but never a **decorated** survivor, and never a section **body** containing a parametrized node id.
+
+A green suite proves nothing about the shape it does not contain. Three consecutive reviews stated this in the same words at three different levels.
+
+### Process notes worth keeping
+
+- **A mutation harness can silently fail to mutate.** Both the coder and the orchestrator produced a matrix in which mutations reported "killed" while never taking effect — column-padded, length-preserving edits plus a `.pyc` matching on size and mtime-second. Purge `__pycache__` and run `python3 -B`, and treat any mutation claim made without that as unverified.
+- **Three orchestrator claims were refuted by the coder or a critic.** In each case the measurement was right and the inference wrong: "deleting this disjunct leaves 82 tests green" ⇒ *not* behaviour-neutral (the fixture that would have shown it did not exist); "every capture has one percent line" ⇒ verbose mode prints one per test; "the fold is an order-independent sum over a permutation" ⇒ it is a permutation, but `no tests ran` applies a **running** `max(fail, 1)` whose result depends on position (same multiset folds to 2 or 3). **Absence of a failing test is not absence of behaviour.**
+- **A frozen constraint can be wrong.** "The fail-fold must stay byte-identical" was a proxy for unchanged behaviour and is stricter than the goal; it blocked a correct simplification. Byte-identity is not behavioural equivalence, and pinning form instead of property is the same defect the critics kept finding in the tests.
+- **Do not edit a critic's severities.** One attempt to downgrade two HIGH findings to MEDIUM on the strength of an orchestrator measurement was caught by `enforce_critic_schema` (`verdict: FAIL` with no CRITICAL/HIGH). The critic's judgment and the orchestrator's measurement both belong in the record; neither overwrites the other.
+- **`pathcheck` cannot distinguish a repo path from a foreign tool's filename.** Citing `pytest.ini` / `pyproject.toml` / `setup.cfg` / `tox.ini` in backticks produced four blocking CRITICALs. The generalisable convention: reserve backticks for repo paths, Python identifiers and literal command text; write another tool's config filenames as prose qualified by their owner.
+
+### What survives the discard
+
+`main` is unchanged. The corpus, the differential harness (`differential.py` plus `measured_before.json`), the live kill captures, and the 1211-line discarded patch are on disk for whoever attempts this next. **The next attempt should begin by reproducing the four refuted mechanisms and the pre-existing findings above, not by proposing a fifth mechanism cold.**
+
+## 2026-08-26 — item 3 (`-q` tally provenance) MEASURED, not attempted: no signal available inside `runsignal.py` can carry it
+
+Per an explicit decision to measure before building, no fix was written. The G39 residual **remains OPEN**, and the measurement below explains why the one candidate remedy the earlier note proposed cannot close it.
+
+### The fabrication surface, measured
+
+`runsignal.count(output, ("pytest",))` on `main`:
+
+| input | result |
+|---|---|
+| `3 passed in 12s` — one line, nothing else | **`(3, True)`** |
+| `==== 3 passed in 12s ====` | **`(3, True)`** |
+| `3 passed in 0.02s` then `99 passed in 1s` | **`(99, True)`** — the genuine count silently overwritten |
+| `> build` + `3 passed in 12s` (an npm log) | **`(3, True)`** |
+| `TOTAL 100%` + `3 passed in 12s` (a coverage summary) | **`(3, True)`** |
+| the same tally-shaped text with a log prefix **on the same line** | `(0, False)` |
+
+The gate opens on **one standalone line matching `N word[, N word…] in Xs`**, anywhere in the capture, with no corroboration of any kind. The only thing that saves the log-prefixed case is that `fullmatch` fails when other text shares the line.
+
+Correctly fail-closed today: an empty capture, a progress line alone, `collected N items` alone, the platform header alone, both together, and `no tests ran`.
+
+### The candidate remedy was measured and does not close it
+
+The earlier note proposed "require a `-q` tally line to be preceded by a pytest progress-dots line". Measured against constructed captures and the live corpus:
+
+| shape | closed by the rule? |
+|---|---|
+| bare tally / npm log / coverage summary | **yes** |
+| `Fetching deps [ 50%]` + `3 passed in 12s` | **no** — a downloader renders a percentage |
+| `Step 3/7 [ 42%]` + `3 passed in 12s` | **no** — a CI step renderer |
+| `########## [100%]` + `3 passed in 12s` | **no** — an ordinary progress bar |
+| an honest `pytest -q -s` run | **false RED** — it prints no percent column |
+
+So the rule lets through any tool that renders a percentage and blocks a legitimate pytest configuration. It is weak in both directions.
+
+**The rule-line path is worse and is not helped at all.** `_is_pytest_rule_line` is "starts and ends with `=`", so `==== 3 passed in 12s ====` fabricates with or without corroboration — two extra characters defeat the entire question.
+
+### Why: every available signal is imitable, every reliable signal is suppressed
+
+Measured across the 21-capture live corpus, restricted to the 15 captures whose count comes from the `-q` path:
+
+| corroborating signal | present in honest `-q` captures | imitable by other tooling |
+|---|---|---|
+| `collected N items` | **0 of 15** — `-q` suppresses it | — |
+| `platform … -- Python` header | **0 of 15** — `-q` suppresses it | — |
+| a percent-column progress line | 14 of 15 (the exception is `-q -s`) | **yes** |
+| the tally's own shape | 15 of 15 | **yes** |
+| `=+…=+` wrapping | n/a | **yes, trivially** |
+
+That table is the finding. **The signals that would establish provenance are exactly the ones `-q` exists to remove, and every signal that survives `-q` is one an unrelated tool can produce.** A parser handed only the text cannot distinguish them, which is why the first attempt failed and why a second attempt along the same line would fail the same way.
+
+### Where the provenance actually lives
+
+`scripts/runcheck.py:run` holds three facts that `runsignal.count` never receives:
+
+```python
+stdout, stderr = res["stdout"], res["stderr"]      # separate streams
+returncode, timed_out = res["returncode"], ...     # the exit status
+combined = stdout + "\n" + stderr                  # <- erased here
+test_count, new_tests_collected = runsignal.count(combined, runner_tags)
+```
+
+The concatenation discards the stream split **and** the true interleaving, then the parser is asked to recover provenance from shape alone. A SECURITY critic independently reached the same seam from the other direction during item 2, observing that a positional guard built on `summary_lines` order rests on a property the callers do not supply — the orchestrator recorded that as a docstring correction at the time, which understated it.
+
+**This does not make the problem unsolvable; it relocates it.** Any credible closure has to change what `runcheck` hands over — or how the target is invoked — not how the text is matched. That is a different change to different files with its own risk profile, and it is recorded here rather than started.
+
+**A bound worth keeping in view:** `runcheck.green()` requires `ok` (exit 0, no timeout) **AND** `test_count > 0` **AND** `new_tests_collected`. A fabrication therefore also needs the `verify_cmd` to exit 0. The realistic exposure remains what the module's own docstring says — a careless `verify_cmd` chaining another tool — not adversarial input.
+
+### Three fabrications on `main` that item 3's own description does not cover
+
+Found while measuring item 2, verified against the baseline module, and recorded here because no existing item names them:
+
+- a killed `-q` predecessor followed by a healthy **decorated** survivor → `(2, True)`;
+- a `-q` predecessor killed before printing any section header → `(2, True)`;
+- a parametrized node id shaped like a progress column (`t.py::test_r[1/2]`, `t.py::test_p[100%]`) in a `warnings summary` / `--durations` / `-rA` body → `(0, False)`, a false RED.
+
+Any future attempt at the provenance problem must account for these as well; closing only the two probes the earlier note names would leave them untouched.
+
+## 2026-08-26 — audit re-derivation, wave 3 (sections G, H, I) + consolidated result
+
+Three read-only agents re-derived G25–G46 from bytes on disk. Their checkable claims were then
+re-measured with Bash, which they did not have. **Correction to my own tasking:** I told sections H
+and I that this session had executed *four* complete atlas runs. `ls -la .atlas/` shows **three**
+(`…f421`, `…f421-1b`, `…f421-item2`). Both agents flagged the discrepancy and judged on disk rather
+than on my claim, which is the correct behaviour. The error was mine.
+
+### Verified with Bash (the agents could not run these)
+
+| check | result |
+|---|---|
+| `.atlas/` run dirs | **3**, all real session ids; **no** dir named `$ATLAS_SESSION_ID` (G46 hazard did not fire) |
+| `.atlas/` durability | **git-excluded** (`.git/info/exclude` holds `.atlas/`) — ledgers vanish on a fresh clone |
+| `tests/test_*.py` | **87** tracked == 87 working tree (audit's "86 / 8 short" is stale: 87 / 7) |
+| `tests/test_agent_dispatch_shape.py` | genuinely **absent** (G41 half-correct) |
+| `invocation_form` in ledgers | **0 hits** across all 3 runs (G37 freeze is not durable) |
+| `/bin/sh` | **dash**; `set -o pipefail` → `Illegal option` |
+
+### The finding that required Bash: the SessionStart hook is dead in the live session
+
+    ATLAS_SESSION_ID=<UNSET>   ATLAS_PLUGIN_ROOT=<UNSET>   PYTHONSAFEPATH=<UNSET>
+    $ printf '{"session_id":"…"}' | CLAUDE_ENV_FILE=$f /bin/sh hooks/init-env.sh
+    hooks/init-env.sh: 27: set: Illegal option -o pipefail
+    envfile bytes written: 0
+
+Three consequences:
+
+1. **G30 is prose-DONE, behaviour-FALSE.** Section G closed it because `AGENTS.md:141-148` matches
+   the *source* of `hooks/init-env.sh`. The script does not execute. A read-only agent cannot see
+   this; the description and the implementation agree, and both are irrelevant if the file aborts
+   on line 27.
+2. **G46 measured the wrong risk.** The audit feared a byte-for-byte paste of `$ATLAS_SESSION_ID`.
+   Measured, the variable is never set at all — the three runs carry real UUIDs because the model
+   supplied its own session id from context, not from the environment. The mechanism SKILL.md
+   documents has never worked on this host.
+3. **EXTRA-1 is gated behind EXTRA-2.** The unescaped `session_id` interpolation (line 53) is
+   unreachable because line 27 kills the script first. **Fixing the shebang alone ACTIVATES the
+   injection.** They must be fixed together — now measured, previously only reasoned.
+
+### Consolidated item-4 result — 9 sections, G1–G46
+
+- **~half** the rows carry a verdict different from the audit's.
+- **5 factual errors inside the audit document itself** (four found in waves 1–2, plus G42's line
+  citation drifting 96→99 and G38's stale count).
+- **G38 is unanswerable as written**: the blueprint sets two contradictory bars, `≥94` (line 454)
+  and `≥81` (line 410). 87 fails one and passes the other; the audit cites only the first. Nothing
+  in code enforces either, and `tests/test_doc_testcount.py` argues a static count is the wrong
+  instrument. Needs a recorded decision, not a verdict.
+- **G39 has genuinely moved** — three complete INIT→OUTPUT ledgers with real dispatch, real critics,
+  the MAX_PASSES cap exercised and honest terminal UNVERIFIED verdicts refute "never executed
+  anywhere". Residuals are precise: the "3 pauses, 1 turn" half has **zero** on-disk support (no
+  pause/gate event is ledgered by any run), two of three runs used `make test` not `make ci`, and
+  the ledgers are git-excluded so they are not durable evidence.
+- **Dominant repair pattern, wave 3: ASYMMETRIC repair.** `AGENTS.md` was fixed thoroughly and
+  `README.md` left behind on the same three facts, so the two now contradict each other in
+  user-facing text: marketplace install (`AGENTS.md:19-20` vs `README.md:71`, with
+  `.claude-plugin/marketplace.json` on disk), skills auto-discovery (`:112` CLOSED vs `:106/:122/:267`
+  "unconfirmed"), and `make ci` gate count (**7** vs **4**; `Makefile:54` has 7). The correction
+  reached the file the author reads and not the one a new user reads.
+
+### Opened, not closed (each needs its own run)
+
+| id | item | severity |
+|---|---|---|
+| EXTRA-1 + EXTRA-2 | `init-env.sh` dash-dead **and** unescaped `session_id` — fix **together** | HIGH |
+| — | `README.md` behind `AGENTS.md` on 3 user-facing facts | MEDIUM |
+| G37 | `invocation_form` not persisted; `setdefault("interactive")` fails **open** | MEDIUM |
+| G39 | no pause/gate event ledgered; `.atlas/` git-excluded | MEDIUM |
+| G38 | two contradictory test-file bars — needs a decision | LOW |
+| — | `install.sh` residue in `system-graph.json:507-509`, `system-map.md:279,291` | LOW |
+
+## 2026-08-26 — `hooks/init-env.sh` defect pair FIXED; run terminal verdict UNVERIFIED (refine exhausted)
+
+Run `…-initenv`. INIT → … → OUTPUT with two refine passes (MAX_PASSES=2, exhausted). Three files:
+`hooks/init-env.sh`, `tests/test_init_env_hook.py` (new, 1038 lines, 49 tests),
+`tests/test_syspath_isolation.py`. **Nothing committed.** `make ci` exit 0, 1880 tests, inventory in sync.
+
+### What the run set out to fix — both closed, verified by the orchestrator not the coder
+
+1. **Dash death.** `set -euo pipefail` under `#!/bin/sh` → `set -eu`. The shebang was NOT changed:
+   `hooks/hooks.json` invokes `sh "<path>"`, so a bash shebang would have been inert.
+2. **`session_id` injection.** POSIX `case` allowlist on ctxstore's charset + single-quoted write.
+   Measured: **12/12 corpus cases agree with `ctxstore.valid_run_id`, 0 mismatches**; every accepted
+   value round-trips byte-for-byte; every rejection emits a diagnostic. Attack payloads (quote
+   breakout, backtick, `$(…)`, single quote, newline, NUL) all rejected under sh/dash/bash/busybox.
+
+### Four orchestrator errors the critics caught — recorded because they are the lesson
+
+- **The `ctxstore` parity justification was FALSE.** I claimed a rejected session_id "would have been
+  rejected downstream anyway". Measured: `valid_run_id` is called ONLY from `write_artifact_confined`;
+  `init_run` uses an unvalidated `_run_dir`. `valid_run_id("a/b")` is False yet `init_run(base,"a/b")`
+  SUCCEEDS. I had grepped the single call site and never checked which function contained it.
+- **The scope exemption for line 32 was wrong on all three of its reasons.** (a) "not widening scope"
+  — but the portability fix ACTIVATES that line, the same masking argument the run was built on;
+  (b) "host-supplied env" — false, `PYTHONPATH` is AMBIENT and repo-steerable; (c) "the byte-pin
+  blocks it" — inverted, the pin locked the VULNERABLE form in place.
+- **Two false stated contracts**, one mine and one the coder's, both of the same class: a comment
+  promising more than the code does. Mine was the parity claim; the coder's was "the env file gains
+  all three or none" over `{ …; } >> file`, which groups the redirection, not the writes.
+- **A near-miss false defect of my own**: I reported busybox `rc=127` before noticing my probe passed
+  `"busybox sh"` as one word.
+
+### Terminal verdict: UNVERIFIED — two blocking HIGH residuals, refine exhausted
+
+Both were found only by the FINAL verification pass, on code no earlier critic had seen, and both
+were then reproduced by execution:
+
+- **F-S1 (HIGH, NEWLY REACHABLE BY THIS FIX).** The hook re-exports the ambient `PYTHONPATH`
+  verbatim, session-wide. Measured: ambient `.` persists as `/plugin:.` and ambient `:` as
+  `/plugin::` — whose empty/relative element resolves to each process's cwd, the untrusted target
+  repo. And measured separately: **`PYTHONSAFEPATH=1` does NOT filter `PYTHONPATH` entries** — a
+  `sitecustomize.py` reached through `PYTHONPATH` still executed with the switch on. So the v1.5.1
+  CRITICAL countermeasure has a bypass, and `scripts/proccap.py:407` `_PLUGIN_ONLY_ENV` keeps
+  `PYTHONPATH` deliberately. This line never executed on a dash host before, so the portability half
+  of this change is what makes it reachable.
+- **F-S2 (HIGH, PRE-EXISTING AND ALREADY LIVE).** The hook's own `python3` inherits ambient
+  `PYTHONPATH`, so a hostile `json.py` executes inside a SessionStart hook. Measured: it fired.
+  **But this is the repo-wide hook idiom, not something this change introduced** — all four
+  `hooks/*.sh` fork `python3` the same way, and `hooks/telemetry.sh`, which RUNS TODAY, was measured
+  loading the same hostile `json.py`. It needs its own repo-wide run.
+
+Also open: F-S3 (the `X` sentinel is inside the accepted charset, so a short write at an interior
+`X` still ends in the sentinel — needs a length prefix), F-S4 (the truncation arm emits no
+diagnostic), F-S5 (`CLAUDE_ENV_FILE` append target unconfined; the critic could not determine whether
+the host overrides an ambient value).
+
+### The methodological result
+
+`make ci` was **green at every stage** — 1831, 1857, 1875, 1880 tests — and a defect sat inside the
+change every time. Each of the three critic rounds found something the other two could not, and the
+final pass, run on the delta nobody had reviewed, found the deepest issue of all. A green gate is not
+evidence a fix is correct; that is the rule this run demonstrates rather than merely restates.
+
+## 2026-08-27 — `hooks/init-env.sh`: what was closed, what is OPEN, and the structural limit found
+
+Five atlas runs (`…-initenv`, `…-fs1`, `…-origpath` + two refine passes). **Committed for review, NOT
+declared finished.** `make ci` exit 0, 1938 tests (session start: 1831), inventory in sync.
+
+### Closed and verified by orchestrator measurement, not by the coder's report
+
+| defect | evidence |
+|---|---|
+| Hook DEAD on dash (`set -euo pipefail` under `#!/bin/sh`) | runs to completion on sh/dash/bash/busybox; env file non-empty |
+| `session_id` shell injection into a SOURCED file | 12/12 corpus agrees with `ctxstore.valid_run_id`, 0 mismatches; quote/backtick/`$()`/newline/NUL all rejected with a diagnostic; honest UUID round-trips byte-for-byte |
+| Ambient `PYTHONPATH` propagated session-wide | persisted value is exactly the plugin root; **armed control** confirms the payload executes when propagated and does not when pinned |
+| Target losing its own `PYTHONPATH` (a FALSE RED this work created) | `ATLAS_ORIG_PYTHONPATH` seam: session gets the plugin root, `target_env()` gives the target `/opt/mono/src` back |
+| User-site door into the frozen gate's interpreter | `PYTHONNOUSERSITE=1` session-wide + `_PLUGIN_ONLY_ENV`; **armed control**: SHIPPED does not execute, CONTROL does |
+| Re-fire on `clear`/`compact`/`fork` destroying the recorded original | five chained fires keep `/opt/mono/src` |
+
+Two long-standing OPEN VERIFICATION ITEMs were closed by running
+`probe/probe_cc_envfile_sessionstart.sh` **live against the real `claude` binary**: the env-file
+consumer DOES perform POSIX quote removal (byte-for-byte round trip, no injection), and a hook's
+stderr on a zero exit is **NOT** surfaced to the session — so the "user can tell this was
+intentional" mitigation was never real and is no longer claimed.
+
+### OPEN — must be reviewed before this is called done
+
+| id | severity | what |
+|---|---|---|
+| S2 | **HIGH** | `ATLAS_ORIG_PYTHONPATH` is now attacker-NAMEABLE. MEASURED: a repo's `.envrc` exporting it wins on the FIRST fire, persists all session by the idempotence that fixed C1, and `target_env()` restores it into every target build. Inverted, a forged EMPTY value DELETES an honest `PYTHONPATH`. |
+| S1 | **HIGH** | `sast.scanner_env` strips `PYTHONNOUSERSITE` but passes `PYTHONUSERBASE`/`PYTHONHOME`/`LD_PRELOAD` through — MEASURED — re-opening the user-site door into semgrep, whose stdout becomes a BLOCKING SECURITY defect. |
+| — | MEDIUM | `$PYTHONHOME` still open session-wide: an env file can export a value but not an *unset*. |
+| — | MEDIUM | `LD_PRELOAD`/`LD_AUDIT` and interpreter selection via `$PATH` remain open by design. |
+| — | LOW | The "stderr not surfaced" result is a model self-report, one CLI build — weaker evidence than the quote-removal result beside it. |
+| — | LOW | A mid-write tear is uncovered; ordering is pinned, atomicity is unavailable from a POSIX append. |
+| — | LOW | `tests/test_predcov.py` reasons from the retired `target_env` contract (out of scope, stale not wrong). |
+
+### The structural limit — the finding that outranks the individual defects
+
+Four rounds, each closing a real door and each opening the next: `PYTHONPATH` → `PYTHONUSERBASE` →
+the handoff variable itself → `LD_PRELOAD`. **Scrubbing named variables from an inherited environment
+cannot converge**, because the list does not end.
+
+This repository already wrote down the answer, for a different consumer:
+
+> `scripts/lintlens.py`: "**NOT `os.environ.copy()` minus a denylist** — a fresh dict, so hostile
+> hooks (… `LD_PRELOAD`) simply do not exist in the child."
+> `scripts/nativefloor.py`: "a fresh dict, **NOT `os.environ.copy()` with keys removed** … `BASH_ENV`,
+> `LD_PRELOAD`, `PHP_INI_SCAN_DIR`, … simply do not exist", with
+> `set(_hermetic_env()) == set(_HERMETIC_ENV_KEYS)` pinned as a test.
+
+That hermetic pattern protects the **target's** linters. It is NOT applied to the plugin's own
+interpreters — 20 bare `python3` calls in `skills/atlas/SKILL.md` and 4 hooks forking `python3`, all
+inheriting the ambient environment — even though those run the FROZEN `verdict.py` gate, the higher
+value asset. Inverting that (allowlist, not denylist) is the only approach that terminates.
+
+**Recorded as its own project, and explicitly NOT part of the Claude Code migration**: `PYTHONUSERBASE`,
+`PYTHONHOME` and `LD_PRELOAD` were exactly as reachable under Kimi. Nothing here was introduced by the
+port.
