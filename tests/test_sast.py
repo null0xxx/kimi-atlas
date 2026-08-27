@@ -11,6 +11,7 @@ mocked boundary was structurally incapable of observing the argv conflict).
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -222,6 +223,148 @@ class TestScanFailOpen(unittest.TestCase):
             self.assertEqual(sast.scan(["."], os.getcwd()), [])
         finally:
             sast.semgrep_path = original
+
+
+class TestScannerEnv(unittest.TestCase):
+    """``scanner_env`` — the environment the semgrep child is launched with.
+
+    ``hooks/init-env.sh`` exports the plugin's two import-isolation switches for
+    the WHOLE session, and ``scan`` used to launch semgrep with a plainly
+    inherited environment, so both reached it. ``PYTHONNOUSERSITE`` is the one
+    that bites: a ``pip install --user`` semgrep keeps its dependencies in
+    exactly the directory that switch suppresses, so it would fail to import
+    them and ``scan`` would fail-open to ``[]`` — the floor silently gone, on
+    every run, for a reason with nothing to do with the diff.
+
+    DELIBERATELY NOT ``proccap.target_env``, and the assertions below pin the
+    difference rather than leaving it to a comment: that seam also RESTORES
+    ``PYTHONPATH`` from ``ATLAS_ORIG_PYTHONPATH``, i.e. hands back the ambient,
+    target-steerable value. semgrep's stdout is what this module turns into a
+    BLOCKING SECURITY defect, so a target that reaches ``$PYTHONPATH`` through
+    ``.envrc`` could plant a module in the scanner's own import path and silence
+    the floor. The session's pinned plugin root therefore stays.
+    """
+
+    def test_both_plugin_only_switches_are_stripped(self):
+        got = sast.scanner_env({"PYTHONSAFEPATH": "1", "PYTHONNOUSERSITE": "1",
+                                "PATH": "/usr/bin"})
+        self.assertEqual(got, {"PATH": "/usr/bin"})
+
+    def test_plugin_only_env_is_pinned_literally(self):
+        """Pinned by literal, not derived -- a test that iterates the tuple it
+        pins shrinks with the mutation that empties it and cannot fail."""
+        self.assertEqual(sast._PLUGIN_ONLY_ENV,
+                         ("PYTHONSAFEPATH", "PYTHONNOUSERSITE"))
+
+    def test_the_pinned_plugin_pythonpath_is_kept_not_restored(self):
+        """The whole reason this is not ``proccap.target_env``. The handoff
+        variable is left alone too: nothing here consumes it, and inventing a
+        second consumer for an attacker-steerable value is exactly the exposure
+        this function exists to avoid."""
+        got = sast.scanner_env({"PYTHONPATH": "/plugin/root",
+                                "ATLAS_ORIG_PYTHONPATH": "/opt/target/steered",
+                                "PATH": "/usr/bin"})
+        self.assertEqual(got["PYTHONPATH"], "/plugin/root")
+
+    def test_absent_switches_are_not_an_error(self):
+        """A bare ``python3 -m`` run outside a Claude Code session has neither
+        switch set; popping an absent key must not raise or invent one."""
+        self.assertEqual(sast.scanner_env({"PATH": "/bin"}), {"PATH": "/bin"})
+
+    def test_empty_base_yields_empty_env(self):
+        self.assertEqual(sast.scanner_env({}), {})
+
+    def test_the_callers_mapping_is_never_mutated(self):
+        base = {"PYTHONSAFEPATH": "1", "PYTHONNOUSERSITE": "1", "PATH": "/bin"}
+        snapshot = dict(base)
+        sast.scanner_env(base)
+        self.assertEqual(base, snapshot)
+
+    def test_default_call_does_not_mutate_os_environ(self):
+        """The default (impure) path copies too: stripping in place would
+        disarm the PLUGIN's own isolation for the rest of this process."""
+        with mock.patch.dict(os.environ, {"PYTHONSAFEPATH": "1",
+                                          "PYTHONNOUSERSITE": "1"}):
+            got = sast.scanner_env()
+            self.assertNotIn("PYTHONSAFEPATH", got)
+            self.assertNotIn("PYTHONNOUSERSITE", got)
+            self.assertEqual(os.environ["PYTHONSAFEPATH"], "1")
+            self.assertEqual(os.environ["PYTHONNOUSERSITE"], "1")
+
+
+class TestScanLaunchesTheScannerWithTheStrippedEnv(unittest.TestCase):
+    """END TO END through a REAL subprocess, not a captured ``env=`` kwarg.
+
+    A mock that inspects the kwarg proves ``scan`` passed *something*; it cannot
+    prove the child actually started without the switch, which is the property a
+    ``pip --user`` semgrep depends on. The stand-in below is launched by ``scan``
+    exactly as the real binary is, reports what it observed in its OWN
+    environment, and emits a real-shaped semgrep payload naming it — so the
+    observation travels back through the production parse path.
+
+    The ARMED CONTROL is the point: the identical stand-in launched with a
+    plainly INHERITED environment (what ``scan`` used to do) must report both
+    switches PRESENT. Without it, the guarded assertion would pass just as
+    happily against a stand-in structurally unable to see the variables at all.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = self._tmp.name
+        self.stand_in = os.path.join(self.tmp, "semgrep-stand-in")
+        with open(self.stand_in, "w", encoding="utf-8") as fh:
+            fh.write(
+                "#!" + sys.executable + "\n"
+                "import json, os, sys\n"
+                "seen = sorted(k for k in ('PYTHONSAFEPATH', 'PYTHONNOUSERSITE')\n"
+                "              if k in os.environ)\n"
+                "sys.stdout.write(json.dumps({'results': [{\n"
+                "    'check_id': 'stand-in.observed:' + (','.join(seen) or 'NONE'),\n"
+                "    'path': 'observed.py', 'start': {'line': 1},\n"
+                "    'extra': {'severity': 'ERROR', 'message': 'env observation'},\n"
+                "}]}))\n"
+            )
+        os.chmod(self.stand_in, 0o755)
+        self._session = {"PYTHONSAFEPATH": "1", "PYTHONNOUSERSITE": "1"}
+
+    def test_neither_switch_reaches_the_scanner_child(self):
+        with mock.patch.dict(os.environ, self._session), \
+                mock.patch.object(sast, "semgrep_path",
+                                  return_value=self.stand_in):
+            defects = sast.scan(["observed.py"], self.tmp)
+        self.assertEqual(len(defects), 1, defects)
+        self.assertEqual(
+            defects[0]["id"], "stand-in.observed:NONE",
+            "the scanner child saw a plugin-only isolation switch: a semgrep "
+            "installed with `pip install --user` cannot import its own "
+            "dependencies under PYTHONNOUSERSITE, so the whole SECURITY floor "
+            "fail-opens to [] on every run")
+
+    def test_control_an_inherited_environment_does_carry_the_switches(self):
+        """ARMED CONTROL — the pre-fix launch shape, differing from the sibling
+        in exactly one thing: no ``env=``."""
+        with mock.patch.dict(os.environ, self._session):
+            proc = subprocess.run([self.stand_in], cwd=self.tmp,
+                                  capture_output=True, text=True)
+        defects = sast.parse_semgrep_json(proc.stdout, self.tmp)
+        self.assertEqual(len(defects), 1, proc.stderr)
+        self.assertEqual(
+            defects[0]["id"],
+            "stand-in.observed:PYTHONNOUSERSITE,PYTHONSAFEPATH",
+            "the control did NOT observe the switches, so the fixture proves "
+            f"nothing about the guarded run: {proc.stdout!r} {proc.stderr!r}")
+
+    def test_a_scanner_that_cannot_start_still_fail_opens(self):
+        """The error path through the same launch: a non-executable stand-in
+        makes ``subprocess.run`` raise ``PermissionError``, and ``scan`` must
+        still return ``[]`` rather than propagate — passing an explicit ``env``
+        does not narrow the fail-open contract."""
+        os.chmod(self.stand_in, 0o644)
+        with mock.patch.dict(os.environ, self._session), \
+                mock.patch.object(sast, "semgrep_path",
+                                  return_value=self.stand_in):
+            self.assertEqual(sast.scan(["observed.py"], self.tmp), [])
 
 
 class TestSemgrepPathResolution(unittest.TestCase):

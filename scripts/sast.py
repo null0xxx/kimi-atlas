@@ -37,6 +37,9 @@ Layering:
   identically to a critic defect). Tolerant of malformed/empty input → ``[]``.
 * :func:`semgrep_path` — resolve the ``semgrep`` executable robustly (PATH, then
   ``~/.local/bin``, then ``/usr/local/bin``); ``None`` when absent.
+* :func:`scanner_env` — **pure**: the environment the semgrep child gets — the
+  session's, minus the plugin's own import-isolation switches, which would keep a
+  ``pip install --user`` semgrep from starting at all.
 * :func:`scan` — **impure** (subprocess): run semgrep over the change's
   ``scope_paths`` in ``cwd`` under a hard timeout and parse the result. Any failure
   path returns ``[]``.
@@ -71,6 +74,33 @@ _SEVERITY_MAP: dict[str, str] = {
 # An unrecognised/absent semgrep severity is recorded at a NON-blocking level so a
 # scanner quirk can never manufacture a false gate failure (fail-open spirit).
 _DEFAULT_SEVERITY = "MEDIUM"
+
+# The plugin's own session-wide import-isolation switches (``hooks/init-env.sh``
+# exports both), stripped for the semgrep child by :func:`scanner_env`.
+#
+# NAMED HERE RATHER THAN IMPORTED FROM ``proccap._PLUGIN_ONLY_ENV``, and NOT reusing
+# ``proccap.target_env``, because that seam does one more thing this launch must not
+# do: it RESTORES ``PYTHONPATH`` from ``ATLAS_ORIG_PYTHONPATH``, i.e. it hands back
+# the AMBIENT, target-steerable value. That is right for the target's own build,
+# whose output is the target's own; it is wrong here, because semgrep's stdout is
+# what this floor turns into a BLOCKING SECURITY defect, so a target that reaches
+# ``$PYTHONPATH`` through ``.envrc`` could plant a module in semgrep's own import
+# path and silence the floor — the S7 "the floor silently never fired" class, with an
+# attacker instead of a flag conflict. The session's pinned ``PYTHONPATH`` (the plugin
+# root) is therefore left in place: semgrep imports nothing from it, and it is the
+# one value on this variable no target chooses.
+#
+# ``PYTHONNOUSERSITE`` is the load-bearing strip, MEASURED: a console script whose
+# dependencies live in the user site (the ``pip install --user`` shape) exits 1 with
+# ModuleNotFoundError under the switch and 0 without it, while a venv-based install
+# (the ``uv tool install`` shape this project documents in
+# ``references/stage5-negative-gate-live-validation.md``) is unaffected either way.
+# ``PYTHONSAFEPATH`` is stripped alongside it as the same class of plugin-only
+# switch: it removes the launched script's OWN directory from ``sys.path[0]``, which
+# a relocated or vendored tool layout can depend on. Neither strip can turn the floor
+# RED: getting semgrep to start is the only thing at stake, and every failure path
+# below is fail-open.
+_PLUGIN_ONLY_ENV: tuple[str, ...] = ("PYTHONSAFEPATH", "PYTHONNOUSERSITE")
 
 
 def _relpath(path: str, scope_root: str) -> str:
@@ -174,6 +204,29 @@ def semgrep_path() -> str | None:
     return None
 
 
+def scanner_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Return the environment the semgrep child should get (PURE apart from ``base``).
+
+    ``base`` defaults to the current process environment (the only impurity). The
+    caller's mapping is never mutated; a fresh dict is always returned, so the result
+    is safe to hand straight to ``subprocess.run(env=...)``.
+
+    Exactly one edit: every name in :data:`_PLUGIN_ONLY_ENV` is removed. Everything
+    else — ``PATH``, the session's pinned ``PYTHONPATH``, the operator's own
+    ``SEMGREP_*`` settings — is passed through untouched, because semgrep is a tool
+    this plugin invokes on the operator's behalf, not code this plugin is isolating
+    itself from. See :data:`_PLUGIN_ONLY_ENV` for why this is not
+    ``proccap.target_env``.
+
+    Removing an absent key is not an error, so a bare ``python3 -m`` run outside a
+    Claude Code session (neither switch set) gets its environment back unchanged.
+    """
+    env = dict(os.environ if base is None else base)
+    for key in _PLUGIN_ONLY_ENV:
+        env.pop(key, None)
+    return env
+
+
 def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
     """Run semgrep over ``scope_paths`` in ``cwd`` → canonical SECURITY defects (impure).
 
@@ -182,6 +235,12 @@ def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
     ``semgrep --config p/default --metrics off --json --quiet -- <scope_paths>``
     with ``cwd`` as the working directory and a hard wall-clock ``timeout_s``,
     then parses stdout via :func:`parse_semgrep_json`.
+
+    The child's environment comes from :func:`scanner_env`, NOT from plain
+    inheritance: the session exports the plugin's own import-isolation switches, and
+    inheriting ``PYTHONNOUSERSITE`` alone would stop a ``pip install --user`` semgrep
+    from importing its own dependencies — a fail-open that costs the whole floor
+    silently, on every run, for a reason that has nothing to do with the diff.
 
     **FAIL-OPEN.** Returns ``[]`` — degrading the SECURITY lens to judgment-only —
     on every failure path: semgrep absent (:func:`semgrep_path` is ``None``), no
@@ -201,6 +260,7 @@ def scan(scope_paths: list[str], cwd: str, timeout_s: int = 120) -> list[dict]:
         proc = subprocess.run(
             argv,
             cwd=cwd,
+            env=scanner_env(),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

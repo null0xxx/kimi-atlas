@@ -396,15 +396,54 @@ def _drain_bounded(proc: subprocess.Popen, grace_s: float) -> tuple[str, str]:
     return "", ""
 
 
-# The plugin's own import-isolation switch (see skills/atlas/SKILL.md's script-call
-# convention). It MUST NOT reach a child that runs the TARGET's code: PYTHONSAFEPATH
-# removes the cwd from sys.path, which is precisely what an ordinary project's test
-# runner depends on (``python3 -m unittest discover``, ``pytest`` on an uninstalled
-# package). Inheriting it would turn lens 5 DOES-IT-RUN false-RED on nearly every
-# Python target -- a defect firing on every run, not only a hostile one.
-# PYTHONPATH is deliberately NOT stripped: it has leaked since v1.3.0, the target's
-# own cwd still outranks it, and changing it is unrelated risk.
-_PLUGIN_ONLY_ENV: tuple[str, ...] = ("PYTHONSAFEPATH",)
+# The plugin's own import-isolation switches (see skills/atlas/SKILL.md's script-call
+# convention). Both are exported session-wide by ``hooks/init-env.sh`` and NEITHER may
+# reach a child that runs the TARGET's code, each for the same reason: they buy the
+# PLUGIN isolation and cost the TARGET a false RED.
+#
+# * ``PYTHONSAFEPATH`` removes the cwd from sys.path, which is precisely what an
+#   ordinary project's test runner depends on (``python3 -m unittest discover``,
+#   ``pytest`` on an uninstalled package). Inheriting it would turn lens 5
+#   DOES-IT-RUN false-RED on nearly every Python target -- a defect firing on every
+#   run, not only a hostile one.
+# * ``PYTHONNOUSERSITE`` suppresses the USER SITE directory. The hook exports it to
+#   close the ``usercustomize``-at-startup channel for the plugin's own interpreters,
+#   which neither of the other two switches touches. Inheriting it would break any
+#   target whose own toolchain was installed with ``pip install --user`` -- MEASURED:
+#   a console script whose dependency lives in the user site exits 1 with
+#   ModuleNotFoundError under the switch and 0 without it. Same shape of defect as
+#   the line above: a target that installs its deps the ordinary --user way would go
+#   RED for a reason that has nothing to do with its code.
+#
+# NOT A HOLE IN THE PLUGIN's OWN POSTURE. What travels here is the environment of a
+# child that runs the TARGET's code in the TARGET's repo; the plugin's interpreters
+# keep both switches, because they take the SESSION environment, not this one.
+_PLUGIN_ONLY_ENV: tuple[str, ...] = ("PYTHONSAFEPATH", "PYTHONNOUSERSITE")
+
+# Where ``hooks/init-env.sh`` parks the session's ORIGINAL ambient ``PYTHONPATH``
+# before pinning the live one to the plugin root alone. It is a private handoff
+# between that hook and this function: it is stripped below, so no target child
+# ever sees the name.
+#
+# THE COMMENT THIS REPLACES WAS TRUE AND IS NOT ANY MORE, which is why it is
+# corrected rather than trimmed. It read "PYTHONPATH is deliberately NOT
+# stripped: it has leaked since v1.3.0, the target's own cwd still outranks it".
+# The first half stopped holding the moment the hook pinned the session variable:
+# what leaks now is not a stale inheritance but the PLUGIN ROOT itself.
+#
+# The second half is NARROWER than it reads, so it is restated rather than simply
+# inverted. With ``PYTHONSAFEPATH`` stripped the target's own cwd IS ``sys.path[0]``
+# for the ordinary ``python3 -m pytest`` / ``-m unittest`` launch, and it DOES
+# outrank ``PYTHONPATH`` -- so for a target laying its package out at the repo root
+# the pinned plugin root loses, and shadowing is not the live failure. It wins only
+# where the target's own copy is not on that cwd entry: a ``src/`` layout, a runner
+# launched from a subdirectory, or any import the cwd does not satisfy. THE PRIMARY
+# JUSTIFICATION IS THE FALSE RED, not the shadow: a target that wires its own
+# ``PYTHONPATH`` through ``.envrc`` loses it entirely at this seam and goes RED for a
+# reason unrelated to its code, on every run, hostile or not. The restoration below
+# closes that; removing the plugin root from the target's search path is the part
+# that also happens to close the narrower shadowing case.
+_ORIG_PYTHONPATH = "ATLAS_ORIG_PYTHONPATH"
 
 
 def target_env(base: dict[str, str] | None = None) -> dict[str, str]:
@@ -413,10 +452,69 @@ def target_env(base: dict[str, str] | None = None) -> dict[str, str]:
     ``base`` defaults to the current process environment (the only impurity).
     The caller's mapping is never mutated; a fresh dict is always returned, so
     the result is safe to hand straight to ``Popen(env=...)``.
+
+    Two edits, and the second is why this function is a seam at all. Every name
+    in :data:`_PLUGIN_ONLY_ENV` is dropped -- ``PYTHONSAFEPATH`` and
+    ``PYTHONNOUSERSITE``, the plugin's two session-wide isolation switches, each
+    of which false-REDs an ordinary target if it survives (see there).
+    ``PYTHONPATH`` is RESTORED from ``ATLAS_ORIG_PYTHONPATH``, because the
+    session's live ``PYTHONPATH`` is pinned to the plugin root and is the
+    PLUGIN's isolation, not the target's build environment. Without this, a
+    monorepo that wires its own ``PYTHONPATH`` through ``.envrc`` loses it here
+    and goes RED for a reason unrelated to its code -- a FALSE RED, with no
+    per-command escape, because ``suiterun.run_suite`` synthesises its command
+    from ``langfloor.resolve_runner_tag``.
+
+    ALL THREE STATES OF ``ATLAS_ORIG_PYTHONPATH`` ARE DECIDED HERE, none left
+    implicit (the first splits into two halves, which are decided by the same
+    rule and are pinned separately in the tests):
+
+    * ``ATLAS_ORIG_PYTHONPATH`` ABSENT -> ``PYTHONPATH`` is left EXACTLY as
+      found, whether that means present (half one) or absent (half two).
+      Absence means the hook never ran (a bare ``python3 -m scripts.<mod>``
+      outside a Claude Code session, or a caller passing a hand-built ``base``)
+      or that its single write was torn before the handoff line. This is the
+      dangerous case, and the rule is that this function must neither INVENT a
+      ``PYTHONPATH`` the caller never had nor DESTROY one it did have -- either
+      guess would be this function fabricating the target's environment. The
+      hook writes the variable UNCONDITIONALLY, empty when the ambient value was
+      unset, and writes it BEFORE the pinned ``PYTHONPATH``, precisely so that
+      absence carries this one meaning and never accompanies a surviving pin.
+    * ``ATLAS_ORIG_PYTHONPATH`` PRESENT and NON-EMPTY -> ``PYTHONPATH`` is set
+      to it verbatim, replacing the pinned plugin root.
+    * ``ATLAS_ORIG_PYTHONPATH`` PRESENT and EMPTY -> ``PYTHONPATH`` is REMOVED,
+      not set to ``""``. This is the hook having run with an ambient
+      ``PYTHONPATH`` that was unset OR empty; the hook does not distinguish
+      those two and does not need to, because CPython does not either (MEASURED
+      on 3.12.3: ``PYTHONPATH=`` and an unset ``PYTHONPATH`` yield a
+      byte-identical ``sys.path``). Removal, not ``""``, so nothing downstream
+      that tests ``"PYTHONPATH" in env`` is misled. STATED PRECISELY, because
+      "matches the no-plugin case exactly" was too strong: it is exact for the
+      ambient-UNSET case, and for the ambient-EMPTY case the no-plugin child
+      would have seen ``PYTHONPATH`` PRESENT-and-empty while this one sees it
+      ABSENT. What the code keeps for both is ``sys.path`` equivalence, which is
+      the property the target's build can actually observe.
+
+    ``ATLAS_ORIG_PYTHONPATH`` itself is ALWAYS removed from the result: it is
+    the hook's private handoff and target code has no business reading it.
+
+    NOT A WIDENED EXPOSURE. The value restored here is the target's own, and it
+    reaches only the target's own code, already executing in the target's own
+    repo under the target's own runner. The isolation that matters -- the
+    plugin's, against a target-steered ``sys.path`` -- is unchanged: it lives in
+    the session's pinned ``PYTHONPATH`` and in the two switches dropped here,
+    all of which the plugin's own interpreters keep, and none of which is
+    weakened by handing the target back what the target already had.
     """
     env = dict(os.environ if base is None else base)
     for key in _PLUGIN_ONLY_ENV:
         env.pop(key, None)
+    if _ORIG_PYTHONPATH in env:
+        original = env.pop(_ORIG_PYTHONPATH)
+        if original:
+            env["PYTHONPATH"] = original
+        else:
+            env.pop("PYTHONPATH", None)
     return env
 
 
@@ -438,10 +536,14 @@ def _launch_and_wait(
     (the 45 s-against-3 s defect, S9).
 
     ``env`` controls the child's environment. When ``None`` the child inherits the
-    parent env; ``runcheck.run`` and ``suiterun`` pass :func:`target_env` — so
-    the plugin's isolation switch never reaches target code. A dict gives the
-    child *exactly* that environment and nothing else, the hermetic path
-    ``nativefloor`` uses.
+    parent env — the session environment, isolation switches and pinned
+    ``PYTHONPATH`` included, which is correct only for a child running the
+    PLUGIN's own code. ``runcheck.run`` and ``suiterun`` pass :func:`target_env`
+    instead, which drops every plugin-only switch AND restores the target's own
+    ``PYTHONPATH``; naming only the switch understates what that seam does and
+    reads as if the pinned path were harmless to inherit. A dict gives the child
+    *exactly* that environment and nothing else, the hermetic path
+    ``nativefloor`` and ``lintlens`` use.
     """
     argv, unit = _inject_scope_unit(list(argv))
     try:

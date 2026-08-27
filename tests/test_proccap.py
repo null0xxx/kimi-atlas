@@ -338,14 +338,179 @@ class TestTargetEnv(unittest.TestCase):
         empties it and can no longer fail. The subset assertion is the second half
         of the pin — declaring a NEW plugin-only key without extending this literal
         fails here rather than shipping an unexercised strip."""
-        base = {"PYTHONSAFEPATH": "1", "KEEP": "yes"}
+        base = {"PYTHONSAFEPATH": "1", "PYTHONNOUSERSITE": "1", "KEEP": "yes"}
         self.assertTrue(set(proccap._PLUGIN_ONLY_ENV).issubset(base))
         self.assertEqual(proccap.target_env(base), {"KEEP": "yes"})
 
+    def test_the_user_site_switch_is_stripped_so_a_pip_user_toolchain_still_runs(self):
+        """``PYTHONNOUSERSITE`` is exported session-wide by ``hooks/init-env.sh``
+        to close the ``usercustomize``-at-startup channel for the PLUGIN's own
+        interpreters. Inheriting it would break any target whose toolchain was
+        installed with ``pip install --user`` — its dependencies live in exactly
+        the directory the switch suppresses — which is the same false-RED class
+        as the ``PYTHONSAFEPATH`` strip beside it, and it fires on every run
+        rather than only a hostile one."""
+        got = proccap.target_env({"PYTHONNOUSERSITE": "1", "PATH": "/usr/bin"})
+        self.assertNotIn("PYTHONNOUSERSITE", got)
+        self.assertEqual(got, {"PATH": "/usr/bin"})
+
     def test_plugin_only_env_is_pinned_literally(self):
         """Pinned by literal, not derived -- a test that iterates the tuple it
-        pins shrinks with the mutation and cannot fail."""
-        self.assertEqual(proccap._PLUGIN_ONLY_ENV, ("PYTHONSAFEPATH",))
+        pins shrinks with the mutation and cannot fail. ORDER IS PART OF THE PIN
+        only incidentally; what matters is that dropping either name here is a
+        failure rather than a silently narrowed strip."""
+        self.assertEqual(proccap._PLUGIN_ONLY_ENV,
+                         ("PYTHONSAFEPATH", "PYTHONNOUSERSITE"))
+
+
+class TestTargetEnvRestoresTheTargetsOwnPythonPath(unittest.TestCase):
+    """``PYTHONPATH`` is restored from ``ATLAS_ORIG_PYTHONPATH``.
+
+    ``hooks/init-env.sh`` pins the SESSION's ``PYTHONPATH`` to the plugin root
+    alone, which is the plugin's own import isolation. That pinned value must
+    NOT be what a TARGET's build runs under: a monorepo wiring its own
+    ``PYTHONPATH`` through ``.envrc`` would lose it and go RED for a reason
+    unrelated to its code, and there is no per-command escape because
+    ``suiterun.run_suite`` synthesises its command from
+    ``langfloor.resolve_runner_tag``. The hook therefore parks the original
+    under ``ATLAS_ORIG_PYTHONPATH`` and this seam hands it back.
+
+    Every one of the THREE states of ``ATLAS_ORIG_PYTHONPATH`` is pinned below
+    rather than left to be inferred from the two obvious ones, and the ABSENT
+    state's two halves get a test each (the count in this sentence has been
+    wrong before -- it said FOUR while the seam decides three, and
+    ``tests/test_init_env_hook.py`` said three at the same time -- so it is the
+    first thing to check when adding one). The dangerous state is the ABSENT
+    variable -- the hook never ran, or its single write was torn before the
+    handoff line -- where the only correct behaviour is not to touch
+    ``PYTHONPATH`` at all: inventing one the caller never had and destroying one
+    it did have are both this function fabricating the target's environment.
+
+    These are pure-``base`` calls on purpose (no ``os.environ``), so they say
+    nothing about whether the hook itself writes the variable; that is
+    ``tests/test_init_env_hook.py``'s job, and the two halves only mean
+    something together. The end-to-end behavioural proof, with an armed
+    control, is ``tests/test_syspath_isolation.py``'s
+    ``TestTargetKeepsItsOwnPythonPath``.
+    """
+
+    def test_a_non_empty_original_replaces_the_pinned_plugin_root(self):
+        got = proccap.target_env({"PYTHONPATH": "/plugin/root",
+                                  "ATLAS_ORIG_PYTHONPATH": "/opt/mono/src",
+                                  "PATH": "/usr/bin"})
+        self.assertEqual(got["PYTHONPATH"], "/opt/mono/src")
+        self.assertEqual(got["PATH"], "/usr/bin")
+
+    def test_the_handoff_variable_is_never_visible_to_the_target(self):
+        """It is a private hook->seam channel. Leaving it in the child's env
+        would publish an attacker-steerable value under a second name and
+        invite target code to read a variable this plugin owns."""
+        for original in ("/opt/mono/src", ""):
+            with self.subTest(original=original):
+                got = proccap.target_env({"PYTHONPATH": "/plugin/root",
+                                          "ATLAS_ORIG_PYTHONPATH": original})
+                self.assertNotIn("ATLAS_ORIG_PYTHONPATH", got)
+
+    def test_an_empty_original_removes_pythonpath_rather_than_emptying_it(self):
+        """PRESENT-and-EMPTY: the hook RAN and the ambient value was unset or
+        empty (it cannot tell those apart, and CPython does not either --
+        measured on 3.12.3, ``PYTHONPATH=`` and unset give a byte-identical
+        ``sys.path``). The key is REMOVED rather than set to ``""`` so nothing
+        downstream testing ``"PYTHONPATH" in env`` is misled.
+
+        NOT "the child looks like the no-plugin case EXACTLY", which is what
+        this said and is true only for the ambient-UNSET half: had the ambient
+        value been PRESENT-and-empty, a no-plugin child would have seen
+        ``PYTHONPATH`` present-and-empty while this one sees it absent. The
+        property actually kept for both is ``sys.path`` equivalence."""
+        got = proccap.target_env({"PYTHONPATH": "/plugin/root",
+                                  "ATLAS_ORIG_PYTHONPATH": "",
+                                  "PATH": "/usr/bin"})
+        self.assertNotIn("PYTHONPATH", got)
+        self.assertEqual(got, {"PATH": "/usr/bin"})
+
+    def test_an_absent_handoff_leaves_an_existing_pythonpath_untouched(self):
+        """ABSENT, the dangerous state, first half: no hook ever ran (or its
+        write was torn before the handoff line), so there is no recorded
+        original. DESTROYING the caller's ``PYTHONPATH`` here would break every
+        bare ``python3 -m scripts.<mod>`` run outside a Claude Code session."""
+        base = {"PYTHONPATH": "/whatever/the/caller/had", "PATH": "/usr/bin"}
+        self.assertEqual(proccap.target_env(base), base)
+
+    def test_an_absent_handoff_does_not_invent_a_pythonpath(self):
+        """ABSENT, second half. Fabricating an empty or plugin-rooted
+        ``PYTHONPATH`` for a caller that had none is the same defect in the
+        opposite direction, and it is the one a naive
+        ``env["PYTHONPATH"] = env.pop(..., "")`` introduces."""
+        got = proccap.target_env({"PATH": "/usr/bin"})
+        self.assertNotIn("PYTHONPATH", got)
+        self.assertEqual(got, {"PATH": "/usr/bin"})
+
+    def test_restoration_survives_alongside_the_switch_strip(self):
+        """The edits are independent and must ALL land in one call -- a target
+        that keeps ``PYTHONSAFEPATH`` false-REDs just as surely as one that keeps
+        ``PYTHONNOUSERSITE`` or loses its own ``PYTHONPATH``. ``base`` here is
+        the exact shape ``hooks/init-env.sh`` leaves a live session in, so a fix
+        that closes one of the three by reopening another fails here rather than
+        showing up as three green single-key tests."""
+        got = proccap.target_env({"PYTHONSAFEPATH": "1",
+                                  "PYTHONNOUSERSITE": "1",
+                                  "ATLAS_PLUGIN_ROOT": "/plugin/root",
+                                  "PYTHONPATH": "/plugin/root",
+                                  "ATLAS_ORIG_PYTHONPATH": "/opt/mono/src"})
+        self.assertEqual(got, {"ATLAS_PLUGIN_ROOT": "/plugin/root",
+                               "PYTHONPATH": "/opt/mono/src"})
+
+    def test_a_restored_value_is_taken_verbatim(self):
+        """Not split, not filtered, not made absolute. Whatever the user's own
+        environment held is what their build had before this plugin existed, and
+        this seam is not the place to second-guess it -- the plugin's own
+        isolation is the PINNED session value, which is unaffected."""
+        for original in ("/a:/b", ".", ":", "rel/dir", "a::b", "~/tilde",
+                         "/opt/x:.:/opt/y"):
+            with self.subTest(original=original):
+                got = proccap.target_env({"PYTHONPATH": "/plugin/root",
+                                          "ATLAS_ORIG_PYTHONPATH": original})
+                self.assertEqual(got["PYTHONPATH"], original)
+
+    def test_the_callers_mapping_is_never_mutated(self):
+        """The no-mutation pin, extended to the two new writes: an in-place
+        implementation would silently rewrite ``os.environ`` on the default
+        path and repoint the PLUGIN's own imports at the target's tree."""
+        base = {"PYTHONPATH": "/plugin/root",
+                "ATLAS_ORIG_PYTHONPATH": "/opt/mono/src",
+                "PYTHONSAFEPATH": "1"}
+        snapshot = dict(base)
+        proccap.target_env(base)
+        self.assertEqual(base, snapshot)
+
+    def test_default_call_does_not_mutate_os_environ(self):
+        old = {k: os.environ.get(k) for k in ("PYTHONPATH",
+                                              "ATLAS_ORIG_PYTHONPATH")}
+        os.environ["PYTHONPATH"] = "/plugin/root"
+        os.environ["ATLAS_ORIG_PYTHONPATH"] = "/opt/mono/src"
+        try:
+            got = proccap.target_env()
+            self.assertEqual(got["PYTHONPATH"], "/opt/mono/src")
+            self.assertNotIn("ATLAS_ORIG_PYTHONPATH", got)
+            self.assertEqual(os.environ["PYTHONPATH"], "/plugin/root")
+            self.assertEqual(os.environ["ATLAS_ORIG_PYTHONPATH"],
+                             "/opt/mono/src")
+        finally:
+            for key, value in old.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_the_handoff_variable_name_is_pinned_literally(self):
+        """Pinned by literal, never derived: ``hooks/init-env.sh`` writes this
+        exact name and cannot import this module to agree with it, so a rename
+        on either side is a SILENT break -- the hook keeps writing, this seam
+        keeps not finding, and every target build quietly runs on the plugin
+        root again. ``tests/test_init_env_hook.py`` pins the same literal from
+        the shell side."""
+        self.assertEqual(proccap._ORIG_PYTHONPATH, "ATLAS_ORIG_PYTHONPATH")
 
 
 class TestBoundedDrainAndScopeTeardown(unittest.TestCase):

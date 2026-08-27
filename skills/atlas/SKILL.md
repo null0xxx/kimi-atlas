@@ -89,17 +89,39 @@ below:
 
 **Script-call convention** (scripts live at the plugin root `${ATLAS_PLUGIN_ROOT}`, one level
 above `skills/`. The Claude Code **SessionStart** hook (`hooks/init-env.sh`) already exports, for
-the **REST OF THE SESSION** and before this SKILL ever runs, both `PYTHONPATH` — extended with
-`${ATLAS_PLUGIN_ROOT}` so `from scripts import <mod>` resolves and the scripts find
-`references/schemas.json` relative to themselves — and `PYTHONSAFEPATH=1`. `PYTHONSAFEPATH=1` is
-**mandatory on every invocation**: without it the interpreter puts the target's working directory
-ahead of `PYTHONPATH`, so a target repo shipping its own `scripts/` package — or even a bare
-stdlib shadow module at its root — replaces the module atlas meant to run, including the FROZEN
-pure gate. Because the session already carries both variables, an invocation below needs **no
+the **REST OF THE SESSION** and before this SKILL ever runs, THREE variables that are one posture:
+`PYTHONPATH` — **set to** `${ATLAS_PLUGIN_ROOT}` **and nothing else**, so `from scripts import <mod>`
+resolves and the scripts find `references/schemas.json` relative to themselves; the ambient value is
+replaced rather than appended, and is preserved as `ATLAS_ORIG_PYTHONPATH` — `PYTHONSAFEPATH=1`, and
+`PYTHONNOUSERSITE=1`. `PYTHONSAFEPATH=1` is **mandatory on every invocation**: without it the
+interpreter puts the target's working directory ahead of `PYTHONPATH`, so a target repo shipping its
+own `scripts/` package — or even a bare stdlib shadow module at its root — replaces the module atlas
+meant to run, including the FROZEN pure gate. `PYTHONNOUSERSITE=1` closes the channel neither of the
+other two touches: `site` imports `usercustomize` from the USER SITE directory **at startup**, before
+any line of the program runs, so a `usercustomize.py` planted through an ambient `$PYTHONUSERBASE`
+executed inside `python3 -c "from scripts import verdict"`, the process that loads the FROZEN gate.
+Measured with `PYTHONSAFEPATH=1` set and `PYTHONPATH` pinned: `rc=0`, and the gate loaded normally
+afterwards, so the compromise was also silent. **The INIT floor guard below
+cannot detect that one**: `site` runs before the guard's body, so `sys.flags.safe_path` reads True in
+the very interpreter the hijack already owns.
+
+**WHAT THIS DOES NOT CLOSE**, stated because "nothing the environment can steer" would be false:
+`$PYTHONHOME` relocates the stdlib itself and is **still open session-wide** — the hook unsets it only
+for its own interpreter, and an env file can export a value but cannot export an unset. Three doors of
+four are shut; treat a hostile `$PYTHONHOME` as an unmitigated risk, not a covered one.
+
+Because the session already carries all three variables, an invocation below needs **no
 per-invocation prefix of its own** — do not add one back: Kimi CLI's `${KIMI_SKILL_DIR}` token has
 no Claude Code equivalent and is unbound here, so a reintroduced prefix would shadow the session's
 correct values with a broken relative path instead of reinforcing them. Never invoke the
-interpreter from this orchestrator with `-E` or `-I`, which discard the inherited environment):
+interpreter from this orchestrator with `-E` or `-I`, which discard the inherited environment.
+
+**Where the session posture is undone again, and only there:** `proccap.target_env` drops both
+switches and restores `PYTHONPATH` from `ATLAS_ORIG_PYTHONPATH` for the child that runs the
+**target's own build** — the `runcheck` / `suiterun` lane, and nothing else. `lintlens` and
+`nativefloor` deliberately build a from-scratch hermetic env with no `PYTHONPATH` at all, so the
+restoration does not apply to them; `scripts/sast.py` drops the two switches for the semgrep child
+but keeps the pinned plugin root, because that child's stdout becomes a blocking SECURITY defect):
 
 ```
 python3 -c "from scripts import <mod>; ..."
@@ -108,7 +130,12 @@ python3 -c "from scripts import <mod>; ..."
 - **Persistence base:** `.atlas` in the target's working directory (per PLAN OD-3). If the target
   is **not** a git repo, fall back to `${ATLAS_PLUGIN_ROOT}/atlas-runs/wd_<sha>/`.
 - **run_id:** `$ATLAS_SESSION_ID` (DS-2 — stable within a session across compaction). Use this
-  exact value everywhere `<run_id>` appears below.
+  exact value everywhere `<run_id>` appears below. It is **never optional**: an empty
+  `$ATLAS_SESSION_ID` collapses every `/tmp/atlas-$ATLAS_SESSION_ID-<what>` scratch path below onto the
+  fixed, world-writable `/tmp/atlas--<what>`, which this SKILL then **writes and reads back** to drive
+  the frozen packet — any local process can pre-create or replace those files. The INIT guard below
+  therefore aborts the run rather than degrading; do not work around it by inventing a substitute id,
+  which would break DS-2 run-id stability across compaction.
 
 ---
 
@@ -169,13 +196,28 @@ refine-pass counter).
 ### INIT → INTENT_CAPTURED
 - **Resume check FIRST.** Before starting fresh, discover any interrupted run to continue instead:
   ```
-  python3 - <<'PY'
+  python3 - "$ATLAS_SESSION_ID" <<'PY'
   import sys
   if not getattr(sys.flags, "safe_path", False):
       print("ATLAS-PRECONDITION-FAILED: import isolation is not active (interpreter "
             "%d.%d; PYTHONSAFEPATH missing, ignored below 3.11, or discarded by -E) "
             "-- an untrusted target repo can replace atlas's own modules."
             % sys.version_info[:2])
+      raise SystemExit(2)
+  # FAIL CLOSED on a missing run id. `hooks/init-env.sh` leaves ATLAS_SESSION_ID
+  # unset whenever stdin carried no session_id, the payload was unparsable, the
+  # allowlist rejected it, or its own python3 could not start at all (which a host
+  # that legitimately sets $PYTHONHOME can cause, since the hook unsets it). The
+  # cost is NOT merely a less stable run id: every /tmp/atlas-$ATLAS_SESSION_ID-<what>
+  # path below collapses onto the fixed, world-writable /tmp/atlas--<what>, which
+  # this run then writes and reads back to drive the frozen packet. Passed in argv
+  # rather than interpolated: the heredoc is quoted, and an id is untrusted payload.
+  if len(sys.argv) < 2 or not sys.argv[1]:
+      print("ATLAS-PRECONDITION-FAILED: $ATLAS_SESSION_ID is empty -- the "
+            "SessionStart hook did not export a run id, so every scratch path "
+            "this run names after it would collapse onto one fixed, "
+            "world-writable /tmp name that is written and read back to drive "
+            "the frozen packet.")
       raise SystemExit(2)
   import glob, json, os
   TERMINAL = {"OUTPUT", "DONE"}
@@ -206,8 +248,11 @@ refine-pass counter).
   cannot be laundered into a ✅.
   If the output **begins with** `ATLAS-PRECONDITION-FAILED` (the token opens the line; everything
   after it is diagnosis, so never match on equality), **abort the run** — this is a sanctioned terminal
-  halt, not a pause — and report the line to the user verbatim: the environment cannot provide the
-  import isolation the gate's integrity depends on. Do not proceed to `INTENT_CAPTURED`.
+  halt, not a pause — and report the line to the user verbatim. TWO conditions raise it, and both are
+  the same class: the environment cannot give this run an integrity the gate depends on. Either the
+  import isolation is missing, or `$ATLAS_SESSION_ID` is empty and every scratch path this run drives
+  itself from would collapse onto a fixed world-writable `/tmp` name. Do not proceed to
+  `INTENT_CAPTURED`, and do not substitute an id of your own.
 - **Parse `$ARGUMENTS`** into the task packet: `intent` = the full request text; extract any
   `verify_cmd:` / `success:` / `scope:` clauses the user supplied; default `debug_tokens` to
   `["TODO","FIXME","XXX"]` (plus any language-appropriate debug print like `console.log`/`print(`)

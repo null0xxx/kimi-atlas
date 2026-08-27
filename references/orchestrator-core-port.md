@@ -9,13 +9,26 @@ re-derived from the current tree rather than copied from the blueprint's own pro
 
 ## 1. The `PYTHONPATH=$CLAUDE_PLUGIN_ROOT PYTHONSAFEPATH=1` invocation convention
 
-Confirmed, session-wide: the Claude Code **SessionStart** hook (`hooks/init-env.sh`) exports both
-`PYTHONPATH` (extended with `$CLAUDE_PLUGIN_ROOT`) and `PYTHONSAFEPATH=1` once, before this skill
-ever runs, for the rest of the session — see `tests/test_syspath_isolation.py`'s
-`TestSessionWideIsolationReplacesThePerInvocationPrefix` class. The literal env var names are
-`CLAUDE_PLUGIN_ROOT` (Claude Code's own plugin-root variable) and `PYTHONSAFEPATH` (CPython 3.11+;
+Confirmed, session-wide: the Claude Code **SessionStart** hook (`hooks/init-env.sh`) exports
+`PYTHONPATH` (**pinned to** `$CLAUDE_PLUGIN_ROOT` alone — the ambient value is replaced, not
+extended; it is preserved verbatim as `ATLAS_ORIG_PYTHONPATH` and restored by
+`proccap.target_env` for the target's own build), `PYTHONSAFEPATH=1` and `PYTHONNOUSERSITE=1`,
+before this skill ever runs, for the rest of the session — see `tests/test_syspath_isolation.py`'s
+`TestSessionWideIsolationReplacesThePerInvocationPrefix` class. Not "once": the manifest matcher is
+`"*"`, so the hook fires again on `resume`/`clear`/`compact`/`fork`, and it is written to be
+idempotent (an already-recorded `ATLAS_ORIG_PYTHONPATH` wins over the ambient value, which on a
+re-fire is the hook's own pinned plugin root). The literal env var names are
+`CLAUDE_PLUGIN_ROOT` (Claude Code's own plugin-root variable), `PYTHONSAFEPATH` (CPython 3.11+;
 strips the untrusted target repo's cwd from `sys.path` so it cannot shadow atlas's own modules,
-including the FROZEN `verdict.py` gate).
+including the FROZEN `verdict.py` gate) and `PYTHONNOUSERSITE` (suppresses the user site directory
+and, on the same flag, `site`'s startup import of `usercustomize` — the one resolution channel the
+other two do not touch, and one the INIT floor guard cannot observe because `site` runs first).
+
+**Scope of the claim, stated precisely.** These close THREE of CPython's four ambient module-resolution
+channels session-wide: the interpreter's own cwd/script dir, `$PYTHONPATH`, and the user site. The
+fourth, `$PYTHONHOME`, relocates the stdlib itself and is **not** closed — the hook unsets it only for
+its own `python3`, and a sourced env file can export a value but not an unset. Any sentence here or
+downstream reading "resolution cannot be steered by the environment" is false as written.
 
 ### Which of the 12 backbone modules actually depend on this convention
 

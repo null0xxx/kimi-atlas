@@ -11,9 +11,18 @@ variable is inherited, it must be stripped again at the seam where the plugin
 launches the TARGET's own code -- otherwise ``python3 -m unittest discover`` and
 uninstalled-package ``pytest`` runs go RED for a reason unrelated to the change.
 
-Eight independent pins live here:
+Nine independent pins live here:
 
 * :class:`TestFixDoesNotLeakIntoTargetBuilds` -- BEHAVIOURAL, the containment.
+* :class:`TestTargetKeepsItsOwnPythonPath` -- BEHAVIOURAL, the OTHER half of
+  that containment, and the half the seam kept getting wrong.
+  ``PYTHONSAFEPATH`` is not the only plugin-owned variable that reaches a target
+  build: ``hooks/init-env.sh`` pins the session's ``PYTHONPATH`` to the plugin
+  root, so a target whose own build needs its own ``PYTHONPATH`` (a monorepo
+  wired through ``.envrc``) lost it at exactly this seam and went RED for a
+  reason unrelated to its code. Runs a real target suite whose import is
+  reachable ONLY through that variable, and arms the control by removing the
+  restoration channel and requiring the same suite to go RED.
 * :class:`TestEverySeamContainsTheSwitch` -- BEHAVIOURAL, per-seam. It pins the
   env dict handed to each launch that runs TARGET code, so a dropped or
   truncated ``env=`` at any of the three seams a real run cannot reach cheaply
@@ -57,6 +66,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import textwrap
 import unittest
@@ -145,6 +155,9 @@ class TestFixDoesNotLeakIntoTargetBuilds(unittest.TestCase):
 
     def test_control_leak_would_break_a_normal_target(self):
         """CONTROL. Proves the hazard is real, so the sibling cannot pass vacuously."""
+        # Inherits a plugin session's PYTHONPATH by design and is unaffected by it:
+        # the fixture imports `mypkg`, which no plugin root supplies, and the assert
+        # below pins the failure REASON so a leak cannot make this pass vacuously.
         env = dict(os.environ, PYTHONSAFEPATH="1")
         proc = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
@@ -169,21 +182,328 @@ class TestFixDoesNotLeakIntoTargetBuilds(unittest.TestCase):
                 os.environ["PYTHONSAFEPATH"] = old
         self.assertTrue(rc.get("ok"), rc.get("stderr_tail"))
 
-    def test_target_env_strips_only_the_plugin_switch(self):
+    def test_target_env_strips_the_plugin_switches_and_keeps_the_ordinary_env(self):
+        # RENAMED from `..._strips_only_the_plugin_switch`, which had become the
+        # most misleading line in this file: there is no longer ONE switch (both
+        # PYTHONSAFEPATH and PYTHONNOUSERSITE are stripped), and "only" read as
+        # a promise that PYTHONPATH is never touched -- which is exactly what
+        # the ATLAS_ORIG_PYTHONPATH seam DOES touch, in the state this `base`
+        # deliberately does not construct.
         from scripts import proccap
-        base = {"PYTHONSAFEPATH": "1", "PYTHONPATH": "/plugin", "PATH": "/usr/bin",
-                "HOME": "/root"}
+        base = {"PYTHONSAFEPATH": "1", "PYTHONNOUSERSITE": "1",
+                "PYTHONPATH": "/plugin", "PATH": "/usr/bin", "HOME": "/root"}
         snapshot = dict(base)
         got = proccap.target_env(base)
         self.assertNotIn("PYTHONSAFEPATH", got)
-        self.assertEqual(got["PYTHONPATH"], "/plugin")   # deliberate: pre-existing, unchanged
+        # The user site is the third startup channel the session now closes for
+        # the plugin, and a target whose toolchain came from `pip install --user`
+        # cannot import its own dependencies if it survives here.
+        self.assertNotIn("PYTHONNOUSERSITE", got)
+        # Deliberate, and the reason it is deliberate CHANGED. It used to mean
+        # "PYTHONPATH is never touched here". It now means "with no
+        # ATLAS_ORIG_PYTHONPATH in `base`, there is no recorded original, so the
+        # seam must not touch PYTHONPATH" -- the hook-never-ran state. The
+        # restoration path and the other states are pinned in
+        # tests/test_proccap.py::TestTargetEnvRestoresTheTargetsOwnPythonPath
+        # and, end to end, in TestTargetKeepsItsOwnPythonPath below.
+        self.assertEqual(got["PYTHONPATH"], "/plugin")
         self.assertEqual(got["PATH"], "/usr/bin")
         self.assertEqual(got["HOME"], "/root")
-        # The caller's mapping is NEVER mutated, so `base` must still carry the
-        # switch. Asserting its ABSENCE here would assert the opposite (and fail
-        # against a correct implementation) -- this equality is the no-mutation
-        # pin, and it is what kills a `return os.environ`-without-copy variant.
+        # The caller's mapping is NEVER mutated, so `base` must still carry both
+        # switches. Asserting their ABSENCE here would assert the opposite (and
+        # fail against a correct implementation) -- this equality is the
+        # no-mutation pin, and it is what kills a `return os.environ`-without-copy
+        # variant.
         self.assertEqual(base, snapshot)
+
+
+class TestTargetKeepsItsOwnPythonPath(unittest.TestCase):
+    """The target's own ``PYTHONPATH`` must survive the seam, END TO END.
+
+    ``PYTHONSAFEPATH`` was never the only plugin-owned variable crossing here.
+    ``hooks/init-env.sh`` pins the SESSION's ``PYTHONPATH`` to the plugin root
+    alone -- correct for the plugin's own imports, and wrong for the child that
+    runs the TARGET's build, which ``runcheck``/``suiterun`` launch with
+    ``proccap.target_env()``. A monorepo that wires its own ``PYTHONPATH``
+    through ``.envrc`` therefore lost it at this exact seam and went RED for a
+    reason unrelated to its code: a FALSE RED, the class of defect this project
+    holds to be worse than the bug it fixes, and one with no per-command escape
+    because ``suiterun.run_suite`` synthesises its command from
+    ``langfloor.resolve_runner_tag``.
+
+    A REAL build, not an env-dict comparison. ``tests/test_proccap.py`` pins the
+    mapping; only running a suite whose import is reachable ONLY through that
+    variable proves the value survives all the way into the interpreter.
+
+    ARMED CONTROL, and it is the whole point: the same target, the same command,
+    the same session -- minus ``ATLAS_ORIG_PYTHONPATH``, which is precisely the
+    pre-fix state -- must go RED with the import error named. Without it, the
+    green assertion would pass just as happily against a target that never
+    needed its ``PYTHONPATH`` at all.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name).resolve()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = self.tmp / "target"
+        self.vendor = self.tmp / "vendor"
+        # The dependency lives OUTSIDE the target root, so the cwd entry that
+        # `target_env` restores by stripping PYTHONSAFEPATH cannot supply it.
+        # $PYTHONPATH is the only route, which is what makes the control armed.
+        self.vendor.mkdir(parents=True)
+        (self.vendor / "vendored_dep.py").write_text("VALUE = 7\n",
+                                                     encoding="utf-8")
+        (self.target / "tests").mkdir(parents=True)
+        (self.target / "tests" / "test_vendored.py").write_text(
+            "import sys\n"
+            "import unittest\n"
+            "from vendored_dep import VALUE\n"
+            f"_PLUGIN_ROOT = {str(_ROOT)!r}\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_the_targets_own_pythonpath_reached_this_build(self):\n"
+            "        self.assertEqual(VALUE, 7)\n"
+            "    def test_the_plugins_pinned_root_did_not(self):\n"
+            "        self.assertNotIn(_PLUGIN_ROOT, sys.path)\n",
+            encoding="utf-8")
+        self.cmd = f"{sys.executable} -m unittest discover -s tests"
+
+    def _session(self) -> dict[str, str]:
+        """The environment a live Claude Code session actually carries, as
+        ``hooks/init-env.sh`` leaves it: BOTH isolation switches on,
+        ``PYTHONPATH`` pinned to the plugin root, the user's original parked
+        under the handoff name. ``PYTHONNOUSERSITE`` belongs in this fixture
+        because the hook really does export it; omitting it would make every
+        assertion below run against an environment no session is ever in."""
+        return {"PYTHONSAFEPATH": "1",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONPATH": str(_ROOT),
+                "ATLAS_ORIG_PYTHONPATH": str(self.vendor)}
+
+    def test_a_target_needing_its_own_pythonpath_is_not_a_false_red(self):
+        from scripts import runcheck
+        with mock.patch.dict(os.environ, self._session()):
+            rc = runcheck.run(self.cmd, str(self.target), timeout_s=120,
+                              mem_limit_mb=0)
+        self.assertTrue(
+            rc.get("ok"),
+            "a target whose build needs its own PYTHONPATH went RED under "
+            "target_env() -- this is the false RED the ATLAS_ORIG_PYTHONPATH "
+            f"seam exists to prevent: {rc.get('stderr_tail')!r}")
+
+    def test_control_without_the_handoff_the_same_target_goes_red(self):
+        """ARMED CONTROL. Differs from the sibling in EXACTLY one variable.
+
+        This is not a hypothetical: it is the state every session was in before
+        the handoff existed, and the RED it produces names a module the target
+        ships correctly. The reason is asserted, not just the failure, so a
+        target broken some other way cannot stand in for the defect.
+        """
+        from scripts import runcheck
+        with mock.patch.dict(os.environ, self._session()):
+            os.environ.pop("ATLAS_ORIG_PYTHONPATH", None)
+            rc = runcheck.run(self.cmd, str(self.target), timeout_s=120,
+                              mem_limit_mb=0)
+        self.assertFalse(
+            rc.get("ok"),
+            "the control passed, so the sibling proves nothing: this target's "
+            "suite is supposed to be unable to import `vendored_dep` when the "
+            "target's own PYTHONPATH is withheld")
+        self.assertIn(
+            "No module named 'vendored_dep'",
+            (rc.get("stderr_tail") or "") + (rc.get("stdout_tail") or ""),
+            "the control went RED for some OTHER reason than the withheld "
+            f"PYTHONPATH, so it is not a control: {rc!r}")
+
+    def _probe(self, session: dict[str, str | None]) -> dict:
+        """Run a build that REPORTS the child's real environment, and read it.
+
+        The suite above proves the target can import what it needs; this proves
+        what the child was actually handed, which a suite that fails to import
+        at all cannot report (every assertion inside it is skipped, so an
+        absence check there would pass vacuously). The report goes through a
+        FILE rather than stdout so no shell quoting sits between the child and
+        the evidence.
+        """
+        from scripts import runcheck
+        report = self.tmp / "child-env.json"
+        (self.target / "probe.py").write_text(
+            "import json, os, sys\n"
+            f"json.dump({{'pythonpath': os.environ.get('PYTHONPATH'),\n"
+            "           'has_key': 'PYTHONPATH' in os.environ,\n"
+            "           'orig_key': 'ATLAS_ORIG_PYTHONPATH' in os.environ,\n"
+            "           'sys_path': sys.path},\n"
+            f"          open({str(report)!r}, 'w'))\n",
+            encoding="utf-8")
+        # A ``None`` VALUE means "this key must be ABSENT", which `patch.dict`
+        # cannot express: it only adds and overwrites. Popping inside the
+        # context is safe because `patch.dict` restores the whole mapping on
+        # exit, not just the keys it wrote.
+        present = {k: v for k, v in session.items() if v is not None}
+        absent = [k for k, v in session.items() if v is None]
+        with mock.patch.dict(os.environ, present):
+            for key in absent:
+                os.environ.pop(key, None)
+            rc = runcheck.run(f"{sys.executable} probe.py", str(self.target),
+                              timeout_s=120, mem_limit_mb=0)
+        self.assertTrue(rc.get("ok"), rc.get("stderr_tail"))
+        return json.loads(report.read_text(encoding="utf-8"))
+
+    def test_the_pinned_plugin_root_does_not_reach_the_target(self):
+        """The other direction, and it is not cosmetic: the plugin ships
+        top-level ``scripts/`` and ``tests/`` packages, so a leaked plugin root
+        on a target's ``PYTHONPATH`` SHADOWS the target's own modules of those
+        names. Both the variable and the resulting ``sys.path`` are checked --
+        the second is what actually governs imports."""
+        seen = self._probe(self._session())
+        self.assertEqual(seen["pythonpath"], str(self.vendor))
+        self.assertNotIn(str(_ROOT), seen["sys_path"],
+                         "the plugin's pinned root reached the TARGET's sys.path")
+        self.assertFalse(seen["orig_key"],
+                         "the private hook->seam handoff variable was published "
+                         "to target code")
+
+    def test_an_empty_original_leaves_the_target_with_no_pythonpath_at_all(self):
+        """The user had NO ``PYTHONPATH``; the hook still wrote the handoff, as
+        the empty string. The target must then run with no ``PYTHONPATH`` -- NOT
+        with the plugin root still pinned, which is what a
+        restore-only-if-truthy-else-leave-it implementation produces, and not
+        with an empty one either."""
+        seen = self._probe(dict(self._session(), ATLAS_ORIG_PYTHONPATH=""))
+        self.assertFalse(seen["has_key"],
+                         f"PYTHONPATH survived as {seen['pythonpath']!r}")
+        self.assertNotIn(str(_ROOT), seen["sys_path"])
+        self.assertFalse(seen["orig_key"])
+
+    def test_no_handoff_at_all_leaves_the_environment_exactly_as_found(self):
+        """The hook never ran. Neither inventing nor destroying is allowed, so
+        the pinned value the caller genuinely had must arrive UNCHANGED -- this
+        is the one state where the plugin root legitimately reaches the child,
+        because nothing recorded what should replace it."""
+        session = dict(self._session())
+        session["ATLAS_ORIG_PYTHONPATH"] = None
+        seen = self._probe(session)
+        self.assertEqual(seen["pythonpath"], str(_ROOT))
+
+
+class TestTargetKeepsItsOwnUserSite(unittest.TestCase):
+    """The target's USER SITE must survive the seam, END TO END.
+
+    ``hooks/init-env.sh`` exports ``PYTHONNOUSERSITE=1`` for the whole session,
+    because ``site`` imports ``usercustomize`` from the user site directory AT
+    STARTUP -- a channel neither ``PYTHONSAFEPATH`` nor the pinned
+    ``PYTHONPATH`` touches, and one the INIT floor guard cannot observe because
+    ``site`` runs before the guard's body. That is right for the PLUGIN's own
+    interpreters and wrong for the child that runs the TARGET's build: a project
+    whose toolchain was installed with ``pip install --user`` keeps its
+    dependencies in exactly the directory that switch suppresses, so inheriting
+    it turns lens 5 DOES-IT-RUN false-RED on every run, hostile or not. This is
+    the same shape as :class:`TestTargetKeepsItsOwnPythonPath` and the same
+    class of defect: worse than the bug it fixes.
+
+    A REAL build, not an env-dict comparison, and the dependency is reachable
+    ONLY through the user site -- it is not on the target's cwd and not on any
+    ``PYTHONPATH`` -- so the import can succeed by no other route.
+
+    ARMED CONTROL: the identical target, command and fixture with the switch
+    left in place must go RED, naming the module. Without it the green
+    assertion would pass just as happily against a target that never needed its
+    user site at all.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name).resolve()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = self.tmp / "target"
+        self.userbase = self.tmp / "userbase"
+        # The user-site path is derived from `sysconfig`'s own `posix_user`
+        # scheme rather than hardcoded, so the fixture follows the interpreter
+        # actually running these tests instead of a guess about its layout.
+        site = pathlib.Path(sysconfig.get_path(
+            "purelib", "posix_user", {"userbase": str(self.userbase)}))
+        site.mkdir(parents=True)
+        (site / "user_installed_dep.py").write_text("VALUE = 11\n",
+                                                    encoding="utf-8")
+        (self.target / "tests").mkdir(parents=True)
+        (self.target / "tests" / "test_user_dep.py").write_text(
+            "import unittest\n"
+            "from user_installed_dep import VALUE\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_the_targets_own_user_site_reached_this_build(self):\n"
+            "        self.assertEqual(VALUE, 11)\n",
+            encoding="utf-8")
+        self.cmd = f"{sys.executable} -m unittest discover -s tests"
+
+    def _session(self) -> dict[str, str]:
+        """What a live session carries, plus the target's own PYTHONUSERBASE.
+
+        ``ATLAS_ORIG_PYTHONPATH`` is the EMPTY string on purpose: this target
+        has no ``PYTHONPATH`` of its own, so the only thing under test here is
+        the user site.
+        """
+        return {"PYTHONSAFEPATH": "1",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONPATH": str(_ROOT),
+                "ATLAS_ORIG_PYTHONPATH": "",
+                "PYTHONUSERBASE": str(self.userbase)}
+
+    def test_a_target_needing_its_own_user_site_is_not_a_false_red(self):
+        from scripts import runcheck
+        with mock.patch.dict(os.environ, self._session()):
+            rc = runcheck.run(self.cmd, str(self.target), timeout_s=120,
+                              mem_limit_mb=0)
+        self.assertTrue(
+            rc.get("ok"),
+            "a target whose build needs its own user site went RED under "
+            "target_env() -- this is the false RED the PYTHONNOUSERSITE strip "
+            f"exists to prevent: {rc.get('stderr_tail')!r}")
+
+    def test_control_with_the_switch_left_on_the_same_target_goes_red(self):
+        """ARMED CONTROL. The pre-strip launch shape: the same command in the
+        same target with the same PYTHONUSERBASE, differing from the sibling in
+        exactly one variable. Launched directly rather than through
+        ``runcheck``, because ``runcheck`` always goes through the seam under
+        test -- the same convention
+        ``TestFixDoesNotLeakIntoTargetBuilds.test_control_leak_would_break_a_normal_target``
+        already uses.
+        """
+        env = dict(os.environ, **self._session())
+        env.pop("ATLAS_ORIG_PYTHONPATH", None)
+        env.pop("PYTHONPATH", None)
+        proc = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+            cwd=str(self.target), env=env, capture_output=True, text=True,
+            timeout=120)
+        self.assertNotEqual(
+            proc.returncode, 0,
+            "the control passed, so the sibling proves nothing: this target's "
+            "suite is supposed to be unable to import `user_installed_dep` "
+            "while PYTHONNOUSERSITE suppresses the user site")
+        self.assertIn(
+            "No module named 'user_installed_dep'", proc.stderr,
+            "the control went RED for some OTHER reason than the suppressed "
+            f"user site, so it is not a control: {proc.stderr!r}")
+
+    def test_control_the_user_site_fixture_is_reachable_at_all(self):
+        """The second control, against the OTHER way this could prove nothing:
+        a `usercustomize`-style path mistake would make the dependency
+        unreachable even with the switch off, and then the sibling's green
+        would mean the suite found the module somewhere else entirely."""
+        env = dict(os.environ, PYTHONUSERBASE=str(self.userbase))
+        env.pop("PYTHONNOUSERSITE", None)
+        env.pop("PYTHONPATH", None)
+        env.pop("PYTHONSAFEPATH", None)
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import user_installed_dep; print(user_installed_dep.VALUE)"],
+            cwd=str(self.tmp), env=env, capture_output=True, text=True,
+            timeout=120)
+        self.assertEqual(
+            proc.returncode, 0,
+            "the fixture's dependency is not importable through the user site "
+            f"even with the switch off, so it proves nothing: {proc.stderr!r}")
+        self.assertEqual(proc.stdout.strip(), "11")
 
 
 class TestEverySeamContainsTheSwitch(unittest.TestCase):
@@ -779,7 +1099,8 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
     def marker(self) -> pathlib.Path:
         return self.target / "PWNED-BY-TARGET"
 
-    def _run(self, command: str, *, session_isolated: bool):
+    def _run(self, command: str, *, session_isolated: bool,
+             session_id: str = "sess-1"):
         """Execute `command` through ``sh`` with the TARGET tree as the cwd.
 
         The script is written OUTSIDE the hostile tree so it cannot perturb what
@@ -791,6 +1112,13 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
         block carries no switch of its own any more, so ``session_isolated``
         stands in for whatever ``hooks/init-env.sh`` did (or did not) export
         into this shell before the SKILL ran.
+
+        ``session_id`` stands in for the OTHER thing that hook exports, and it is
+        supplied explicitly for the same anti-vacuity reason: the block now ALSO
+        fails closed on an empty $ATLAS_SESSION_ID, so inheriting the runner's
+        (absent) value would make every case here abort for THAT reason while
+        proving nothing about the isolation guard. Passing ``""`` arms the empty
+        case deliberately.
         """
         script = pathlib.Path(self._aux.name) / "init.sh"
         script.write_text(command, encoding="utf-8")
@@ -798,6 +1126,7 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
         env.pop("PYTHONSAFEPATH", None)
         env.pop("PYTHONPATH", None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["ATLAS_SESSION_ID"] = session_id
         if session_isolated:
             env["PYTHONSAFEPATH"] = "1"
             env["PYTHONPATH"] = str(_ROOT)
@@ -820,6 +1149,13 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
         self.assertIn(_FLAG_CHECK, self.command, "the block lost the floor guard")
         self.assertIn("ATLAS-PRECONDITION-FAILED", self.command)
         self.assertIn("SystemExit(2)", self.command)
+        # The run id must reach the block through ARGV, never interpolated into
+        # the quoted heredoc: an id is untrusted stdin payload upstream, and the
+        # heredoc body is Python source. Losing this argument is what makes the
+        # empty-id guard below unreachable rather than merely unasserted.
+        self.assertIn('python3 - "$ATLAS_SESSION_ID" <<\'PY\'', self.command,
+                      "the INIT block no longer passes $ATLAS_SESSION_ID in "
+                      "argv, so its empty-run-id precondition can never fire")
 
     def test_the_guard_is_silent_and_the_block_still_works_with_isolation_on(self):
         """The block AS SHIPPED, in the hostile tree, with the session carrying
@@ -866,6 +1202,41 @@ class TestTheFloorGuardHaltsTheRun(unittest.TestCase):
         self.assertFalse(self.marker.exists(),
                          "the target's json.py executed anyway: the guard reported "
                          "the precondition failure but did not halt on it")
+
+    def test_an_empty_session_id_halts_the_run_before_the_target_executes(self):
+        """The SECOND fail-closed precondition, and it is not cosmetic.
+
+        `hooks/init-env.sh` leaves $ATLAS_SESSION_ID unset whenever stdin carried
+        no session_id, the payload was unparsable, the allowlist rejected it, or
+        the hook's own python3 could not start -- which a host that legitimately
+        sets $PYTHONHOME can cause, because the hook unsets it for that call. The
+        SKILL then interpolates the empty value into
+        `/tmp/atlas-$ATLAS_SESSION_ID-<what>`, collapsing every scratch path onto
+        the FIXED, world-writable `/tmp/atlas--<what>` -- which the run writes and
+        reads BACK to drive the frozen packet, so any local process can pre-create
+        or replace them.
+
+        The isolation is deliberately left ON here, so the only difference from
+        the green case above is the empty id: a run that aborted for the other
+        reason would prove nothing about this one. The marker assertion is the
+        same fail-closed contract as its sibling -- printing the token and
+        running on would hand the target code execution before the model can act
+        on the abort line.
+        """
+        proc = self._run(self.command, session_isolated=True, session_id="")
+        self.assertEqual(proc.returncode, 2,
+                         "an empty $ATLAS_SESSION_ID did not halt the run: rc=%d %r"
+                         % (proc.returncode, proc.stdout + proc.stderr))
+        self.assertTrue(
+            proc.stdout.startswith("ATLAS-PRECONDITION-FAILED"),
+            "the abort token must OPEN stdout: %r" % proc.stdout[:200])
+        self.assertIn("ATLAS_SESSION_ID", proc.stdout,
+                      "the abort line does not name the precondition that "
+                      "failed, so the operator cannot tell it from the "
+                      "isolation abort: %r" % proc.stdout[:300])
+        self.assertFalse(self.marker.exists(),
+                         "the target's json.py executed anyway: the guard "
+                         "reported the missing run id but did not halt on it")
 
 
 def _adjacent_switch_re(var: str) -> re.Pattern[str]:
@@ -940,15 +1311,27 @@ class TestConventionIsSweptEverywhere(unittest.TestCase):
     INVOKING_FILES = {
         "agents/context-scout.md": 1,
         "hooks/guard-destructive.sh": 2,
+        "hooks/init-env.sh": 1,
         "hooks/telemetry.sh": 1,
         "probe/probe_loopcontrol.sh": 1,
         "probe/probe_runid_stability.sh": 1,
     }
 
-    # The two hooks load for EVERY Kimi session, in the user's own directory, so
-    # they carry the bytecode switch as well: reproduced, the unfixed hook wrote
+    # These hooks load for EVERY session, in the user's own directory, so they
+    # carry the bytecode switch as well: reproduced, the unfixed hook wrote
     # __pycache__/ into the tree it was merely observing.
-    HOOKS = ("hooks/guard-destructive.sh", "hooks/telemetry.sh")
+    #
+    # ``hooks/init-env.sh`` was MISSING from both lists while already carrying
+    # ``PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1`` on its session_id parse, so
+    # deleting that guard left this suite AND tests/test_init_env_hook.py green
+    # while a target-supplied ``json.py`` executed inside a SessionStart hook
+    # running in an untrusted repo's cwd. It is the FIRST plugin code to run in
+    # that cwd, which makes its absence here the worst of the set. The
+    # behavioural half of that pin lives in
+    # ``tests/test_init_env_hook.py::TestHookIsIsolatedFromAHostileCwd``, which
+    # runs the hook with its cwd set to a tree carrying a hostile ``json.py``.
+    HOOKS = ("hooks/guard-destructive.sh", "hooks/init-env.sh",
+             "hooks/telemetry.sh")
 
     def _text(self, rel: str) -> str:
         return (_ROOT / rel).read_text(encoding="utf-8")
@@ -1076,11 +1459,102 @@ class TestSessionWideIsolationReplacesThePerInvocationPrefix(unittest.TestCase):
             "export ATLAS_PLUGIN_ROOT=", text,
             "hooks/init-env.sh no longer exports ATLAS_PLUGIN_ROOT, the stable "
             "reference all three ported SKILLs now use in place of ${KIMI_SKILL_DIR}")
+        # SEMANTIC pin, deliberately NOT a byte pin. This used to require the
+        # literal `export PYTHONPATH=\"${PLUGIN_ROOT}`, which locked in the
+        # DOUBLE-quoted form -- the exact shape that let an ambient hostile
+        # $PYTHONPATH (.envrc/direnv, a project settings.json env block, a
+        # devcontainer wrapper) close the assignment and execute a command when
+        # the host sourced the file. What belongs to THIS module is only that
+        # PYTHONPATH is exported and extended with the plugin root; how
+        # hooks/init-env.sh quotes it is that hook's own security decision, and
+        # it is proven by EXECUTION in tests/test_init_env_hook.py.
         self.assertIn(
-            'export PYTHONPATH=\\"${PLUGIN_ROOT}', text,
-            "hooks/init-env.sh no longer extends PYTHONPATH with the plugin "
-            "root session-wide -- every bare python3 invocation in all three "
-            "ported SKILLs depends on this to resolve `from scripts import`")
+            "export PYTHONPATH=", text,
+            "hooks/init-env.sh no longer exports PYTHONPATH session-wide -- "
+            "every bare python3 invocation in all three ported SKILLs depends "
+            "on this to resolve `from scripts import`")
+        # The AMBIENT-APPEND EXPRESSION is gone rather than merely unpinned, and
+        # this assertion moved with it. It used to require the literal
+        # `${PLUGIN_ROOT}${PYTHONPATH:+`, a VERBATIM copy of the ambient
+        # $PYTHONPATH; then, briefly, `"${PLUGIN_ROOT}` while that value was
+        # SANITISED. Filtering was measured insufficient -- an ABSOLUTE hostile
+        # directory survived it and a later python3 executed a sitecustomize.py
+        # out of the persisted value with PYTHONSAFEPATH=1 on -- so
+        # hooks/init-env.sh now persists the plugin root ALONE and the
+        # sanitising expression no longer exists to pin.
+        #
+        # What is pinned instead is the property THIS module actually owns, and
+        # it is stronger than what it replaces: the two SESSION path exports are
+        # fed the same single quoted plugin root and nothing else, so no
+        # expression on that line can readmit the ambient value onto them.
+        # Byte-for-byte survival of the root, and the non-propagation of the
+        # ambient value, are proven by EXECUTION in tests/test_init_env_hook.py
+        # (TestAmbientPythonPathIsNotPropagated), which is where they belong.
+        #
+        # THE MIDDLE ARGUMENT IS THE AMBIENT VALUE, and its presence here is the
+        # whole point of the pin rather than a hole in it. `hooks/init-env.sh`
+        # now ALSO persists $ATLAS_ORIG_PYTHONPATH, a verbatim copy of the
+        # ambient $PYTHONPATH, so `proccap.target_env` can hand the TARGET's
+        # build the path the target actually had instead of the plugin root.
+        # It rides the SAME single write and is quoted by the SAME `shquote`.
+        # The pin therefore names all three arguments in order: it still fails
+        # if an expression readmits the ambient value onto the two plugin-facing
+        # exports, and it also fails if the target-facing handoff is dropped or
+        # moved to a separate append.
+        #
+        # THE ORDER CHANGED AND THIS PIN MOVED WITH IT rather than being relaxed
+        # to tolerate either. The handoff argument now sits BETWEEN the two
+        # plugin-root arguments because the handoff LINE is written before the
+        # pinned PYTHONPATH line: with the handoff last, a torn final line left
+        # PYTHONPATH=<plugin root> with the handoff ABSENT, and absence is what
+        # `target_env` reads as "no recorded original", so the pin survived onto
+        # every target build with nothing to override it.
+        #
+        # `${ATLAS_ORIG_PYTHONPATH-${PYTHONPATH-}}` rather than a bare
+        # `${PYTHONPATH-}` is the RE-FIRE guard, pinned here for the same reason
+        # as the rest of the line: hooks/hooks.json registers this hook under
+        # matcher `"*"`, so on the SECOND fire the ambient $PYTHONPATH IS the
+        # pinned plugin root, and a bare expansion records that instead of the
+        # user's value -- destroying the original for the rest of the session.
+        # The BEHAVIOURAL proof is
+        # tests/test_init_env_hook.py::TestTheRecordedOriginalSurvivesAReFire;
+        # this is only the byte-level tripwire beside it.
+        #
+        # Comment lines are stripped BEFORE matching, so the pin can only be
+        # satisfied by executable shell -- this file's own prose quotes the
+        # hook's idioms constantly, and a pin a comment can satisfy is not a pin
+        # at all. Whitespace is then squeezed so the assertion survives the line
+        # continuations the statement is wrapped across, and the count is
+        # asserted rather than mere presence: a second occurrence would mean the
+        # single grouped write had been split back into separate appends.
+        code = " ".join(ln for ln in text.splitlines()
+                        if not ln.lstrip().startswith("#"))
+        self.assertEqual(
+            " ".join(code.split()).count(
+                '"$PLUGIN_ROOT_Q" '
+                '"$(shquote "${ATLAS_ORIG_PYTHONPATH-${PYTHONPATH-}}")" '
+                '"$PLUGIN_ROOT_Q" >> "$ENV_FILE"'), 1,
+            "hooks/init-env.sh no longer feeds ATLAS_PLUGIN_ROOT and PYTHONPATH "
+            "the one quoted plugin root, and ATLAS_ORIG_PYTHONPATH the quoted "
+            "already-recorded-or-ambient value, in one write -- either an "
+            "expression was reintroduced that can readmit the "
+            "attacker-steerable ambient $PYTHONPATH onto the session's own "
+            "PYTHONPATH, or the re-fire guard was dropped so a compaction "
+            "destroys the recorded original, or the target's handoff was "
+            "dropped, or the grouped write was split")
+        self.assertIn(
+            "export PYTHONNOUSERSITE=1", text,
+            "hooks/init-env.sh no longer exports PYTHONNOUSERSITE=1 "
+            "session-wide -- a usercustomize.py planted through an ambient "
+            "$PYTHONUSERBASE executes inside every later plugin interpreter, "
+            "including the one that loads the FROZEN gate, and the INIT floor "
+            "guard cannot see it because `site` runs before the guard's body")
+        self.assertIn(
+            "export ATLAS_ORIG_PYTHONPATH=", text,
+            "hooks/init-env.sh no longer persists the session's ORIGINAL "
+            "ambient PYTHONPATH -- proccap.target_env has nothing to restore, "
+            "so every Python target whose build needs its own PYTHONPATH runs "
+            "on the plugin root instead and false-REDs")
         self.assertIn(
             "export PYTHONSAFEPATH=1", text,
             "hooks/init-env.sh no longer exports PYTHONSAFEPATH=1 session-wide")

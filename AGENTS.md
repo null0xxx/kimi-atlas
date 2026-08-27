@@ -138,14 +138,20 @@ not sufficient — everything must stay green on all three lanes.
   `references/claude-agent-dispatch.md`). Each role file's own `tools:`/`model:` frontmatter **is
   the real, enforced permission set** — not documentation. Read-only subagents RETURN JSON; the
   root persists via `ctxstore`.
-- Scripts import via `from scripts import <mod>` — `PYTHONSAFEPATH=1` and `PYTHONPATH` (extended with `${CLAUDE_PLUGIN_ROOT}`) are exported **once, for the rest of the session**, by the Claude Code
-  **SessionStart** hook (`hooks/init-env.sh`), before this skill ever
-  runs. The old per-invocation prefix (`PYTHONSAFEPATH=1 PYTHONPATH=<plugin-root> python3 -c ...`
-  repeated at every call site) is **retired — do not add one back**. `PYTHONSAFEPATH` remains
+- Scripts import via `from scripts import <mod>` — `PYTHONSAFEPATH=1`, `PYTHONNOUSERSITE=1` and `PYTHONPATH` are exported by the Claude Code **SessionStart** hook (`hooks/init-env.sh`) **for the rest of the session** before this skill ever runs, and on EVERY SessionStart rather than once (the manifest matcher is `"*"`, so `resume`/`clear`/`compact`/`fork` fire it too; the hook is idempotent because an already-recorded `ATLAS_ORIG_PYTHONPATH` wins over the ambient value it would otherwise re-read from itself). The three travel together because they are one posture: `PYTHONPATH` is **pinned to** `${CLAUDE_PLUGIN_ROOT}` **and nothing else** — the ambient value is replaced, never appended, because what the hook writes is sourced by the host and any surviving entry would steer module resolution session-wide — while that ambient value is preserved verbatim as `ATLAS_ORIG_PYTHONPATH`, which `proccap.target_env` restores (and then drops) so the TARGET's own build keeps the `PYTHONPATH` its author wrote and does not false-RED.
+  The old per-invocation prefix (`PYTHONSAFEPATH=1 PYTHONPATH=<plugin-root> python3 -c ...` repeated at every call site) is **retired — do not add one back**. `PYTHONSAFEPATH` remains
   mandatory for the same underlying reason: it drops the untrusted target's cwd from `sys.path`, so
-  the target cannot replace any module atlas imports — including the FROZEN gate. It is stripped
-  again by `proccap.target_env` before the target's own build runs, so it never reaches
-  `verify_cmd`.
+  the target cannot replace any module atlas imports — including the FROZEN gate. `PYTHONNOUSERSITE`
+  closes the third channel, which neither of the others reaches: `site` imports `usercustomize` from
+  the user site directory **at startup**, so a `usercustomize.py` planted through an ambient
+  `$PYTHONUSERBASE` executed inside `from scripts import verdict` with `PYTHONSAFEPATH=1` set and `PYTHONPATH` pinned (measured, rc=0, gate loaded normally)
+  — and the INIT floor guard cannot see it, because `site` runs before the guard's body. **What is NOT closed, stated so this list is not read as
+  complete:** `$PYTHONHOME` relocates the stdlib itself and remains **open session-wide**; the hook
+  unsets it only for its own interpreter, and a sourced env file can export a value but not an unset.
+  Both switches are stripped again by `proccap.target_env` before the target's own build runs, so
+  neither reaches `verify_cmd` (a `pip install --user` toolchain would otherwise lose its own
+  dependencies); `scripts/sast.py` strips them for the semgrep child for the same reason, but keeps the
+  pinned plugin root, because that child's stdout becomes a blocking SECURITY defect.
 - **Hard runtime floor: CPython 3.11+ for the orchestrator's `python3`** (new in v1.5.1; the target
   project's own toolchain is unaffected). `PYTHONSAFEPATH` / `sys.flags.safe_path` arrived in 3.11, so
   below it the isolation above is unobtainable — `getattr(sys.flags, "safe_path", False)` reads that

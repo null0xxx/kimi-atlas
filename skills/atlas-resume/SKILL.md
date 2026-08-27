@@ -28,13 +28,21 @@ load-bearing (correctness must survive it either way), just no longer the common
 
 **Script-call convention** — every script call in this file (both paths below) runs as
 `python3 -c "from scripts import <mod>; …"`. The Claude Code **SessionStart** hook
-(`hooks/init-env.sh`) already exports `PYTHONPATH` (extended with `${ATLAS_PLUGIN_ROOT}`, the
-plugin root, so `from scripts import <mod>` resolves against the plugin) and `PYTHONSAFEPATH=1`
-for the **REST OF THE SESSION**, before this skill's own body ever runs — this skill itself fires
+(`hooks/init-env.sh`) already exports `PYTHONPATH` (**set to** `${ATLAS_PLUGIN_ROOT}`, the plugin
+root, **and nothing else**, so `from scripts import <mod>` resolves against the plugin rather than
+against any directory the environment names; the ambient value is replaced, not
+appended, and is preserved separately as `ATLAS_ORIG_PYTHONPATH` for the target's own build),
+`PYTHONSAFEPATH=1` and `PYTHONNOUSERSITE=1`, all for the **REST OF THE SESSION**, before this skill's own body ever runs — this skill itself fires
 at session start, so there is no earlier point a per-invocation prefix could be protecting
 against. `PYTHONSAFEPATH=1` remains mandatory in that exported environment: the working directory
 here is the user's own project, and without it that directory would outrank `PYTHONPATH`, letting
-the project replace `scripts/ctxstore.py` or `scripts/resume.py` with its own. Do **not** add a
+the project replace `scripts/ctxstore.py` or `scripts/resume.py` with its own. `PYTHONNOUSERSITE=1`
+closes the channel the other two do not reach: `site` imports `usercustomize` from the user site
+directory **at startup**, so a `usercustomize.py` planted through an ambient `$PYTHONUSERBASE` runs
+inside the interpreter before any of this skill's own code does. **The claim stops there, narrower
+than it used to read:** `$PYTHONHOME` relocates the stdlib itself and is **still open
+session-wide**, so "cannot be steered by whatever the environment held" would be false — three of
+the four resolution channels are closed, not all four. Do **not** add a
 per-invocation prefix back: Kimi CLI's `${KIMI_SKILL_DIR}` token has no Claude Code equivalent and
 is unbound here, so a reintroduced prefix would shadow the session's correct values with a broken
 relative path instead of reinforcing them.
