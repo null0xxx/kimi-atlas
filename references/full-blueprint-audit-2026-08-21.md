@@ -883,3 +883,72 @@ value asset. Inverting that (allowlist, not denylist) is the only approach that 
 **Recorded as its own project, and explicitly NOT part of the Claude Code migration**: `PYTHONUSERBASE`,
 `PYTHONHOME` and `LD_PRELOAD` were exactly as reachable under Kimi. Nothing here was introduced by the
 port.
+
+## 2026-08-27 — item 5 (D1–D7) closed, plus the rollback that had to be un-added
+
+Governing queue item 5. Three atlas runs (`…-d1d7` + two refines, then `…-unwind` + one refine).
+`make ci` exit 0, **2011 tests** (session start: 1831). Seven files.
+
+### The seven planned items, all closed and verified by orchestrator measurement
+
+D1 atomic registry write (proven by execution both ways: `os.replace` patched to raise leaves the
+prior bytes intact and no residue; happy path byte-identical to the committed registry) · D2
+`_MIN_SIGNAL_LEN` · D3 `load_overrides` coerces at the boundary · D4 the `'.'` entry name · D5
+`failures` last in both sibling `audit()` signatures · D6 the hoisted test base · D7 the dead parameter.
+
+### D4 was rated LOW and was not
+
+The plan described the failure as `IsADirectoryError`. Measured, it was worse in two directions
+nobody had enumerated, and each was found only after the previous fix shipped:
+
+1. `'.'` alone — a fresh tree writes the package path as a regular FILE, then dies `FileExistsError`.
+2. After the raw-segment fix — `SKILL.md` + `SKILL.md/.` resolve to ONE path, so the audited file is
+   silently overwritten and **`--verify` still passes**. Silent content substitution.
+3. After that — `SKILL.md` + `sub` + `sub/x.md`, with no `.` anywhere, still crashed mid-extract and
+   left a half-extracted package.
+
+**Enumerating unsafe shapes could not converge.** What closed it was an INVARIANT: target
+injectivity over normalized keys, rejecting a duplicate key, a key that is a proper prefix of
+another, and an empty-after-strip segment. Calibrated: all 712 committed entries accepted, 0
+collisions.
+
+### The rollback: added on my instruction, then removed
+
+I prescribed `shutil.rmtree(out_root / plan['dir'], ignore_errors=True)` verbatim in a refine packet.
+The implementer built it and independently added containment I had not asked for. MEASURED harm: a
+mid-package ENOSPC with the package dir already populated **deleted a pre-existing file and an
+untracked stray**; and `_confined_package_dir` returned the RESOLVED path, so an in-root symlinked
+package dir would have aimed `rmtree` at a different package.
+
+It was removed rather than repaired, because the architecture said so: `Skills/` (the input) is
+ABSENT from this repo, `skills/` is 715 TRACKED files of source-of-truth, `make skills-extract` is in
+NO CI lane, and eight scripts plus the host read that directory. **Git is already the transaction
+log**; building an undo inside a tool that runs inside a VCS duplicated a stronger mechanism and
+introduced data loss. Stage-and-swap was rejected too, and the reason is on the record: `os.replace`
+fails on a non-empty directory, so the swap has a window where `skills/` does not exist.
+
+New contract: not "I will undo my mess" but **"your undo will be clean"** — refuse a dirty tracked
+subtree (`--allow-dirty` escapes), warn once outside a worktree, and PRINT the recovery commands
+without executing them.
+
+### Two findings that came from the orchestrator's own mistakes
+
+* **I overwrote the committed manifest.** A verification probe passed `--out-root` without
+  `--manifest`, and the tool wrote a 1-package manifest over the committed 115/712 one. Recovered
+  with `git checkout --` — the architecture working. The generalized defect (the two flags are
+  independent, so a blessed scratch extraction damages the real repo) was then found independently
+  by a critic and is fixed; the whole suite was blind to it because every test helper passed both
+  flags together.
+* **My Unicode fix was one codepoint wide.** I prescribed `.replace("ς","σ")` after measuring that
+  `casefold()`→`lower()` had dropped a real alias (final sigma keys distinctly but NTFS `$UpCase`
+  merges it). The implementer scanned all 1,114,112 codepoints and found **21 such classes**, not
+  one — my fix would have left twenty open. The shipped fold models the UPPERCASE table
+  per-codepoint, which also closes Turkish dotless ı, a residual I had asked to be documented as open.
+
+### Residuals, recorded
+
+NTFS `$UpCase` and APFS folding are modelled from documentation, not measured on a live volume ·
+`$UpCase` is per-volume and can lag Unicode · multi-codepoint and locale-dependent folding is out of
+scope · HFS+ normalization is an NFD variant while the key normalizes NFC · an untracked manifest
+this tool overwrote still has no undo (the printed recovery says so) · git-ignored files stay
+invisible to the precondition, deliberately, because flagging them would false-reject.
