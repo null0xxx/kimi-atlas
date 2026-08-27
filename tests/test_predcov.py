@@ -44,6 +44,39 @@ fixture and checked here. Measured, the two arms kill different mutations:
 ``synth_runcheck(ev)`` in place of ``synth_runcheck(ev.get('runcheck', {}))``
 passes every positive control and dies only to the negative one.
 
+Every subprocess launch in this module was audited against one rule -- *does this
+child resolve the module it is meant to measure?* -- and not against the weaker
+"does it pass ``env=``", which an inherited ``dict(os.environ, ...)`` satisfies
+while leaking everything. Inside a kimi-atlas plugin session ``hooks/init-env.sh``
+appends export lines to ``$CLAUDE_ENV_FILE`` that put the plugin root at the FRONT of
+any pre-existing ``PYTHONPATH`` and set ``PYTHONSAFEPATH=1``, for the whole session;
+:func:`_fixture_env` derives what that pair does to a child's ``sys.path`` and is the
+single place that derivation lives. The outcome of the audit: children that must run
+a temporary FIXTURE tree take ``_fixture_env()``; children that must run THIS
+checkout pin ``PYTHONPATH`` to :data:`_ROOT` and keep ``PYTHONSAFEPATH=1`` alongside
+it; the ``git`` launches and the ``sys.path.insert``-anchored ``-c`` payloads import
+nothing either variable can redirect. Each site states its own reason in a short
+comment -- two to four lines, not one -- rather than repeating this.
+
+The same audit was swept across the REST of ``tests/`` rather than stopping at the
+files this rule was found in. FOUR FILES were annotated and none needed a behaviour
+change: ``tests/test_syspath_isolation.py``'s
+``test_control_leak_would_break_a_normal_target``, ``tests/test_model_text_sinks.py``'s
+``_run`` and ``tests/test_critic_shapes_e2e.py``'s ``_make_run``, which each build an
+environment of their own, plus ``tests/test_v1521_regressions.py``, whose module
+docstring records the audit for both of its launches. Of the children left in
+``tests/``, each either launches a non-Python program (``git``, ``sh`` or
+``systemd-run``), builds its child environment explicitly instead of inheriting one,
+or runs a ``-c`` payload importing stdlib only -- so neither variable can change what
+it resolves. TWO KNOWN EXCEPTIONS, both benign and both left alone:
+``tests/test_runcheck.py``'s ``_pytest_available`` launches ``python3 -m pytest
+--version`` with no ``env=``, but it imports no ``scripts`` package and sends all
+three streams to ``DEVNULL``; and ``tests/test_proccap.py``'s ``TestLaunchEnv`` omits
+``env=`` deliberately, because ``proccap``'s inherit behaviour is the thing it
+measures. ``tests/test_nativefloor.py`` and ``tests/test_syntaxlens_redteam.py``
+launch a generic ``interp_argv`` whose callers pass node/bash/php/ruby/go rather than
+python, so they are out of scope for a Python-path sweep.
+
 No test in this module asserts a fire count, a threshold or a verdict.
 """
 import ast
@@ -53,6 +86,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -64,6 +98,76 @@ from scripts import corpusbuild, ctxstore, difftool, floorsynth, inventory_drift
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CORPUS = _ROOT / "tests" / "corpus"
+
+#: The two PATH variables ``hooks/init-env.sh`` exports for the whole of a kimi-atlas
+#: plugin session, and therefore what every child launched from inside one inherits.
+#: The hook also exports ``ATLAS_PLUGIN_ROOT`` and ``ATLAS_SESSION_ID``; neither can
+#: redirect module resolution, so neither is scrubbed and neither belongs here.
+#:
+#: READ TWO WAYS, deliberately. :func:`_fixture_env` reads the KEYS and never the
+#: values -- to it this is the list of what to remove. The hostile environments in
+#: :class:`TestFixtureEnvironmentScrub` read the VALUES, because a fixture is only
+#: hostile if the pair really would redirect a child. Stated ONCE so that a third
+#: path variable added to the hook cannot leave the scrub and the test that measures
+#: it disagreeing about which keys are in play -- a disagreement neither side would
+#: fail on.
+_PLUGIN_SESSION_ENV = {"PYTHONPATH": str(_ROOT), "PYTHONSAFEPATH": "1"}
+
+
+def _fixture_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment a child that must run FIXTURE code gets: both path vars gone.
+
+    ``hooks/init-env.sh`` exports ``PYTHONPATH=$CLAUDE_PLUGIN_ROOT`` **and**
+    ``PYTHONSAFEPATH=1`` for the whole session, so every subprocess launched from
+    inside a kimi-atlas plugin session inherits them. A child run with ``cwd=`` set
+    to a temporary fixture tree is supposed to resolve *that tree's* ``scripts``
+    package; inheriting those two makes it import this repository's real modules
+    instead, and the test above it then measures the wrong program.
+
+    BOTH keys are removed, and removing both is the whole fix. For ``python3 -m``
+    CPython normally puts the cwd at ``sys.path[0]`` *ahead of* ``PYTHONPATH``, so
+    ``PYTHONPATH`` alone is harmless; ``PYTHONSAFEPATH=1`` deletes that cwd entry and
+    only then does ``PYTHONPATH`` decide. Measured against the probe fixture in
+    :meth:`TestMakefileWiring.test_each_suppression_holds_the_exit_status_at_zero_on_its_own`
+    on CPython 3.12: neither set -> the probe's own :data:`_PROBE_EXIT`; ``PYTHONPATH``
+    alone -> the same; ``PYTHONSAFEPATH`` alone -> 1 (``ModuleNotFoundError``); both ->
+    0 (the real module). A scrub of ``PYTHONPATH`` alone leaves the control at 1 and
+    fixes nothing.
+
+    DELIBERATELY NOT :func:`scripts.proccap.target_env`, which strips
+    ``PYTHONSAFEPATH`` only and records keeping ``PYTHONPATH`` as intentional policy
+    for a different caller. Reusing it would pass here today, but only by leaning on
+    "cwd outranks ``PYTHONPATH``" -- the exact CPython subtlety this bug is made of --
+    so a later change to its ``_PLUGIN_ONLY_ENV`` would silently make the control
+    vacuous again. A test must not inherit its correctness from a production module's
+    unrelated policy, so both keys are scrubbed locally.
+
+    A child that must run THIS checkout has the opposite need and does NOT use this
+    helper: it names the repository outright with ``dict(os.environ,
+    PYTHONPATH=str(_ROOT), PYTHONSAFEPATH="1")``, because scrubbing alone would leave
+    it relying on the cwd entry ``PYTHONSAFEPATH`` deletes. Both such callers are
+    covered by the module docstring's audit.
+
+    ONLY EVER FOR A CHILD WHOSE ``cwd`` IS A THROWAWAY FIXTURE TREE THIS SUITE JUST
+    WROTE. Dropping ``PYTHONSAFEPATH`` is what restores the child's cwd to
+    ``sys.path[0]``, which is the whole point here -- and it is also v1.5.1's
+    ``sys.path``-hijack surface, because whatever that cwd contains then decides what
+    ``import scripts`` resolves to. A child given this environment and a cwd that the
+    test did not write itself would let a planted ``scripts/`` shadow the frozen pure
+    gate. So every caller in this module passes ``cwd=`` a ``tempfile.TemporaryDirectory``
+    it populated: never :data:`_ROOT`, never a checkout under review, never an inherited
+    cwd. :meth:`TestMakefileWiring.test_every_launch_in_the_suppression_test_is_scrubbed_and_confined`
+    holds the four launches it was written for to exactly that, by reading their ``cwd=``
+    as well as their ``env=``.
+
+    ``base`` defaults to the current process environment; the caller's mapping is
+    never mutated and a fresh dict is always returned, so the result is safe to hand
+    straight to ``subprocess.run(env=...)``.
+    """
+    env = dict(os.environ if base is None else base)
+    for key in _PLUGIN_SESSION_ENV:
+        env.pop(key, None)
+    return env
 
 
 def _repo_files() -> set[str]:
@@ -100,6 +204,31 @@ def _git(root, *args):
     return subprocess.run(
         ["git", *args], cwd=root, capture_output=True, text=True, check=True
     ).stdout
+
+
+#: The only status the probe module below ever exits with. Every assertion that
+#: drives the probe reads it from here, so the invariant cannot drift apart from
+#: the fixture that produces it.
+_PROBE_EXIT = 3
+
+
+def _probe_tree(root):
+    """Write the failing ``scripts.predcov`` probe into ``root``; return ``root``.
+
+    An importable PACKAGE, not a bare script, because every caller launches it as
+    ``python3 -m scripts.predcov``. It exits :data:`_PROBE_EXIT` and does nothing
+    else, which is the property its callers assert on: a probe that succeeded, or
+    that grew a second way to fail, would turn the negative control
+    ``assertNotEqual(inherited.returncode, _PROBE_EXIT)`` into a vacuous pass. There is
+    exactly one copy so that cannot happen to one caller and not the other.
+    """
+    root = pathlib.Path(root)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    (scripts / "__init__.py").write_text("", encoding="utf-8")
+    (scripts / "predcov.py").write_text(
+        "raise SystemExit(%d)\n" % _PROBE_EXIT, encoding="utf-8")
+    return root
 
 
 class TestFrozenTreePathsSecGuard(unittest.TestCase):
@@ -1259,7 +1388,13 @@ class TestInstrumentGuarantees(unittest.TestCase):
         dimension values survives a stdout-only comparison, and set-iteration order
         leaking into a serialized list is precisely what this test exists to kill.
         """
-        env = dict(os.environ, PYTHONHASHSEED=env_seed, PYTHONDONTWRITEBYTECODE="1")
+        # This child must resolve THIS checkout's `scripts.predcov`; comparing two
+        # runs of some OTHER copy of the module would compare the wrong program to
+        # itself. A plugin session's PYTHONPATH may point anywhere, so both path
+        # variables are named outright here rather than inherited; see _fixture_env.
+        env = dict(os.environ, PYTHONHASHSEED=env_seed,
+                   PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(_ROOT),
+                   PYTHONSAFEPATH="1")
         with tempfile.TemporaryDirectory() as td:
             record = os.path.join(td, "predcov.json")
             proc = subprocess.run(
@@ -1400,8 +1535,14 @@ class TestInstrumentGuarantees(unittest.TestCase):
                                 capture_output=True, text=True).stdout
         target = _ROOT / predcov.DEFAULT_JSON_TARGET
         stat_before = target.stat().st_mtime_ns if target.exists() else None
-        subprocess.run(["python3", "-m", "scripts.predcov", "--corpus", "tests/corpus"],
-                       cwd=str(_ROOT), capture_output=True)
+        # Must resolve THIS checkout's scripts/predcov.py, or it checks some other
+        # copy's writes -- or none at all, which passes vacuously; see _fixture_env.
+        ran = subprocess.run(
+            ["python3", "-m", "scripts.predcov", "--corpus", "tests/corpus"],
+            cwd=str(_ROOT), capture_output=True,
+            env=dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONSAFEPATH="1"))
+        self.assertEqual(ran.returncode, 0,
+                         ran.stderr.decode("utf-8", "replace")[-400:])
         after = subprocess.run(["git", "status", "--porcelain"], cwd=str(_ROOT),
                                capture_output=True, text=True).stdout
         self.assertEqual(before, after)
@@ -1607,31 +1748,32 @@ class TestMakefileWiring(unittest.TestCase):
     def test_each_suppression_holds_the_exit_status_at_zero_on_its_own(self):
         """Executed, not read: a module that exits 3 cannot fail `make predcov`.
 
-        The control is the point. ``self.assertEqual(direct.returncode, 3)`` proves
+        The control is the point. ``self.assertEqual(direct.returncode, _PROBE_EXIT)`` proves
         the probe module really is a failing one, so a recipe that stopped suppressing
         anything could not pass this by accident. Then each suppression is measured
         alone: the ``|| true`` with make's ``-`` prefix stripped from the command, and
         the ``-`` prefix with ``|| true`` deleted from the recipe.
+
+        ALL FOUR launches must reach the PROBE rather than this repository's real
+        module, which is what :func:`_fixture_env` is for and what the method below
+        holds them to.
         """
         with tempfile.TemporaryDirectory() as td:
-            root = pathlib.Path(td)
-            (root / "scripts").mkdir()
-            (root / "scripts" / "__init__.py").write_text("", encoding="utf-8")
-            (root / "scripts" / "predcov.py").write_text(
-                "raise SystemExit(3)\n", encoding="utf-8")
+            root = _probe_tree(td)
             (root / "Makefile").write_text(self.text, encoding="utf-8")
 
             direct = subprocess.run(["python3", "-m", "scripts.predcov"],
-                                    cwd=td, capture_output=True)
-            self.assertEqual(direct.returncode, 3,
+                                    cwd=td, capture_output=True, env=_fixture_env())
+            self.assertEqual(direct.returncode, _PROBE_EXIT,
                              "the probe module does not fail; this test would be vacuous")
 
-            whole = subprocess.run(["make", "predcov"], cwd=td, capture_output=True)
+            whole = subprocess.run(["make", "predcov"], cwd=td, capture_output=True,
+                                   env=_fixture_env())
             self.assertEqual(whole.returncode, 0, whole.stderr[-400:])
 
             command = self._recipe("predcov")[0].lstrip("-@")
             shell_only = subprocess.run(["sh", "-c", command], cwd=td,
-                                        capture_output=True)
+                                        capture_output=True, env=_fixture_env())
             self.assertEqual(shell_only.returncode, 0,
                              "`|| true` no longer holds the status on its own")
 
@@ -1640,9 +1782,389 @@ class TestMakefileWiring(unittest.TestCase):
                     " || true", ""))
             self.assertNotEqual(no_shell_guard, self.text, "the mutation did not apply")
             (root / "Makefile").write_text(no_shell_guard, encoding="utf-8")
-            make_only = subprocess.run(["make", "predcov"], cwd=td, capture_output=True)
+            make_only = subprocess.run(["make", "predcov"], cwd=td, capture_output=True,
+                                       env=_fixture_env())
             self.assertEqual(make_only.returncode, 0,
                              "make's `-` prefix no longer holds the status on its own")
+
+    def test_every_launch_in_the_suppression_test_is_scrubbed_and_confined(self):
+        """What dies when the scrub -- or the fixture cwd -- is deleted beside it.
+
+        :class:`TestFixtureEnvironmentScrub` builds its own environment, so it stays
+        green if the ``env=`` arguments are dropped from the test above; and the
+        suppression test cannot catch its own regression, because a ``make ci`` run
+        from an ordinary shell carries neither variable and is green either way. So
+        this reads the source of that method and requires every subprocess launch
+        inside it to be handed a scrubbed environment AND a cwd inside the fixture
+        tree. An inherited environment -- or a hand-rolled one that removes only
+        ``PYTHONPATH`` -- is exactly what the audit in the module docstring found, and
+        is what this refuses.
+
+        THE PROPERTY, NOT ONE SPELLING OF IT. Pinning the literal text
+        ``"_fixture_env()"`` would turn the next obvious cleanup -- hoisting
+        ``env = _fixture_env()`` above the four launches, or passing the base
+        explicitly -- into four failures reading "does not scrub its environment",
+        which would be FALSE and would send the maintainer after a bug that is not
+        there. A pin that false-REDs an equivalent refactor is worth less than no pin.
+        So a bare name is resolved back to its assignment in the same method, and any
+        direct ``_fixture_env(...)`` call is accepted.
+
+        THAT RESOLUTION IS SOUND UNDER ONE PRECONDITION, WHICH IS CHECKED AND NOT
+        ASSUMED: the method binds the name exactly once. Measured on a tree where three
+        launches took an ``env = dict(os.environ, PYTHONPATH=str(_ROOT),
+        PYTHONSAFEPATH="1")`` and a fourth followed a later ``env = _fixture_env()``,
+        a last-wins map accepted ALL FOUR while three inherited a plugin session -- the
+        original blocker, back under a green pin, and invisible in ordinary CI where
+        ``make`` and ``sh`` return 0 either way. Resolving to the nearest preceding
+        assignment would rescue that shape and still lose to a rebinding inside an
+        ``if``, whose line order says nothing about what runs. So every STORE of the
+        name is counted -- assignment, ``for``, ``with ... as``, tuple unpacking,
+        walrus -- and anything other than exactly one is refused as UNRESOLVABLE rather
+        than read through. That declines to guess which binding was meant instead of
+        picking the flattering one, and the fix it asks for is a one-line one.
+
+        MATCHED ON THE AST NODE, NOT ON UNPARSED TEXT, and that is not a stylistic
+        preference. A ``resolved.startswith("_fixture_env(")`` prefix test accepts
+        ``_fixture_env() | {"PYTHONPATH": "/x"}``, which reads as a scrub while putting
+        back the very key these launches exist to be rid of. The whole ``env=``
+        expression must therefore BE a call to ``_fixture_env``: a ``BinOp``, a
+        ``dict(...)`` wrapper or anything else fails. ``_fixture_env()`` and
+        ``_fixture_env(os.environ)`` pass; ``_fixture_env() | {...}``,
+        ``dict(_fixture_env(), PYTHONPATH=str(_ROOT))`` and ``dict(os.environ,
+        PYTHONPATH="/x")`` all fail. The ``dict(_fixture_env(), ...)`` refusal is
+        deliberate rather than collateral: re-adding either key inside the very call
+        that removed it is the regression being caught.
+
+        ``cwd=`` IS READ IN THE SAME LOOP, because the scrub this pin MANDATES is what
+        makes cwd load-bearing. ``PYTHONSAFEPATH=1`` is this project's own v1.5.1
+        countermeasure against a hostile tree shadowing ``scripts.verdict``; these four
+        launches must drop it, and with it dropped CPython restores the child's cwd to
+        ``sys.path[0]``, ahead of ``PYTHONPATH``. A fifth launch written
+        ``env=_fixture_env(), cwd=str(_ROOT)`` would satisfy the scrub half and reopen
+        the hijack -- and the count assertion below actively pushes any new launch
+        towards ``_fixture_env()`` without asking where it runs. So each ``cwd=`` must
+        read its value from the name this method's ``with tempfile.TemporaryDirectory()
+        as ...`` binds: ``td``, ``str(td)`` and a ``root = _probe_tree(td)`` all pass,
+        while ``_ROOT``, a literal path and a missing ``cwd=`` do not.
+
+        The count is asserted first so that a fifth launch cannot be added without a
+        decision: silently exempting one is how three of these four came to pass
+        vacuously in the first place.
+        """
+        method = next(
+            node for node in ast.walk(
+                ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8")))
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "test_each_suppression_holds_the_exit_status_at_zero_on_its_own")
+        launches = [node for node in ast.walk(method)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "subprocess"]
+        self.assertEqual(len(launches), 4,
+                         "the suppression test no longer makes exactly four launches; "
+                         "re-derive this pin instead of widening it")
+        # Every name the method STORES, in any form, beside the subset it binds to a
+        # single readable expression. A name is followed only where those two agree it
+        # was bound once; `assigned` being last-wins is harmless under that guard, and
+        # a name bound by `with ... as` or `for` is present in `stores` alone, so it
+        # resolves to itself rather than to something it never held.
+        stores = [node.id for node in ast.walk(method)
+                  if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)]
+        assigned: dict[str, ast.expr] = {}
+        for node in ast.walk(method):
+            targets = (node.targets if isinstance(node, ast.Assign)
+                       else [node.target]
+                       if isinstance(node, (ast.AnnAssign, ast.NamedExpr)) else [])
+            for target in targets:
+                if isinstance(target, ast.Name) and node.value is not None:
+                    assigned[target.id] = node.value
+        fixtures = {item.optional_vars.id
+                    for node in ast.walk(method) if isinstance(node, ast.With)
+                    for item in node.items
+                    if isinstance(item.context_expr, ast.Call)
+                    and ast.unparse(item.context_expr.func) == "tempfile.TemporaryDirectory"
+                    and isinstance(item.optional_vars, ast.Name)}
+        self.assertEqual(len(fixtures), 1,
+                         "the suppression test no longer opens exactly one "
+                         "tempfile.TemporaryDirectory, so the cwd half of this pin has "
+                         "no fixture tree to confine those launches to")
+
+        def resolve(argv, keyword, expr):
+            """The expression a launch really passes, followed through a bare name."""
+            if not isinstance(expr, ast.Name):
+                return expr
+            self.assertEqual(
+                stores.count(expr.id), 1,
+                "%s passes %s=%s, a name the suppression test binds %d times. A rebound "
+                "name cannot be resolved by reading: three launches taking an inherited "
+                "environment ahead of a later `%s = _fixture_env()` read as scrubbed "
+                "under last-wins AND under nearest-assignment, while three children "
+                "measured this repository instead of the probe. Call _fixture_env() at "
+                "the launch, or give each launch its own name; see _fixture_env"
+                % (argv, keyword, expr.id, stores.count(expr.id), expr.id))
+            return assigned.get(expr.id, expr)
+
+        def sources(expr):
+            """Every name whose VALUE ``expr`` reads; a callee is not one of them."""
+            names = {expr.id} if isinstance(expr, ast.Name) else set()
+            for child in ast.iter_child_nodes(expr):
+                if isinstance(expr, ast.Call) and child is expr.func:
+                    continue
+                names |= sources(child)
+            return names
+
+        for call in launches:
+            argv = ast.unparse(call.args[0]) if call.args else "<no argv>"
+            passed = {kw.arg: kw.value for kw in call.keywords}
+            with self.subTest(launch=argv):
+                expr = passed.get("env")
+                resolved = resolve(argv, "env", expr)
+                # Reported as WRITTEN and as RESOLVED, because the two differ exactly
+                # when the launch passes a name -- and a message naming only `env=env`
+                # would hide the expression the reader has to go and fix.
+                written = ast.unparse(expr) if expr is not None else "<nothing>"
+                self.assertTrue(
+                    isinstance(resolved, ast.Call)
+                    and isinstance(resolved.func, ast.Name)
+                    and resolved.func.id == "_fixture_env",
+                    "%s is handed env=%s, which does not scrub the environment, so in "
+                    "a plugin session it measures this repository's scripts/predcov.py "
+                    "instead of the probe and the recipe's suppressions return 0 over "
+                    "the top of that; see _fixture_env"
+                    % (argv, written if resolved is expr
+                       else "%s, which is %s" % (written, ast.unparse(resolved))))
+                cwd = passed.get("cwd")
+                self.assertIsNotNone(
+                    cwd,
+                    "%s passes no cwd=, so it runs wherever the suite was started -- "
+                    "with PYTHONSAFEPATH scrubbed above, that directory becomes the "
+                    "child's sys.path[0]; see _fixture_env" % argv)
+                self.assertEqual(
+                    sources(resolve(argv, "cwd", cwd)), fixtures,
+                    "%s runs with cwd=%s, which does not read the fixture tempdir %s. "
+                    "These launches are REQUIRED above to drop PYTHONSAFEPATH -- the "
+                    "v1.5.1 sys.path-hijack countermeasure -- and with it gone CPython "
+                    "puts cwd back at sys.path[0] ahead of PYTHONPATH, so a cwd this "
+                    "test did not write itself can plant scripts/__init__.py and "
+                    "scripts/verdict.py over the frozen pure gate; see _fixture_env"
+                    % (argv, ast.unparse(cwd), sorted(fixtures)))
+
+
+class TestFixtureEnvironmentScrub(unittest.TestCase):
+    """:func:`_fixture_env` itself: its dict semantics, then its measured effect.
+
+    It is separate from :class:`TestMakefileWiring` because what it tests is the
+    module-level helper itself, not a method of that class. (Launching no ``make`` is
+    not the reason: the launch pin next door launches none either, and belongs there
+    because it reads one named method of ``TestMakefileWiring``.) What it pins is the
+    helper on which every fixture launch in this module depends, and the two halves fail
+    in different ways -- a broken scrub breaks those launches loudly, a scrub that
+    quietly stops scrubbing leaves them green and meaningless.
+    """
+
+    def test_the_scrub_copies_and_removes_only_the_two_path_variables(self):
+        """Pure dict semantics; nothing here runs a subprocess.
+
+        Each assertion kills a different plausible rewrite: one that mutated the
+        caller's mapping (``os.environ`` is shared, so the rest of the process would
+        inherit the damage), one that rebuilt the environment from the two keys alone
+        (a child with no ``PATH`` cannot find ``make``, ``sh`` or ``python3`` at all),
+        one that indexed instead of ``pop``-ing (``KeyError`` on the ordinary tree,
+        where neither variable is set), and one whose default argument stopped
+        reading the live environment -- the form every launch in this module uses.
+
+        THE BASE IS SYNTHETIC, which is what lets these be plain equalities.
+        ``unittest`` renders the container of a failed ``assertEqual`` in full and
+        UNTRUNCATED (``safe_repr`` is called with ``short=False``), so a pin driven
+        from a copy of the live process environment would print every
+        ``ANTHROPIC_API_KEY``, ``CLAUDE_CODE_*`` token and CI secret the session
+        exports into ``make ci``'s output and the ``.github/workflows/check.yml`` job
+        log -- at the exact moment it caught the regression it exists for. A four-key
+        dict has nothing to leak. This is the convention
+        ``tests/test_syspath_isolation.py``'s ``test_target_env_strips_only_the_plugin_switch``
+        already follows.
+
+        The live environment is reached only by the no-argument form at the bottom,
+        which is compared against the explicit one on sorted KEY LISTS with one value
+        spot-checked, so neither failure message there has to carry the environment
+        either.
+        """
+        hostile = dict(_PLUGIN_SESSION_ENV, PATH="/usr/bin", HOME="/root")
+        snapshot = dict(hostile)
+        scrubbed = _fixture_env(hostile)
+        self.assertEqual(scrubbed, {"PATH": "/usr/bin", "HOME": "/root"},
+                         "the scrub removed something other than the two path "
+                         "variables, or left one of them behind; a child with no PATH "
+                         "cannot find `make`, `sh` or `python3` at all")
+        # `os.environ` is the base every launch in this module passes, and it is
+        # shared, so a scrub that popped in place would strip this process too.
+        self.assertEqual(hostile, snapshot,
+                         "the scrub mutated the mapping it was handed instead of copying it")
+        self.assertEqual(sorted(_fixture_env({})), [],
+                         "scrubbing an environment that never carried either variable "
+                         "must be a no-op, not a KeyError")
+        # The no-argument form compared against the explicit one: same keys, and one
+        # value spot-checked. A default argument that stopped reading `os.environ`
+        # returns an empty dict and fails both, without either failure message having
+        # to carry the environment.
+        default, explicit = _fixture_env(), _fixture_env(dict(os.environ))
+        self.assertEqual(sorted(default), sorted(explicit),
+                         "the no-argument form -- the one every fixture launch in this "
+                         "module uses -- no longer reads the live environment")
+        self.assertEqual(default.get("PATH"), explicit.get("PATH"),
+                         "the no-argument form reads the live environment's keys but "
+                         "not its values")
+
+    def test_the_probe_module_still_wins_inside_a_plugin_session(self):
+        """The scrub EXECUTED, against the environment that actually breaks it.
+
+        Run ``make ci`` from an ordinary shell and neither variable is set, so a pin
+        that merely inherited the runner's environment would stay green on a tree whose
+        scrub had been deleted -- it would prove only that an environment nobody had
+        leaked did not leak. Inside the kimi-atlas plugin session this exists for, both
+        ARE exported. So the hostile environment is BUILT here, from
+        :data:`_PLUGIN_SESSION_ENV`, and the result holds whatever the ambient
+        environment happens to be.
+
+        The negative control is the point. Under that environment the probe is NOT
+        reached, so the run does not carry :data:`_PROBE_EXIT`; that is what proves
+        the hostile fixture is genuinely hostile and leaves the positive half with
+        something to prove.
+
+        WHICH MUTATION DIES WHERE -- measured, not assumed, because getting this wrong
+        is how a maintainer deletes the sibling as redundant. This method kills a scrub
+        that drops ``PYTHONPATH`` only: the surviving ``PYTHONSAFEPATH=1`` keeps ``td``
+        off ``sys.path``, ``scripts`` is then unresolvable, and the child exits 1 rather
+        than :data:`_PROBE_EXIT`. It does NOT kill a scrub that drops ``PYTHONSAFEPATH``
+        only -- with the switch gone CPython restores ``td`` to ``sys.path[0]`` ahead of
+        the surviving ``PYTHONPATH``, the probe is imported anyway, and BOTH assertions
+        below pass. That one dies in the method above, at
+        ``assertEqual(scrubbed, {"PATH": "/usr/bin", "HOME": "/root"})`` -- an expected
+        dict with no ``PYTHONSAFEPATH`` left in it -- which is why the dict-semantics
+        half covers a mutation this half cannot and must not be removed as duplicative.
+        """
+        hostile = dict(os.environ, **_PLUGIN_SESSION_ENV)
+        with tempfile.TemporaryDirectory() as td:
+            _probe_tree(td)
+
+            inherited = subprocess.run(["python3", "-m", "scripts.predcov"], cwd=td,
+                                       capture_output=True, env=hostile)
+            self.assertNotEqual(
+                inherited.returncode, _PROBE_EXIT,
+                "a plugin session's environment no longer redirects this launch away "
+                "from the fixture, so the scrub below is measuring nothing; re-derive "
+                "this pin rather than deleting it")
+
+            probed = subprocess.run(["python3", "-m", "scripts.predcov"], cwd=td,
+                                    capture_output=True, env=_fixture_env(hostile))
+            self.assertEqual(
+                probed.returncode, _PROBE_EXIT,
+                "the scrubbed child did not reach the probe module (exit %d): %s"
+                % (probed.returncode, probed.stderr[-400:]))
+
+
+class TestDocstringCitationsResolve(unittest.TestCase):
+    """Every assertion this module QUOTES has to exist in it, argument for argument.
+
+    Two citations in this file went stale inside a single pass. One named a literal
+    ``3`` that the code had already moved to :data:`_PROBE_EXIT` -- falsifying that
+    constant's own comment, which claims every assertion driving the probe reads it
+    from there. The other sent the reader to an ``assertNotIn`` on ``scrubbed`` that a
+    rewrite had replaced, and which then existed nowhere in the tree except inside the
+    sentence pointing at it. Both survived a green suite, because this module pins the
+    docstring COUNTS it depends on -- launch counts, per-site comments -- and had
+    nothing that resolved a quoted assertion back to source.
+
+    A dangling citation is worse than none. That second one was the only thing standing
+    between
+    :meth:`TestFixtureEnvironmentScrub.test_the_scrub_copies_and_removes_only_the_two_path_variables`
+    and a maintainer deleting it as duplicative, and it pointed at something they could
+    not find.
+
+    DELIBERATELY SMALL, and no more than this: it reads THIS file only, and compares the
+    LEADING arguments of the quoted call -- never the trailing failure message, which is
+    prose and would drift on every rewording. Prose that merely names a method without
+    arguments is not a citation and is not matched.
+    """
+
+    #: What counts as a citation: a double-backticked fragment whose text is an
+    #: ``assertX(`` call, with or without the ``self.`` receiver (both spellings are in
+    #: use here). The open parenthesis is required, so ``assertIn`` used as the NAME of
+    #: a method in a sentence is prose and stays out.
+    _CITATION = re.compile(r"``((?:self\.)?assert[A-Za-z]*\(.*?)``", re.S)
+
+    def test_every_quoted_assertion_resolves_to_a_real_call_in_this_module(self):
+        """Each quoted assertion fragment in a docstring, resolved against the source.
+
+        Compared on the AST rather than as text: both sides are parsed and unparsed, so
+        quoting style, line wrapping and inner whitespace cannot make a live citation
+        read as dead. Each is matched against every argument PREFIX of every real
+        assertion, which is what lets a citation elide the failure message it would
+        otherwise have to reproduce word for word.
+
+        Two failure paths of its own are pinned. A fragment that does not parse as a
+        call FAILS rather than being skipped -- skipping is how a citation would escape
+        by being malformed. And the whole check would pass vacuously if the pattern
+        matched nothing, so the count is asserted and the exact spelling that went stale
+        is run back through the matcher as a negative control: it must NOT resolve,
+        which is what shows this method would have caught it.
+        """
+        tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+
+        def signature(name, args):
+            return "%s(%s)" % (name, ", ".join(ast.unparse(arg) for arg in args))
+
+        real = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr.startswith("assert")):
+                for arity in range(len(node.args) + 1):
+                    real.add(signature(node.func.attr, node.args[:arity]))
+
+        def cited(text):
+            """The signature a fragment claims, or a failure if it is not a call."""
+            flat = " ".join(text.split())
+            try:
+                call = ast.parse(flat, mode="eval").body
+            except SyntaxError:
+                self.fail("`%s` is quoted as an assertion but does not parse as one; "
+                          "quote it as it is written, or drop the double backticks so "
+                          "it reads as prose" % flat)
+            self.assertIsInstance(call, ast.Call,
+                                  "`%s` is quoted as an assertion but is not a call" % flat)
+            self.assertIsInstance(
+                call.func, (ast.Attribute, ast.Name),
+                "`%s` names its assertion in a form this check cannot read" % flat)
+            return signature(
+                call.func.attr if isinstance(call.func, ast.Attribute) else call.func.id,
+                call.args)
+
+        citations = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef)):
+                continue
+            doc = ast.get_docstring(node, clean=False)
+            if doc:
+                citations += [(getattr(node, "name", "<module>"), match.group(1))
+                              for match in self._CITATION.finditer(doc)]
+        self.assertGreaterEqual(
+            len(citations), 3,
+            "no docstring in this module quotes an assertion any more, so this check is "
+            "measuring nothing; the three it was written for live in _probe_tree, in "
+            "TestMakefileWiring and in TestFixtureEnvironmentScrub")
+        for where, text in citations:
+            with self.subTest(citation=" ".join(text.split())):
+                self.assertIn(
+                    cited(text), real,
+                    "%s's docstring sends the reader to `%s`, which no assertion in this "
+                    "module makes. A citation that does not resolve is worse than none: "
+                    "it is what a maintainer follows just before deleting the test it "
+                    "claims to be pointing at" % (where, " ".join(text.split())))
+        self.assertNotIn(
+            cited('assertNotIn("PYTHONPATH", set(scrubbed))'), real,
+            "the dead spelling this check was built from now resolves, so the negative "
+            "control has stopped controlling anything; pick one that is really absent")
 
 
 class TestStopBlockLine(unittest.TestCase):
@@ -1761,6 +2283,9 @@ class TestSecondMeasure(unittest.TestCase):
             "print(json.dumps(r['second_measure'], sort_keys=True))" % str(_ROOT)
         )
         with tempfile.TemporaryDirectory() as elsewhere:
+            # No `env=` needed: the payload's own sys.path.insert(0, <repo>) outranks
+            # either leaked variable, and `check=True` stops a failed import from
+            # passing as two equal empty strings. See _fixture_env.
             from_root = subprocess.run(
                 [sys.executable, "-c", script], cwd=str(_ROOT),
                 capture_output=True, text=True, check=True).stdout

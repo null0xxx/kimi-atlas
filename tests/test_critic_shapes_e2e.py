@@ -103,6 +103,8 @@ class _RunDirMixin:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = pathlib.Path(tmp.name)
+        # Every child below must resolve THIS checkout's `scripts`, not the run
+        # directory it is launched in, so the repository is pinned outright.
         env = dict(os.environ, PYTHONPATH=str(REPO), PYTHONSAFEPATH="1")
         init = (
             "from scripts import ctxstore\n"

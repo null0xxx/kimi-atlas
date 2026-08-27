@@ -16,6 +16,13 @@ THREE OF THE SEVEN WERE INTRODUCED BY v1.5.2'S OWN FIXES, and three of them
 rule violated by the release that codified it. Each such test therefore carries
 an HONEST CONTROL asserting the un-attacked case stays green: a fix that turns
 these red by blocking everything is not a fix.
+
+Both subprocess launches below were audited against the rule that each child must
+resolve the module it is meant to measure, since a kimi-atlas plugin session
+exports ``PYTHONPATH=$CLAUDE_PLUGIN_ROOT`` and ``PYTHONSAFEPATH=1`` into every
+child (``tests/test_predcov.py``'s ``_fixture_env`` derives the mechanism).
+``_drive`` already pins ``PYTHONPATH`` to this checkout, deliberately: it is the
+plugin-session environment that the SKILL block under test must survive.
 """
 from __future__ import annotations
 
@@ -77,6 +84,10 @@ class TestC1ModelTextNeverBecomesSource(unittest.TestCase):
         payload = "{}''' \nimport pathlib; pathlib.Path('RCE').write_text('x')\nRAW = '''{}"
         src = "RAW = r'''" + payload + "'''\n"
         with tempfile.TemporaryDirectory() as d:
+            # No `env=` and none needed: the `-c` payload imports nothing but
+            # stdlib pathlib, and the returncode is asserted immediately below, so
+            # a child that failed to import anything at all fails this test rather
+            # than passing it silently.
             proc = subprocess.run([sys.executable, "-c", src], cwd=d,
                                   capture_output=True, text=True, timeout=60)
             self.assertEqual(proc.returncode, 0, proc.stderr)

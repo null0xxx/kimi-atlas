@@ -400,6 +400,8 @@ class TestFailOpenProbes(unittest.TestCase):
         src = d / "critic.raw.json"
         if write_payload:
             src.write_bytes(payload_bytes)
+        # This child must resolve THIS checkout's `scripts`, not the tempdir cwd it
+        # runs in, so the repository is pinned outright rather than inherited.
         env = dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONSAFEPATH="1")
         proc = subprocess.run([sys.executable, "-c", self.block, str(src)],
                               cwd=str(d), capture_output=True, text=True,
