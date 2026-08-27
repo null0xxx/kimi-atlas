@@ -952,3 +952,18 @@ NTFS `$UpCase` and APFS folding are modelled from documentation, not measured on
 scope · HFS+ normalization is an NFD variant while the key normalizes NFC · an untracked manifest
 this tool overwrote still has no undo (the printed recovery says so) · git-ignored files stay
 invisible to the precondition, deliberately, because flagging them would false-reject.
+
+## 2026-08-27 — the marketplace install is now MEASURED, not asserted
+
+[`references/plugin-install-live-validation.md`](plugin-install-live-validation.md) records a live
+run on Claude Code 2.1.246 at HEAD `314fa9b`, in an isolated `CLAUDE_CONFIG_DIR` so the developer
+machine's own registration was never touched.
+
+`claude plugin marketplace add null0xxx/kimi-atlas` and `claude plugin install kimi-atlas@kimi-atlas`
+both succeed from a clean config, and the marketplace registers as **`Source: GitHub`**, not as the
+local directory the working install had used. This closes the one live claim in this repository that
+section G found had no committed evidence — and it could not have succeeded before this session,
+because `.claude-plugin/marketplace.json` was committed but **unpushed** until now.
+
+One number did not reproduce: `AGENTS.md:25` claims ~16.6k always-on tokens; measured ~11,713 on a
+newer CLI build. Recorded as a discrepancy to reconcile, not a refutation.
