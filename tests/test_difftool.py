@@ -9,6 +9,11 @@ whole tree at EVERY call site — git rejects ``""`` and ``cat-file`` rejects
 ``.``), CWD-relative ``<rev>:./<path>`` resolution for subdirectory launches,
 the ``--`` separator for flag-like filenames, and the ``capture_full`` /
 ``change_paths`` integration pair.
+
+``TestBaselineOptionInjection`` fires the SEC-2 / VIP-A2 attack — an
+option-shaped ``baseline_sha`` — at every sink and asserts on the filesystem,
+because the remedy for an option-injection bug cannot be validated by reading
+the argv it builds.
 """
 import re
 import shutil
@@ -16,6 +21,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import difftool
 
@@ -555,6 +561,212 @@ class TestGitTreeHasBaseline(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.assertFalse(difftool.git_tree_has_baseline(tmp.name, "abc123"))
+
+
+@unittest.skipUnless(_HAS_GIT, "git is required for option-injection tests")
+class TestBaselineOptionInjection(unittest.TestCase):
+    """SEC-2 / plan VIP-A2: an option-shaped ``baseline_sha`` must never reach git.
+
+    ``baseline_sha`` lands in a REVISION slot, and **git parses options anywhere
+    before ``--``** — so a value beginning with ``-`` is an option. Measured at
+    ``9b41010``, ``--output=<p>`` wrote ``<p>`` from ``change_paths`` and from
+    ``capture`` via ``_tracked_diff`` — reached with a staged-new file, under a
+    whole-tree scope and an explicit one alike. Each assertion below fires the
+    attack and looks at the FILESYSTEM and at the return value, never at the
+    argv, which is the proxy-property check that let plan v1 ship an inert fix.
+
+    Killing mutation: drop the ``_validated_baseline`` call in
+    ``change_paths``/``_tracked_diff``/``capture`` and this class goes red at
+    that site. Measured on git 2.43, the two layers back each other up — with the
+    validator gone the terminator still stopped the WRITE, and with the
+    terminator gone (an old host, simulated below) the validator still did — but
+    remove the validator and put the terminator after the value, which is v1's
+    remedy, and the probe file is written again.
+
+    LIVE ARBITRARY FILE WRITE while unfixed: every probe path resolves inside a
+    per-test ``TemporaryDirectory`` removed on cleanup, so this checkout is
+    byte-identical after any number of runs.
+    """
+
+    #: ``--output=`` is the vector that WRITES (git diff's own file redirect).
+    #: The other two are refused by today's git and pin that the refusal is ours,
+    #: not a lucky property of one git version's option table.
+    _PAYLOADS = ("--output=%s", "--upload-pack=%s", "-%s")
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.sandbox = Path(tmp.name)
+        self.repo = self.sandbox / "repo"
+        (self.repo / "src").mkdir(parents=True)
+        self._git("init", "-q")
+        self._git("config", "user.email", "t@example.com")
+        self._git("config", "user.name", "t")
+        (self.repo / "src" / "tracked.py").write_text("x = 1\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "baseline")
+        self.baseline = self._git("rev-parse", "HEAD").strip()
+        # A tracked modification AND a staged-new file: the staged channel is the
+        # only way the attacker's value reaches _tracked_diff, so without it this
+        # class would test two of the three sites and call it three.
+        (self.repo / "src" / "tracked.py").write_text("x = 2\n", encoding="utf-8")
+        (self.repo / "staged_new.py").write_text("z = 9\n", encoding="utf-8")
+        self._git("add", "staged_new.py")
+
+    def _git(self, *args) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, capture_output=True, text=True, check=True
+        ).stdout
+
+    def _probes(self):
+        """The two probe paths: outside the work tree, and inside it.
+
+        Inside, a written probe also comes back in ``change_paths``'s untracked
+        channel (the plan's ``['PWNED.txt']`` cell); outside, the call returns
+        ``[]`` and the write is completely silent — which is why both are fired.
+        """
+        return (("outside", self.sandbox / "PWNED.txt"),
+                ("inside", self.repo / "PWNED.txt"))
+
+    def test_probe_paths_never_escape_the_sandbox(self):
+        for where, probe in self._probes():
+            with self.subTest(where=where):
+                self.assertTrue(str(probe.resolve()).startswith(
+                    str(self.sandbox.resolve()) + "/"))
+
+    def test_change_paths_writes_no_file_and_returns_no_injected_path(self):
+        for template in self._PAYLOADS:
+            for where, probe in self._probes():
+                with self.subTest(payload=template, where=where):
+                    self.assertFalse(probe.exists(), "probe must not pre-exist")
+                    paths = difftool.change_paths(template % probe, str(self.repo))
+                    self.assertFalse(probe.exists(),
+                                     "git wrote %s: the baseline reached it as an option"
+                                     % probe)
+                    self.assertEqual(paths, [],
+                                     "a refused baseline must contribute nothing")
+
+    def test_capture_writes_no_file_at_either_tracked_diff_site(self):
+        # ["."] exercises the whole-tree argv AND (via the staged file) the
+        # concrete one; the explicit path list exercises the concrete one alone.
+        for scope in (["."], ["src/tracked.py", "staged_new.py"]):
+            for template in self._PAYLOADS:
+                for where, probe in self._probes():
+                    with self.subTest(scope=scope, payload=template, where=where):
+                        diff = difftool.capture(template % probe, scope, str(self.repo))
+                        self.assertFalse(probe.exists(),
+                                         "git wrote %s from capture%r" % (probe, scope))
+                        self.assertEqual(diff, "")
+
+    def test_control_the_attacked_sites_really_run_with_an_honest_baseline(self):
+        # Non-vacuity: without this, the class above could pass because the code
+        # path is never reached. An honest sha must produce the tracked change
+        # (whole-tree argv) AND the staged-new file (concrete argv, the shape the
+        # attack travels), and change_paths must list both.
+        whole = difftool.capture(self.baseline, ["."], str(self.repo))
+        self.assertIn("+x = 2", whole)
+        self.assertIn("+z = 9", whole)
+        concrete = difftool.capture(
+            self.baseline, ["src/tracked.py", "staged_new.py"], str(self.repo)
+        )
+        self.assertIn("+x = 2", concrete)
+        self.assertIn("+z = 9", concrete)
+        self.assertEqual(difftool.change_paths(self.baseline, str(self.repo)),
+                         ["src/tracked.py", "staged_new.py"])
+
+    def test_an_option_that_only_changes_output_is_refused_too(self):
+        # A payload that writes nothing, so "no file appeared" cannot be the
+        # proof: `--no-relative` cancels change_paths' own `--relative`, and from
+        # a subdirectory that swaps cwd-relative paths for repo-root-relative
+        # ones. Measured at 9b41010: ['src/tracked.py'] instead of ['tracked.py']
+        # — git parsed the baseline as an option. It must now contribute nothing.
+        subdir = str(self.repo / "src")
+        self.assertEqual(difftool.change_paths(self.baseline, subdir), ["tracked.py"])
+        self.assertEqual(difftool.change_paths("--no-relative", subdir), [])
+
+    def test_a_refused_baseline_is_not_silently_treated_as_no_baseline(self):
+        # The quiet failure mode: refusing the value and then falling into the
+        # no-baseline branch would answer with worktree-vs-index evidence — a
+        # DIFFERENT diff than the caller asked for, which no consumer could tell
+        # apart from the real one. A refusal must degrade like an unresolvable
+        # baseline: contribute nothing.
+        scope = ["src/tracked.py"]
+        self.assertEqual(difftool.capture("HEAD~1", scope, str(self.repo)), "")
+        self.assertEqual(difftool.capture("--output=x", scope, str(self.repo)), "")
+        self.assertIn("+x = 2", difftool.capture("", scope, str(self.repo)))
+
+    def test_empty_baseline_still_captures_the_change(self):
+        # The honest lane pinned: scripts/run_negative_gate.py captures every
+        # fixture with difftool.capture("", scope_paths, tmp) in a NON-git temp
+        # dir, and the SKILL's non-git target lane records "" too. A validator
+        # that rejected the empty string would turn both red — this project ranks
+        # that worse than the bug being fixed here.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        (Path(tmp.name) / "add.py").write_text("def add(a, b):\n    return a + b\n",
+                                               encoding="utf-8")
+        non_git = difftool.capture("", ["add.py"], tmp.name)
+        self.assertIn("new file", non_git)
+        self.assertIn("+def add(a, b):", non_git)
+        self.assertIn("+x = 2", difftool.capture("", ["src/tracked.py"], str(self.repo)))
+
+    def test_git_tree_has_baseline_refuses_a_ref_it_could_have_resolved(self):
+        # The R3 gate is a sink too: `HEAD` resolves in this repo, so before the
+        # fix this returned True and handed the string on. Refusal is visible
+        # here as False — the empty and None cases keep their existing meaning.
+        self.assertTrue(difftool.git_tree_has_baseline(str(self.repo), self.baseline))
+        self.assertFalse(difftool.git_tree_has_baseline(str(self.repo), "HEAD"))
+        self.assertFalse(difftool.git_tree_has_baseline(str(self.repo), "--output=x"))
+        self.assertFalse(difftool.git_tree_has_baseline(str(self.repo), ""))
+        self.assertFalse(difftool.git_tree_has_baseline(str(self.repo), None))
+        self.assertFalse(difftool.git_tree_has_baseline(str(self.repo), "0" * 40))
+
+    def test_a_git_too_old_for_end_of_options_stays_honest_and_stays_closed(self):
+        # `--end-of-options` needs git >= 2.24 (2019-11). An older git rejects
+        # the terminator itself with the usage code 129 before doing any work;
+        # simulate exactly that. Two things must hold, or the fix would be one
+        # that silently no-ops on an old host: honest diffs still come back (the
+        # retry), and the injection is still blocked (the validator, which needs
+        # no git feature at all).
+        real_run = difftool._run
+
+        def old_git(argv, cwd):
+            if difftool._END_OF_OPTIONS in argv:
+                return "", 129
+            return real_run(argv, cwd)
+
+        with mock.patch.object(difftool, "_run", old_git):
+            self.assertIn("+x = 2",
+                          difftool.capture(self.baseline, ["src/tracked.py"], str(self.repo)))
+            self.assertEqual(difftool.change_paths(self.baseline, str(self.repo)),
+                             ["src/tracked.py", "staged_new.py"])
+            for where, probe in self._probes():
+                with self.subTest(where=where):
+                    difftool.change_paths("--output=%s" % probe, str(self.repo))
+                    difftool.capture("--output=%s" % probe, ["."], str(self.repo))
+                    self.assertFalse(probe.exists())
+
+    def test_an_untracked_file_named_like_the_sha_no_longer_hides_the_diff(self):
+        # Not an attack: the trailing `--` that ends the revision list also fixes
+        # a silent evidence loss. Measured at 9b41010 — "fatal: ambiguous
+        # argument", and the whole tracked channel vanished from change_paths.
+        (self.repo / self.baseline).write_text("collision\n", encoding="utf-8")
+        paths = difftool.change_paths(self.baseline, str(self.repo))
+        self.assertIn("src/tracked.py", paths)
+        self.assertIn(self.baseline, paths)
+
+    def test_the_sha_rule_is_the_one_corpusbuild_already_uses(self):
+        # corpusbuild guarded ITSELF against this sink and the sink stayed open;
+        # the rule now lives at the sink as well. Two copies of a rule drift, so
+        # this pins them byte-identical. Imported here rather than at module
+        # level: corpusbuild is a capture tool that imports difftool, and nothing
+        # on the review path may start depending on it the other way round.
+        from scripts import corpusbuild
+        self.assertEqual(difftool._SHA.pattern, corpusbuild._SHA.pattern)
+        self.assertIsNone(difftool._validated_baseline("--output=x"))
+        self.assertEqual(difftool._validated_baseline(" %s " % self.baseline), self.baseline)
+        self.assertEqual(difftool._validated_baseline(""), "")
+        self.assertEqual(difftool._validated_baseline(None), "")
 
 
 if __name__ == "__main__":

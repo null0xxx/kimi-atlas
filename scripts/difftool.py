@@ -30,6 +30,19 @@ same tree state always yields byte-identical output, and every failure mode
 (no git, non-repo, unresolved baseline, missing file) degrades to "no diff",
 never an exception. The working tree and index are never mutated.
 
+Baseline contract (SEC-2 / plan VIP-A2): ``baseline_sha`` reaches git in a
+REVISION slot, and **git parses options anywhere before ``--``** — so a value
+beginning with ``-`` is an option, not a revision. Measured at ``9b41010``:
+``change_paths("--output=<p>", <a git tree>)`` CREATED ``<p>``, and so did
+``capture`` through ``_tracked_diff`` (reached with a staged-new file, whole-tree
+and concrete scopes alike). Appending a ``--`` after the value does not — it was
+measured INERT, because git reads options up to the first ``--``, not past it. Every
+sink here therefore refuses anything that is not ``[0-9a-fA-F]{7,40}`` (or
+empty) BEFORE any git call (:func:`_validated_baseline`), and passes what
+survives after ``--end-of-options`` (:func:`_run_rev`). The empty string stays
+valid and means "no baseline": ``scripts/run_negative_gate.py`` captures its
+fixtures with it, and refusing it would turn an honest lane red.
+
 Pathspec contract (v1.5.2): ``.``, ``""`` and ``./`` — and any spec reducing to
 them after stripping one leading ``./`` and trailing ``/`` — mean THE WHOLE
 TREE and are normalized away before reaching git: ``cat-file`` rejects
@@ -53,7 +66,20 @@ Two companion entry points serve the integration layer:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+
+#: A baseline sha is 7-40 hex characters and nothing else; anything that could be
+#: read by git as an option, a path or a revision expression is refused (SEC-2).
+#: ``scripts/corpusbuild.py``'s ``_SHA`` is the same rule, written there because
+#: THIS sink was open — one caller defending itself is what let the hole live, so
+#: the rule now stands at the sink too. ``tests/test_difftool.py`` pins the two
+#: patterns byte-identical so they cannot drift apart.
+_SHA = re.compile(r"[0-9a-fA-F]{7,40}")
+
+#: Everything after it is a non-option, whatever it looks like. Needs git >= 2.24
+#: (2019-11); :func:`_run_rev` handles an older git explicitly.
+_END_OF_OPTIONS = "--end-of-options"
 
 
 def _run(argv: list[str], cwd: str) -> tuple[str, int]:
@@ -74,6 +100,52 @@ def _run(argv: list[str], cwd: str) -> tuple[str, int]:
     except (FileNotFoundError, OSError):
         return "", 127
     return proc.stdout, proc.returncode
+
+
+def _validated_baseline(baseline_sha: str | None) -> str | None:
+    """The baseline exactly as git may receive it, or ``None`` when it is REFUSED.
+
+    Three outcomes, and the difference between the last two is the whole point:
+
+    * ``""`` — no baseline was recorded. Honest and supported: the non-git
+      headless lane and ``scripts/run_negative_gate.py`` both pass it, and every
+      caller already branches on it (worktree-vs-index). It stays valid.
+    * a 7-40 hex sha — the only shape ever handed to git.
+    * ``None`` — refused (SEC-2). A refused baseline behaves exactly like an
+      UNRESOLVABLE one (the tracked channel contributes nothing) and never like
+      an EMPTY one, which would silently substitute *different* evidence
+      (worktree-vs-index) for the diff the caller asked for. ``run_negative_gate``
+      would not notice the swap; a reviewer would not either.
+
+    ``None`` input is accepted (``git_tree_has_baseline`` is documented to take
+    it) and reads as "no baseline", never as a refusal.
+    """
+    baseline = (baseline_sha or "").strip()
+    if not baseline:
+        return ""
+    return baseline if _SHA.fullmatch(baseline) else None
+
+
+def _run_rev(head: list[str], rev: str, tail: list[str], cwd: str) -> tuple[str, int]:
+    """Run ``git <head> --end-of-options <rev> <tail>`` — ``rev`` can never be an option.
+
+    The terminator goes BEFORE the untrusted value: git parses options anywhere
+    up to the first ``--``, so a trailing one is inert (plan §7 measured exactly
+    that). It needs git >= 2.24; an older git rejects the terminator itself with
+    the usage exit code 129 *before doing any work*, and that one case — and only
+    that case — is re-run without it, so an old host keeps producing honest diffs
+    instead of silently producing none.
+
+    On such a host the injection is still closed, because
+    :func:`_validated_baseline` has already refused everything that is not a hex
+    sha and is version-independent: the validator is the lock, this is the
+    deadbolt. Every caller validates first, so the fallback can only ever re-run
+    a value already proven to be ``[0-9a-fA-F]{7,40}``.
+    """
+    out, rc = _run([*head, _END_OF_OPTIONS, rev, *tail], cwd)
+    if rc == 129:  # git < 2.24: the terminator is itself the unknown option
+        out, rc = _run([*head, rev, *tail], cwd)
+    return out, rc
 
 
 def _is_git_repo(cwd: str) -> bool:
@@ -110,12 +182,18 @@ def _tracked_at(cwd: str, baseline: str, path: str) -> bool:
     root and any subdirectory; the old ``<baseline>:<path>`` form resolves
     ROOT-relative, so a run launched from a monorepo subdirectory silently
     lost every tracked modification. That is a deliberate behavior change.
+
+    ``baseline`` is validated HERE, not only by the caller: nothing is tracked
+    at a baseline that git may not be shown (SEC-2).
     """
+    rev = _validated_baseline(baseline)
+    if not rev:  # refused, or no baseline at all
+        return False
     if _is_whole_tree(path):
-        _, rc = _run(["cat-file", "-e", f"{baseline}:"], cwd)
+        _, rc = _run_rev(["cat-file", "-e"], f"{rev}:", [], cwd)
     else:
-        _, rc = _run(
-            ["cat-file", "-e", f"{baseline}:./{_normalize_pathspec(path)}"], cwd
+        _, rc = _run_rev(
+            ["cat-file", "-e"], f"{rev}:./{_normalize_pathspec(path)}", [], cwd
         )
     return rc == 0
 
@@ -130,12 +208,23 @@ def _tracked_diff(cwd: str, baseline: str, path: str) -> str:
     (``--relative``) stay cwd-scoped. ``-- .`` is byte-identical to no pathspec
     from the repo root and cwd-scoped from a subdirectory, so every channel
     agrees on the same review_root-relative tree.
+
+    ``baseline`` is validated HERE (SEC-2), for both argv shapes. Measured at
+    ``9b41010``: the concrete shape wrote an attacker-named file, reached with a
+    staged-new file (``_staged_new_in_scope`` selects paths *absent* at the
+    baseline, so it hands the value straight here). The whole-tree shape is the
+    same statement one branch away — it was reachable only behind
+    :func:`_tracked_at`'s ``cat-file`` probe, which happens to reject an
+    ``--output=`` value, i.e. that site was covered by an accident of another
+    command's option table, not by anything here. The ``--`` these argvs already
+    carried is AFTER the value and therefore inert.
     """
-    if _is_whole_tree(path):
-        argv = ["diff", "--no-color", "--no-ext-diff", baseline, "--", "."]
-    else:
-        argv = ["diff", "--no-color", "--no-ext-diff", baseline, "--", path]
-    out, rc = _run(argv, cwd)
+    rev = _validated_baseline(baseline)
+    if not rev:  # refused, or no baseline at all
+        return ""
+    head = ["diff", "--no-color", "--no-ext-diff"]
+    tail = ["--", "." if _is_whole_tree(path) else path]
+    out, rc = _run_rev(head, rev, tail, cwd)
     return out if rc in (0, 1) else ""
 
 
@@ -228,8 +317,12 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
     Handles modified tracked files, brand-new (untracked) files, and non-git
     trees uniformly, and never mutates the working tree or index. Returns an
     empty string when there is nothing to show.
+
+    A baseline that is not a hex sha is refused (SEC-2) and contributes nothing,
+    exactly as an unresolvable one does — never the no-baseline fallback, which
+    would answer with different evidence than the caller asked for.
     """
-    baseline = baseline_sha.strip() if baseline_sha else ""
+    baseline = _validated_baseline(baseline_sha)
     parts: list[str] = []
 
     if _is_git_repo(cwd):
@@ -251,7 +344,7 @@ def capture(baseline_sha: str, scope_paths: list[str], cwd: str) -> str:
             #     snapshot if it was staged and then edited further).
             for rel in _staged_new_in_scope(cwd, baseline, scope_paths):
                 parts.append(_tracked_diff(cwd, baseline, rel))
-        else:
+        elif baseline is not None:
             # No baseline: fall back to working-tree-vs-index for tracked files.
             # Whole-tree specs become ``-- .`` (the empty-string pathspec is
             # fatal, and a bare no-pathspec diff is repo-wide from a subdir —
@@ -294,13 +387,17 @@ def git_tree_has_baseline(cwd: str, baseline_sha: str) -> bool:
     resolves to a commit there. Outside them, ``capture_full`` / ``change_paths``
     must contribute nothing — on a non-git tree every pre-existing file renders
     as new, and an unresolvable baseline silently degrades the tracked channel.
+
+    A baseline that is not a hex sha is refused before the probe (SEC-2) and
+    reports False — it does not resolve to a commit, because it is never allowed
+    to be looked up.
     """
     if not _is_git_repo(cwd):
         return False
-    baseline = (baseline_sha or "").strip()
+    baseline = _validated_baseline(baseline_sha)
     if not baseline:
         return False
-    _, rc = _run(["cat-file", "-e", "%s^{commit}" % baseline], cwd)
+    _, rc = _run_rev(["cat-file", "-e"], "%s^{commit}" % baseline, [], cwd)
     return rc == 0
 
 
@@ -323,17 +420,25 @@ def change_paths(baseline_sha: str, cwd: str) -> list[str]:
 
     Pure of side effects; never raises — a non-git tree or any git failure
     degrades to ``[]`` (same discipline as :func:`_run`).
+
+    This is the site the SEC-2 arbitrary file write was measured at: the
+    baseline is refused unless it is a hex sha (a refused one silences the diff
+    channel, exactly like an unresolvable sha), it is passed after
+    ``--end-of-options``, and the trailing ``--`` ends the revision list — which
+    also fixes a silent evidence loss unrelated to any attacker, an untracked
+    file whose name happens to equal the baseline sha ("fatal: ambiguous
+    argument", measured, which dropped the whole tracked channel).
     """
     if not _is_git_repo(cwd):
         return []
-    baseline = baseline_sha.strip() if baseline_sha else ""
+    baseline = _validated_baseline(baseline_sha)
     paths: set[str] = set()
-    argv = ["diff", "--name-only", "-z", "--relative"]
-    if baseline:
-        argv.append(baseline)
-    out, rc = _run(argv, cwd)
-    if rc in (0, 1):
-        paths.update(field for field in out.split("\0") if field)
+    if baseline is not None:  # a refused baseline silences the diff channel
+        argv = ["diff", "--name-only", "-z", "--relative"]
+        out, rc = (_run_rev(argv, baseline, ["--"], cwd) if baseline
+                   else _run([*argv, "--"], cwd))
+        if rc in (0, 1):
+            paths.update(field for field in out.split("\0") if field)
     out, rc = _run(["ls-files", "--others", "--exclude-standard", "-z"], cwd)
     if rc == 0:
         paths.update(field for field in out.split("\0") if field)

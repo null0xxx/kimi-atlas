@@ -12,6 +12,9 @@
     },
     "values": {
       "invocation_form": ["interactive", "headless"]
+    },
+    "formats": {
+      "baseline_sha": "([0-9a-fA-F]{7,40})?"
     }
   },
   "context": {
@@ -28,6 +31,9 @@
     },
     "optional": {
       "clarify_resolution": "str"
+    },
+    "formats": {
+      "baseline_sha": "([0-9a-fA-F]{7,40})?"
     }
   },
   "context-graph": {

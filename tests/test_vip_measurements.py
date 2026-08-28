@@ -15,8 +15,15 @@ indicted. Re-taken at the build HEAD, not copied from the document.
 Every class also carries a control (a non-defective input that behaves correctly), so
 the suite cannot pass by the measured function having become uniformly broken.
 
-Scope note: ``TestVIPA2OptionInjection`` exercises a LIVE arbitrary-file-write. Its
-probe path is confined to a per-test ``TemporaryDirectory`` that is removed on
+**VIP-A2 (step 1) has since LANDED, so its class is the flipped one.** Its assertions
+now pin the FIXED behaviour — an option-shaped ``baseline_sha`` writes nothing — and
+its killing mutation is the plan's: restore the unvalidated baseline in
+``scripts/difftool.py`` and the probe file reappears. Leaving it pinned to the defect
+would have been the tell that nothing changed. Every other class below still pins an
+OPEN defect and still flips when its item is fixed.
+
+Scope note: ``TestVIPA2OptionInjection`` fires a LIVE arbitrary-file-write attempt.
+Its probe path is confined to a per-test ``TemporaryDirectory`` that is removed on
 cleanup; nothing is ever written inside this checkout.
 """
 from __future__ import annotations
@@ -260,11 +267,23 @@ def _hermetic_git_env():
 
 @unittest.skipUnless(_HAS_GIT, "git not installed")
 class TestVIPA2OptionInjection(unittest.TestCase):
-    """VIP-A2 (Class GREEN, step 1): ``baseline_sha`` reaches ``git`` as an option.
+    """VIP-A2 (Class GREEN, step 1) — **FIXED; this class is polarity-flipped.**
 
-    LIVE ARBITRARY FILE WRITE. Every path used here lives inside a per-test
-    ``TemporaryDirectory`` removed on cleanup, so running this class any number of
-    times leaves this checkout byte-identical.
+    ``baseline_sha`` lands in a git REVISION slot and git parses options anywhere
+    before ``--``, so at ``9b41010`` an option-shaped value WAS an option:
+    ``change_paths("--output=<p>", <a git tree>)`` created ``<p>``. ``difftool``
+    now refuses anything that is not ``[0-9a-fA-F]{7,40}`` at every sink and
+    passes what survives after ``--end-of-options``, so the same calls write
+    nothing. The plan's killing mutation for this row — *restore the unvalidated
+    baseline → the probe file must appear* — is what turns this class red again.
+
+    Note the trap this row exists to remember: appending a ``--`` AFTER the value
+    (plan v1's remedy) leaves every assertion below red, measured. The proof is
+    the filesystem, never the argv.
+
+    LIVE ARBITRARY FILE WRITE ATTEMPT. Every path used here lives inside a
+    per-test ``TemporaryDirectory`` removed on cleanup, so running this class any
+    number of times leaves this checkout byte-identical.
     """
 
     def setUp(self):
@@ -284,53 +303,53 @@ class TestVIPA2OptionInjection(unittest.TestCase):
             capture_output=True, text=True).stdout.strip()
         (self.repo / "tracked.txt").write_text("modified\n", encoding="utf-8")
 
-    def test_a_baseline_shaped_like_an_option_writes_a_file_outside_the_repo(self):
-        """VIP-A2: ``change_paths("--output=<probe>", repo)`` CREATES ``<probe>``.
+    def test_a_baseline_shaped_like_an_option_writes_nothing_outside_the_repo(self):
+        """VIP-A2, fixed: ``change_paths("--output=<probe>", repo)`` creates NOTHING.
 
-        ``baseline_sha`` is appended to the ``git diff`` argv unvalidated, and git
-        parses options anywhere before ``--``, so an attacker-chosen
-        ``--output=PATH`` makes the gate write a file of git's choosing at a path
-        of the caller's choosing — here, outside the repository entirely. FLIPS
-        when VIP-A2 lands the ``^[0-9a-fA-F]{7,40}$`` validation plus
-        ``--end-of-options`` before the baseline at all three diff sites: the
-        probe must then NOT exist. §7 warns that merely appending ``--`` after the
-        baseline is INERT — a fix validated by asserting a ``--`` is present
-        rather than that the write stopped would reproduce the document's own
-        indictment.
+        Measured at ``9b41010``, this exact call created ``<probe>`` — outside
+        the repository entirely — and returned ``[]``, so the write left no trace
+        in the value the caller inspects. That is the quiet half of the defect,
+        which is why it is asserted here rather than only the in-tree one.
+
+        Killing mutation (the plan's own): drop the validation in
+        ``difftool.change_paths`` and the probe reappears. Replacing it with a
+        trailing ``--`` instead — v1's inert remedy — also leaves this red, and a
+        refused baseline must contribute no paths, exactly like an unresolvable
+        one.
         """
         probe = self.sandbox / "PWNED.txt"
         self.assertFalse(probe.exists(), "probe must not pre-exist")
 
         paths = difftool.change_paths("--output=%s" % probe, str(self.repo))
 
-        self.assertTrue(probe.exists(),
-                        "VIP-A2 is fixed or unreproducible: no file was written")
-        # The diff was redirected into the probe, so the diff channel contributed
-        # nothing and the untracked channel sees nothing (the probe is outside).
+        self.assertFalse(probe.exists(),
+                         "VIP-A2 has regressed: git wrote %s" % probe)
         self.assertEqual(paths, [])
-        self.assertEqual(probe.read_text(encoding="utf-8"), "tracked.txt\0")
 
-    def test_the_written_probe_also_lands_in_the_returned_path_list(self):
-        """VIP-A2: an in-repo probe reproduces the plan's ``['PWNED.txt']`` cell.
+    def test_an_in_tree_probe_is_neither_written_nor_returned(self):
+        """VIP-A2, fixed: the plan's ``['PWNED.txt']`` cell no longer reproduces.
 
-        Written inside the work tree, the probe is picked up by the
-        ``ls-files --others`` channel, so the injected artifact is also reported
-        to the caller as a changed path — the exact output §4 records. FLIPS with
-        the same validation fix.
+        Written INSIDE the work tree the probe used to be picked up by the
+        ``ls-files --others`` channel too, so the injected artifact was reported
+        back to the caller as a changed path. Both halves must be gone: no file,
+        and no injected entry in the list. Same killing mutation as above.
         """
         probe = self.repo / "PWNED.txt"
         self.assertFalse(probe.exists(), "probe must not pre-exist")
 
         paths = difftool.change_paths("--output=%s" % probe, str(self.repo))
 
-        self.assertTrue(probe.exists())
-        self.assertEqual(paths, ["PWNED.txt"])
+        self.assertFalse(probe.exists(),
+                         "VIP-A2 has regressed: git wrote %s" % probe)
+        self.assertNotIn("PWNED.txt", paths)
+        self.assertEqual(paths, [])
 
     def test_control_an_honest_baseline_writes_nothing_and_reports_the_real_change(self):
         """Control: a real 40-hex sha creates no file and returns the true diff.
 
-        Without this the two fixtures above could pass against a
-        ``change_paths`` that writes a file unconditionally.
+        Now that the two fixtures above assert an ABSENCE, this control is what
+        stops them passing vacuously: a ``change_paths`` that refused every
+        baseline, or never reached git at all, would satisfy them and fail here.
         """
         probe = self.sandbox / "PWNED.txt"
         paths = difftool.change_paths(self.baseline, str(self.repo))
