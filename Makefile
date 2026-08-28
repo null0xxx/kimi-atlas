@@ -8,7 +8,7 @@
 # green in PLAN.md P1/P3 as scripts/ and tests/ land. `help` and `check-shell`
 # work from P0.
 .DEFAULT_GOAL := help
-.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate skill-registry skills-extract clean install-hooks bench-validate predcov predcov-write check-plugin-manifest check-cc-migration
+.PHONY: help check check-strict test check-shell inventory-drift ci negative-gate mutation-polarity skill-registry skills-extract clean install-hooks bench-validate predcov predcov-write check-plugin-manifest check-cc-migration
 
 check: check-artifacts ## Run the artifact naming checker (alias)
 check-artifacts:
@@ -34,6 +34,9 @@ check-shell: ## Validate shell script syntax (hooks, installer, probes)
 
 negative-gate: ## Red-team fixture matrix: good->OK, each bad_*->UNVERIFIED (P3)
 	python3 scripts/run_negative_gate.py
+
+mutation-polarity: ## SIDE LANE (~46s, not in ci): force-fire/force-silent/delete-emit every gate emit; a survivor exits 1
+	python3 scripts/mutpolarity.py
 
 bench-validate: ## Confirm every benchmark task is sound (reference passes, stub fails) — no model/API
 	python3 -m bench.run_bench --validate
